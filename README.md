@@ -366,7 +366,10 @@ more details or visit https://mit-license.org/.
 ## Acknowledgements
 
 This project was designed and developed
-by [Tomás Sánchez](https://tomsanchez.com.ar/about/) <[info@tomsanchez.com.ar](mailto:info@tomsanchez.com.ar)>.
+by [Francisco Maver](https://github.com/fmaver) <[fmaver@frba.utn.edu.ar](mailto:fmaver@frba.utn.edu.ar)>.
+
+This project was created using [cosmic-fastapi](https://github.com/tomasanchez/cosmic-fastapi) template by
+[Tomás Sánchez](https://tomsanchez.com.ar/about/) <[info@tomsanchez.com.ar](mailto:info@tomsanchez.com.ar)>.
 
 Deeply inspired by [FastAPI-MVC](https://fastapi-mvc.netlify.app/)
 following  [Cosmic Python](https://www.cosmicpython.com/) guidelines for project structure.

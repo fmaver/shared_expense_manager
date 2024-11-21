@@ -68,7 +68,7 @@ class ApplicationSettings(BaseSettings):
     PROJECT_DESCRIPTION: str = "This is a FastAPI template demo."
     PROJECT_LICENSE: LicenseInfo | None = LicenseInfo(name="MIT", url="https://mit-license.org/")
     PROJECT_CONTACT: ContactInfo | None = ContactInfo(
-        name="Tom Sanchez", url="https://tomsanchez.com.ar", email="info@tomsanchez.com.ar"
+        name="Francisco Maver", url="https://github.com/fmaver", email="fmaver@frba.utn.edu.ar"
     )
     VERSION: str = __version__
     DOCS_URL: str = "/docs"

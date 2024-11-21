@@ -29,6 +29,7 @@ class CamelCaseModel(BaseModel):
         alias_generator=to_camel,
     )
 
+    # pylint: disable=too-many-arguments
     def model_dump(
         self,
         *,
