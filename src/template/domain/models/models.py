@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
-from pydantic import Field, validator
+from pydantic import Field, ValidationInfo, field_validator
 
 from ..schemas import CamelCaseModel
 from .category import Category
@@ -15,6 +15,8 @@ from .split import SplitStrategy
 
 
 class Expense(CamelCaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
     id: Optional[int] = None
     description: str = Field(..., min_length=1, max_length=255)
     amount: Decimal = Field(..., gt=0)
@@ -26,11 +28,13 @@ class Expense(CamelCaseModel):
     payment_type: PaymentType
     split_strategy: SplitStrategy
 
-    @validator("installment_no")
-    def validate_installment_no(cls, v: int, values: Dict) -> int:
+    @field_validator("installment_no")
+    def validate_installment_no(cls, v: int, info: ValidationInfo) -> int:
         """Validate that installment number is not greater than total installments."""
-        if "installments" in values and v > values["installments"]:
-            raise ValueError("installment_no cannot be greater than installments")
+        context = info.context or {}
+        installments = context.get("installments")
+        if installments is not None and v > installments:
+            raise ValueError("Installment number cannot be greater than total installments")
         return v
 
 

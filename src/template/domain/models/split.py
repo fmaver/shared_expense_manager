@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from typing import Dict
 
-from .models import Member
+from .member import Member
 
 
 class SplitStrategy(ABC):
