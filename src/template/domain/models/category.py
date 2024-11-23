@@ -4,7 +4,7 @@ from typing import Set
 
 
 class Category:
-    _categories: Set[str] = {"food", "transport", "housing", "entertainment", "utilities", "other"}
+    _categories: Set[str] = {"food", "car", "housing", "entertainment", "groceries", "other"}
 
     @classmethod
     def add_category(cls, name: str) -> None:
