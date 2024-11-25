@@ -1,13 +1,12 @@
 """Domain models for the expense sharing application."""
 
 from datetime import date
-from decimal import Decimal
 from typing import Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 from pydantic import Field, ValidationInfo, field_validator
 
-from ..schemas import CamelCaseModel
+from ..schema_model import CamelCaseModel
 from .category import Category
 from .enums import PaymentType
 from .member import Member
@@ -19,7 +18,7 @@ class Expense(CamelCaseModel):
 
     id: Optional[int] = None
     description: str = Field(..., min_length=1, max_length=255)
-    amount: Decimal = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
     date: date
     category: Category
     payer_id: int
@@ -43,7 +42,7 @@ class MonthlyShare:
         self.year = year
         self.month = month
         self.expenses: List[Expense] = []
-        self.balances: Dict[int, Decimal] = {}
+        self.balances: Dict[int, float] = {}
         self._is_settled = False
 
     @property
@@ -74,12 +73,12 @@ class MonthlyShare:
 
         # Update balances
         # Add what others owe to the payer
-        self.balances.setdefault(expense.payer_id, Decimal(0))
+        self.balances.setdefault(expense.payer_id, 0)
         self.balances[expense.payer_id] += expense.amount
 
         # Subtract what each member owes
         for member_id, share in shares.items():
-            self.balances.setdefault(member_id, Decimal(0))
+            self.balances.setdefault(member_id, 0)
             if member_id != expense.payer_id:
                 self.balances[member_id] -= share
             else:
@@ -101,12 +100,12 @@ class MonthlyShare:
             shares = expense.split_strategy.calculate_shares(expense.amount, list(members.values()))
 
             # Add what others owe to the payer
-            self.balances.setdefault(expense.payer_id, Decimal(0))
+            self.balances.setdefault(expense.payer_id, 0)
             self.balances[expense.payer_id] += expense.amount
 
             # Subtract what each member owes
             for member_id, share in shares.items():
-                self.balances.setdefault(member_id, Decimal(0))
+                self.balances.setdefault(member_id, 0)
                 if member_id != expense.payer_id:
                     self.balances[member_id] -= share
                 else:

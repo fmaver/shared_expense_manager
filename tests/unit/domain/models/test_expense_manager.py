@@ -24,7 +24,7 @@ class TestExpenseManager:
         category.name = "food"
         return Expense(
             description="Test Debit",
-            amount=Decimal("100"),
+            amount=100.0,
             date=date(2024, 3, 15),
             category=category,
             payer_id=1,
@@ -38,7 +38,7 @@ class TestExpenseManager:
         category.name = "food"
         return Expense(
             description="Test Credit",
-            amount=Decimal("300"),
+            amount=300.0,
             date=date(2024, 3, 15),
             category=category,
             payer_id=1,

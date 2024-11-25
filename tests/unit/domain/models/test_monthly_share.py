@@ -77,5 +77,5 @@ class TestMonthlyShare:
         # For equal split of 100, each member should owe 50
         # Payer (id=1) paid 100 but owes 50, so balance is +50
         # Other member (id=2) owes 50
-        assert share.balances[1] == Decimal("50")
-        assert share.balances[2] == Decimal("-50")
+        assert share.balances[1] == 50.0
+        assert share.balances[2] == -50.0

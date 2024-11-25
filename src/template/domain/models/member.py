@@ -2,7 +2,7 @@
 
 from pydantic import Field
 
-from ..schemas import CamelCaseModel
+from ..schema_model import CamelCaseModel
 
 
 class Member(CamelCaseModel):

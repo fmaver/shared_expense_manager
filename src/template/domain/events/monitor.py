@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from template.domain.schemas import CamelCaseModel
+from template.domain.schema_model import CamelCaseModel
 
 
 class LivenessProbed(CamelCaseModel):

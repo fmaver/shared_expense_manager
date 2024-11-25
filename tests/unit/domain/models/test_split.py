@@ -21,11 +21,11 @@ class TestSplitStrategies:
         WHEN using EqualSplit strategy
         THEN it should split the amount equally
         """
-        amount = Decimal("300")
+        amount = 300.0
         strategy = EqualSplit()
         shares = strategy.calculate_shares(amount, members)
 
-        expected_share = Decimal("100")
+        expected_share = 100.0
         assert all(share == expected_share for share in shares.values())
         assert len(shares) == len(members)
 
@@ -35,14 +35,14 @@ class TestSplitStrategies:
         WHEN using PercentageSplit strategy
         THEN it should split according to percentages
         """
-        percentages = {1: Decimal("50"), 2: Decimal("30"), 3: Decimal("20")}
-        amount = Decimal("100")
+        percentages = {1: 50.0, 2: 30.0, 3: 20.0}
+        amount = 100.0
         strategy = PercentageSplit(percentages)
         shares = strategy.calculate_shares(amount, members)
 
-        assert shares[1] == Decimal("50")
-        assert shares[2] == Decimal("30")
-        assert shares[3] == Decimal("20")
+        assert shares[1] == 50.0
+        assert shares[2] == 30.0
+        assert shares[3] == 20.0
 
     def test_percentage_split_invalid(self):
         """

@@ -5,7 +5,7 @@ import pytest
 from fastapi import status
 
 from template.domain.events.monitor import LivenessProbed, ReadinessProbed
-from template.domain.schemas import ResponseModel
+from template.domain.schema_model import ResponseModel
 
 
 class TestMonitorEntryPoint:

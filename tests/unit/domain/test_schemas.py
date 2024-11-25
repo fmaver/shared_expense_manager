@@ -1,7 +1,7 @@
 """
 Test suite for Schemas
 """
-from template.domain.schemas import CamelCaseModel, ResponseModel
+from template.domain.schema_model import CamelCaseModel, ResponseModel
 
 
 class TestSchemas:
