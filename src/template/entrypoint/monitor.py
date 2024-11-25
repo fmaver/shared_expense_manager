@@ -6,7 +6,7 @@ from fastapi import APIRouter, status
 from starlette.responses import RedirectResponse
 
 from template.domain.events.monitor import LivenessProbed, ReadinessProbed
-from template.domain.schemas import ResponseModel
+from template.domain.schema_model import ResponseModel
 
 router = APIRouter()
 

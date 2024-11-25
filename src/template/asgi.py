@@ -7,19 +7,23 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from template.router import api_router_v1, root_router
+from template.service_layer.initialization import InitializationService
 from template.settings.api_settings import ApplicationSettings
 
 log = logging.getLogger(__name__)
 
 
-async def on_startup():
+async def on_startup(app: FastAPI):
     """
     Define FastAPI startup event handler.
 
-    Resources:
-        1. https://fastapi.tiangolo.com/advanced/events/#startup-event
+    Args:
+        app (FastAPI): Application object instance.
     """
     log.debug("Execute FastAPI startup event handler.")
+
+    # Initialize the expense manager with default members
+    app.state.expense_manager = InitializationService.initialize_expense_manager()
 
 
 async def on_shutdown():
@@ -45,7 +49,7 @@ async def lifespan(app: FastAPI):
     """
     log.debug("Execute FastAPI lifespan event handler.")
 
-    await on_startup()
+    await on_startup(app)
     yield
     await on_shutdown()
 
