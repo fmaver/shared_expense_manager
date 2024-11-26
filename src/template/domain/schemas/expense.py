@@ -38,6 +38,7 @@ class ExpenseResponse(CamelCaseModel):
     payment_type: PaymentType
     installments: int
     installment_no: int = 1
+    split_strategy: SplitStrategySchema
 
 
 class MonthlyBalanceResponse(CamelCaseModel):

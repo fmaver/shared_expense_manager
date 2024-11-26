@@ -24,7 +24,7 @@ class TestMonthlyShare:
         return Expense(
             description="Test Expense",
             amount=Decimal("100"),
-            date="2024-03-15",
+            date="2000-03-15",
             category=category,
             payer_id=1,
             payment_type=PaymentType.DEBIT,
@@ -37,11 +37,11 @@ class TestMonthlyShare:
         WHEN creating a MonthlyShare
         THEN it should initialize correctly
         """
-        share = MonthlyShare(2024, 3)
-        assert share.year == 2024
+        share = MonthlyShare(2000, 3)
+        assert share.year == 2000
         assert share.month == 3
         assert not share.is_settled
-        assert share.period_key == "2024-03"
+        assert share.period_key == "2000-03"
 
     def test_settle_monthly_share(self):
         """
@@ -49,7 +49,7 @@ class TestMonthlyShare:
         WHEN settling it
         THEN it should be marked as settled
         """
-        share = MonthlyShare(2024, 3)
+        share = MonthlyShare(2000, 3)
         share.settle()
         assert share.is_settled
 
@@ -59,7 +59,7 @@ class TestMonthlyShare:
         WHEN trying to add an expense
         THEN it should raise ValueError
         """
-        share = MonthlyShare(2024, 3)
+        share = MonthlyShare(2000, 3)
         share.settle()
 
         with pytest.raises(ValueError):
@@ -71,11 +71,12 @@ class TestMonthlyShare:
         WHEN adding the expense
         THEN balances should be updated correctly
         """
-        share = MonthlyShare(2024, 3)
+        share = MonthlyShare(2000, 3)
         share.add_expense(expense, members)
 
         # For equal split of 100, each member should owe 50
         # Payer (id=1) paid 100 but owes 50, so balance is +50
         # Other member (id=2) owes 50
-        assert share.balances[1] == 50.0
-        assert share.balances[2] == -50.0
+        print(share.balances)
+        assert share.balances[str(1)] == 50.0
+        assert share.balances[str(2)] == -50.0

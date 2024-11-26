@@ -7,7 +7,7 @@ Resources:
 """
 from fastapi import APIRouter
 
-from template.entrypoint import expense, monitor
+from template.entrypoint import expense, member, monitor
 
 api_v1_prefix: str = "/api/v1"
 
@@ -17,3 +17,4 @@ api_router_v1: APIRouter = APIRouter(prefix=api_v1_prefix)
 # API routers
 root_router.include_router(monitor.router)
 api_router_v1.include_router(expense.router)
+api_router_v1.include_router(member.router)

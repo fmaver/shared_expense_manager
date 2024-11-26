@@ -52,3 +52,22 @@ class TestSplitStrategies:
         """
         with pytest.raises(ValueError):
             PercentageSplit({1: Decimal("50"), 2: Decimal("20")})
+
+    def test_percentage_split_with_members(self, members):
+        """
+        GIVEN a percentage split with specific members
+        WHEN calculating shares
+        THEN it should calculate correct amounts for each member
+        """
+        # Set percentages for members 1 and 2
+        percentages = {1: 60.0, 2: 40.0}
+        amount = 100.0
+        strategy = PercentageSplit(percentages)
+
+        # Calculate shares
+        shares = strategy.calculate_shares(amount, members)
+
+        # Verify shares
+        assert shares[1] == 60.0  # Member 1 should pay 60%
+        assert shares[2] == 40.0  # Member 2 should pay 40%
+        assert shares[3] == 0.0  # Member 3 should pay nothing

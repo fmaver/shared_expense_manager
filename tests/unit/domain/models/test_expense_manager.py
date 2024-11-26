@@ -1,3 +1,4 @@
+import copy
 from datetime import date
 from decimal import Decimal
 
@@ -5,15 +6,16 @@ import pytest
 
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
+from template.domain.models.expense_manager import ExpenseManager
 from template.domain.models.member import Member
-from template.domain.models.models import Expense, ExpenseManager
+from template.domain.models.models import Expense
 from template.domain.models.split import EqualSplit
 
 
 class TestExpenseManager:
     @pytest.fixture
-    def manager(self):
-        manager = ExpenseManager()
+    def manager(self, mock_repository):
+        manager = ExpenseManager(mock_repository)
         manager.add_member(Member(id=1, name="John", telephone="+1234567890"))
         manager.add_member(Member(id=2, name="Jane", telephone="+1234567891"))
         return manager
@@ -97,3 +99,21 @@ class TestExpenseManager:
         monthly_share = manager.get_monthly_balance(2024, 3)
         assert monthly_share is not None
         assert monthly_share.is_settled
+
+    def test_create_multiple_expenses(self, manager, debit_expense):
+        """
+        GIVEN an ExpenseManager
+        WHEN creating multiple expenses
+        THEN all expenses should be processed correctly
+        """
+        # Create first expense
+        manager.create_and_add_expense(debit_expense)
+
+        # Create second expense
+        second_expense = copy.deepcopy(debit_expense)
+        second_expense.description = "Second Test Debit"
+        manager.create_and_add_expense(second_expense)
+
+        monthly_share = manager.get_monthly_balance(2024, 3)
+        assert monthly_share is not None
+        assert len(monthly_share.expenses) == 2
