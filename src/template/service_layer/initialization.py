@@ -1,10 +1,13 @@
 """Service layer module for initializing application components and dependencies."""
 
 import logging
-from typing import List
 
-from template.domain.models.member import Member
-from template.domain.models.models import ExpenseManager
+from sqlalchemy.orm import Session
+
+from template.adapters.database import SessionLocal, engine
+from template.adapters.orm import Base, MemberModel
+from template.adapters.repositories import SQLAlchemyExpenseRepository
+from template.domain.models.expense_manager import ExpenseManager
 
 log = logging.getLogger(__name__)
 
@@ -13,33 +16,48 @@ class InitializationService:
     @classmethod
     async def initialize(cls):
         """Initialize application services and dependencies"""
-        print("Initializing application services and dependencies")
+        log.info("Initializing application services and dependencies")
         try:
-            # Add initialization logic here if needed
-            pass
+            # Create all database tables
+            Base.metadata.create_all(bind=engine)
+
+            # Initialize default data
+            with SessionLocal() as db:
+                cls._initialize_default_members(db)
+
         except Exception as e:
             log.error("Failed to initialize services: %s", str(e))
             raise
 
     @staticmethod
-    def initialize_expense_manager() -> ExpenseManager:
-        """Initialize the expense manager with default members."""
-        print("Initializing expense manager")
+    def _initialize_default_members(db: Session) -> None:
+        """Initialize default members if they don't exist."""
+
+        default_members = [
+            {"id": 1, "name": "Fran", "telephone": "+1234567890"},
+            {"id": 2, "name": "Guadi", "telephone": "+1234567891"},
+        ]
+
+        for member_data in default_members:
+            # Check if member already exists
+            existing = db.query(MemberModel).filter_by(id=member_data["id"]).first()
+            if not existing:
+                member = MemberModel(**member_data)
+                db.add(member)
+                log.debug("Added default member: %s (ID: %d)", member.name, member.id)
+                print(f"Added default member: {member.name} (ID: {member.id})")
+
+        db.commit()
+
+    @staticmethod
+    def initialize_expense_manager(db: Session) -> ExpenseManager:
+        """Initialize the expense manager with repository."""
+        log.info("Initializing expense manager")
         try:
-            manager = ExpenseManager()
+            repository = SQLAlchemyExpenseRepository(db)
+            manager = ExpenseManager(repository)
 
-            # Add default members
-            default_members: List[Member] = [
-                Member(id=1, name="Fran", telephone="+1234567890"),
-                Member(id=2, name="Guadi", telephone="+1234567891"),
-            ]
-
-            log.debug("Adding %d default members to expense manager", len(default_members))
-            for member in default_members:
-                log.debug("Adding member: %s (ID: %d)", member.name, member.id)
-                manager.add_member(member)
-
-            print("Successfully initialized expense manager with default members")
+            log.info("Successfully initialized expense manager")
             return manager
 
         except Exception as e:

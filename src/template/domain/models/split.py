@@ -14,7 +14,8 @@ class SplitStrategy(ABC):
 
 class EqualSplit(SplitStrategy):
     def calculate_shares(self, amount: float, members: list["Member"]) -> Dict[int, float]:
-        share = amount / len(members)
+        """Calculate equal shares for all members."""
+        share = round(amount / len(members), 2)  # Round to 2 decimal places
         return {member.id: share for member in members}
 
 
@@ -28,9 +29,16 @@ class PercentageSplit(SplitStrategy):
         self.validate_percentages(percentages)
         self.percentages = percentages
 
-    def calculate_shares(self, amount: float, members: list["Member"]) -> Dict[int, float]:
+    def calculate_shares(self, amount: float, members: list[Member]) -> Dict[int, float]:
         """Calculate shares based on predefined percentages."""
-        return {member_id: (amount * percentage / 100) for member_id, percentage in self.percentages.items()}
+        # Ensure all members have a percentage, default to 0
+        shares = {member.id: 0.0 for member in members}
+
+        # Apply defined percentages
+        for member_id, percentage in self.percentages.items():
+            if member_id in shares:
+                shares[member_id] = round((amount * percentage / 100), 2)
+        return shares
 
     @staticmethod
     def validate_percentages(percentages: Dict[int, float]) -> None:
