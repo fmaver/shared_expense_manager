@@ -11,12 +11,12 @@ class TestCategory:
         THEN it should return the default set of categories
         """
         categories = Category.get_categories()
-        assert "food" in categories
-        assert "car" in categories
-        assert "housing" in categories
-        assert "entertainment" in categories
-        assert "groceries" in categories
-        assert "other" in categories
+        assert "comida" in categories
+        assert "auto" in categories
+        assert "casa" in categories
+        assert "entretenimiento" in categories
+        assert "compras" in categories
+        assert "otros" in categories
 
     def test_add_new_category(self):
         """
@@ -33,9 +33,9 @@ class TestCategory:
         WHEN validating the category
         THEN it should validate regardless of case
         """
-        assert Category.is_valid_category("FOOD")
-        assert Category.is_valid_category("food")
-        assert Category.is_valid_category("Food")
+        assert Category.is_valid_category("COMIDA")
+        assert Category.is_valid_category("comida")
+        assert Category.is_valid_category("Comida")
 
     def test_invalid_category(self):
         """

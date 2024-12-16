@@ -1,4 +1,5 @@
 """Repository adapter"""
+from datetime import date
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -79,6 +80,27 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Saved monthly share with balances: {db_monthly_share.balances}")
 
+    def settle_monthly_share(self, year: int, month: int) -> None:
+        """Settle a monthly share by year and month."""
+        print(f"Settling monthly share for {year}-{month}")
+
+        # Fetch the existing monthly share
+        db_monthly_share = (
+            self.session.query(MonthlyShareModel)
+            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .first()
+        )
+
+        if not db_monthly_share:
+            raise ValueError(f"Monthly share for {year}-{month} not found.")
+
+        # Update the is_settled status
+        db_monthly_share.is_settled = True
+
+        # Commit the changes to the database
+        self.session.commit()
+        print(f"Monthly share for {year}-{month} has been settled.")
+
     def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
         """Get a monthly share by year and month from the database."""
         db_monthly_share = (
@@ -101,7 +123,10 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
     def _to_domain_monthly_share(self, db_share: MonthlyShareModel) -> MonthlyShare:
         """Convert database model to domain model."""
         monthly_share = MonthlyShare(db_share.year, db_share.month)
-        monthly_share.is_settled = db_share.is_settled
+        if db_share.is_settled:
+            monthly_share.settle()
+        else:
+            monthly_share.unsettle()
         monthly_share.balances = db_share.balances
 
         # Convert expenses
@@ -162,3 +187,84 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         expense.id = db_expense.id
         print(f"Successfully saved expense with ID: {expense.id}")
+
+    def get_expense(self, expense_id: int) -> Optional[Expense]:
+        """Get an expense by ID from the database."""
+        print("finding the expense...")
+        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
+        if not db_expense:
+            print("didn't find the expense")
+            return None
+
+        print("found the expense")
+        # Convert the database model to the domain model
+        category = Category()
+        category.name = db_expense.category
+
+        split_strategy = self._deserialize_split_strategy(db_expense.split_strategy)
+
+        return Expense(
+            id=db_expense.id,
+            description=db_expense.description,
+            amount=db_expense.amount,
+            date=db_expense.date,
+            category=category,
+            payer_id=db_expense.payer_id,
+            payment_type=db_expense.payment_type,
+            installments=db_expense.installments,
+            installment_no=db_expense.installment_no,
+            split_strategy=split_strategy,
+        )
+
+    def delete_expense(self, expense_to_delete: Expense) -> None:
+        """Delete an expense by ID from the database."""
+        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_to_delete.id).first()
+        if not db_expense:
+            raise ValueError(f"Expense with ID {expense_to_delete.id} not found.")
+
+        self.session.delete(db_expense)
+        self.session.commit()
+
+    def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
+        """Get all expenses for a specific date."""
+        db_expenses = self.session.query(ExpenseModel).filter(ExpenseModel.date == specific_date).all()
+
+        return [
+            Expense(
+                id=db_expense.id,
+                description=db_expense.description,
+                amount=db_expense.amount,
+                date=db_expense.date,
+                category=Category(name=db_expense.category),
+                payer_id=db_expense.payer_id,
+                payment_type=db_expense.payment_type,
+                installments=db_expense.installments,
+                installment_no=db_expense.installment_no,
+                split_strategy=self._deserialize_split_strategy(db_expense.split_strategy),
+            )
+            for db_expense in db_expenses
+        ]
+
+    def update_expense(self, expense: Expense) -> None:
+        """Update an existing expense in the database."""
+        print(f"Updating expense: {expense.description} (ID: {expense.id})")
+
+        # Fetch the existing expense from the database
+        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense.id).first()
+        if not db_expense:
+            raise ValueError(f"Expense with ID {expense.id} not found.")
+
+        # Update the fields of the existing expense
+        db_expense.description = expense.description
+        db_expense.amount = expense.amount
+        db_expense.date = expense.date
+        db_expense.category = expense.category.name
+        db_expense.payer_id = expense.payer_id
+        db_expense.payment_type = expense.payment_type
+        db_expense.installments = expense.installments
+        db_expense.installment_no = expense.installment_no
+        db_expense.split_strategy = self._serialize_split_strategy(expense.split_strategy)
+
+        # Commit the changes to the database
+        self.session.commit()
+        print(f"Successfully updated expense with ID: {expense.id}")

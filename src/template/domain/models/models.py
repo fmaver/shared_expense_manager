@@ -58,6 +58,10 @@ class MonthlyShare:
         """Returns whether the monthly share is settled"""
         return self._is_settled
 
+    @is_settled.setter
+    def is_settled(self, value: bool):
+        self._is_settled = value
+
     def unsettle(self) -> None:
         """Mark the monthly share as unsettled."""
         self._is_settled = False
@@ -65,12 +69,11 @@ class MonthlyShare:
     def add_expense(self, expense: Expense, members: Dict[int, Member]) -> None:
         """Adds an expense and updates balances accordingly"""
         if self.is_settled:
-            raise ValueError(f"Cannot add expense to settled period {self.year}-{self.month}")
+            raise ValueError(f"No se puede agregar el gasto al balance de {self.month}-{self.year} ya que está saldado")
 
         # Calculate shares for this specific expense
         shares = expense.split_strategy.calculate_shares(expense.amount, list(members.values()))
 
-        # Update balances
         # Add what others owe to the payer
         self.balances.setdefault(str(expense.payer_id), 0)  # Convert to string for JSON compatibility
         self.balances[str(expense.payer_id)] += expense.amount

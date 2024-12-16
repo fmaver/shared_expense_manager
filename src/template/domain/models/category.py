@@ -4,7 +4,18 @@ from typing import Set
 
 
 class Category:
-    _categories: Set[str] = {"food", "car", "housing", "entertainment", "groceries", "other"}
+    _categories: Set[str] = {
+        "comida",
+        "auto",
+        "casa",
+        "entretenimiento",
+        "compras",
+        "mascota",
+        "prestamo",
+        "shopping",
+        "balance",
+        "otros",
+    }
 
     @classmethod
     def add_category(cls, name: str) -> None:

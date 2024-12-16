@@ -9,11 +9,12 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/expense_manager
       - UVICORN_HOST=0.0.0.0
       - UVICORN_PORT=8000
+      - STORAGE_PATH=/app/storage  # Define una variable de entorno para la ruta
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - .:/app
+      - ./storage:/app/storage  # Monta la carpeta local en el contenedor
     command: poetry run uvicorn template.main:app --host 0.0.0.0 --port 8000 --reload
 
   db:
