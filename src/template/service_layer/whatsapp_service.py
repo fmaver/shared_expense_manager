@@ -77,10 +77,16 @@ def enviar_mensaje_whatsapp(data):
     """send message"""
     try:
         whatsapp_token = os.getenv("WHATSAPP_TOKEN")
+        print(f"The wpp token: {whatsapp_token}")
         whatsapp_url = os.getenv("WHATSAPP_URL")
+        print("The wpp url:")
+        print(whatsapp_url)
         headers = {"Content-Type": "application/json", "Authorization": "Bearer " + whatsapp_token}
         print("se envia ", data)
         response = requests.post(whatsapp_url, headers=headers, data=data, timeout=5)
+
+        # Log the response
+        print("WhatsApp API response:", response.status_code, response.text)
 
         if response.status_code == 200:
             return "mensaje enviado", 200
