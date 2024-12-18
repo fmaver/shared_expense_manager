@@ -9,7 +9,8 @@ from template.domain.schemas.expense import ExpenseResponse
 
 # Clase para manejar el PDF y generar el reporte
 class ExpensePDF(FPDF):
-    def __init__(self, storage_path: str = "/app/storage"):
+    def __init__(self, storage_path: str = "/tmp/storage"):
+        print("PDF Builder is being initialized with the storage path:", storage_path)
         super().__init__()
         self.storage_path = storage_path
         os.makedirs(self.storage_path, exist_ok=True)
