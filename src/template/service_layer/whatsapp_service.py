@@ -9,6 +9,7 @@ from typing import Any, Collection, Dict, Optional
 import requests
 
 from template.domain.models.enums import PaymentType
+from template.domain.models.models import MonthlyShare
 from template.domain.models.pdf_builder import ExpensePDF
 from template.domain.schemas.expense import (
     CategorySchema,
@@ -77,10 +78,7 @@ def enviar_mensaje_whatsapp(data):
     """send message"""
     try:
         whatsapp_token = os.getenv("WHATSAPP_TOKEN")
-        print(f"The wpp token: {whatsapp_token}")
         whatsapp_url = os.getenv("WHATSAPP_URL")
-        print("The wpp url:")
-        print(whatsapp_url)
         headers = {"Content-Type": "application/json", "Authorization": "Bearer " + whatsapp_token}
         print("se envia ", data)
         response = requests.post(whatsapp_url, headers=headers, data=data, timeout=5)
@@ -400,7 +398,7 @@ def handle_document_request(number, estado_actual_usuario, service: ExpenseServi
     filename = f"balance_{month_year.month}_{month_year.year}.pdf"
 
     # Generar el PDF, utilizando como ruta de almacenamiento la variable de entorno STORAGE_PATH
-    pdf_generator = ExpensePDF(storage_path=os.getenv("STORAGE_PATH", "/app/storage"))
+    pdf_generator = ExpensePDF(storage_path=os.getenv("STORAGE_PATH", "/tmp/storage"))
 
     member_names_dict = service.get_member_names()  # Obtener nombres de miembros
     file_path = pdf_generator.generate_expense_report(
@@ -464,8 +462,27 @@ def handle_settle_accounts(number, estado_actual_usuario, message_id, service: E
 
 
 def handle_waiting_for_balance_date(number, estado_actual_usuario, text, service: ExpenseService):
-    """handle balance date"""
+    """handle waiting for payment date"""
     user_responses = []
+
+    def process_balance(month_year):
+        monthly_balance = service.get_monthly_balance(month_year.year, month_year.month)
+        if isinstance(monthly_balance, MonthlyShare):
+            return monthly_balance
+        return None
+
+    def generate_balance_message(monthly_balance, month_year):
+        balances_message = f"Balances de gastos para {month_year.month}/{month_year.year}:\n"
+        member_names_dict = service.get_member_names()  # Obtener nombres de miembros
+        for member_id, balance in monthly_balance.balances.items():
+            member_name = member_names_dict.get(int(member_id), "Desconocido")
+            if balance > 0:
+                balances_message += f"🤑 {member_name} debe recibir ${balance}\n"
+            elif balance < 0:
+                balances_message += f"🥵 {member_name} debe pagar ${-balance}\n"
+            else:
+                balances_message += f"🙂 {member_name} estas al dia\n"
+        return balances_message
 
     try:
         month_year = datetime.strptime(text.lower(), "%m-%Y")
@@ -473,29 +490,12 @@ def handle_waiting_for_balance_date(number, estado_actual_usuario, text, service
 
         print("calculando balance para el mes y año: ", month_year.month, month_year.year)
 
-        monthly_balance_dict = service.get_monthly_balance(
-            month_year.year, month_year.month
-        ).balances  # Dict[str, float]
-        print("monthly_balance_dict: ", monthly_balance_dict)
-
-        if monthly_balance_dict:
-            balances_message = f"Balances de gastos para {month_year.month}/{month_year.year}:\n"
-            member_names_dict = service.get_member_names()  # Obtener nombres de miembros
-            for member_id, balance in monthly_balance_dict.items():
-                member_name = member_names_dict.get(int(member_id), "Desconocido")  # Obtener el nombre del miembro
-                if balance > 0:
-                    balances_message += f"🤑 {member_name} debe recibir ${balance}\n"
-                elif balance < 0:
-                    balances_message += f"🥵 {member_name} debe pagar ${-balance}\n"
-                else:
-                    balances_message += f"🙂 {member_name} estas al dia\n"
-
-            body = f"{balances_message}"
+        monthly_balance = process_balance(month_year)
+        if monthly_balance:
+            body = generate_balance_message(monthly_balance, month_year)
             options = ["Obtener Documento", "Saldar Cuentas", "Ir al Inicio"]
-
             reply_button_data = button_reply_message(number, options, body, "Fran y Guadi", "sed1")
             user_responses.append(reply_button_data)
-
         else:
             user_responses.append(text_message(number, "No se encontraron gastos para el mes y año seleccionados."))
 
@@ -505,7 +505,6 @@ def handle_waiting_for_balance_date(number, estado_actual_usuario, text, service
         user_responses.append(
             text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con MM-AAAA.")
         )
-
         return user_responses, estado_actual_usuario
 
 
