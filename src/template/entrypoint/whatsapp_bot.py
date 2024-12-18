@@ -1,6 +1,8 @@
 """Whatsapp Bot"""
+import os
 from collections import defaultdict
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
@@ -11,7 +13,8 @@ from template.service_layer.whatsapp_service import (
     obtener_mensaje_whatsapp,
     replace_start,
 )
-from template.settings import sett
+
+load_dotenv()  # Load environment variables from .env file
 
 # import services
 router = APIRouter()
@@ -43,7 +46,7 @@ async def verificar_token(request: Request) -> str:
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge")
 
-        if token == sett.TOKEN and challenge is not None:
+        if token == os.getenv("TOKEN") and challenge is not None:
             print(f"returning the challenge {challenge}")
             return challenge
         raise HTTPException(status_code=403, detail="token incorrecto")

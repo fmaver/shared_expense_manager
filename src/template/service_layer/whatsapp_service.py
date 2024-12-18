@@ -16,7 +16,6 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
-from template.settings import sett
 
 
 def obtener_mensaje_whatsapp(message):
@@ -43,8 +42,8 @@ def obtener_mensaje_whatsapp(message):
 def obtener_media_id(file_path):
     """get media id"""
     try:
-        whatsapp_token = sett.WHATSAPP_TOKEN
-        url = sett.WHATSAPP_URL_MEDIA
+        whatsapp_token = os.getenv("WHATSAPP_TOKEN")
+        url = os.getenv("WHATSAPP_URL_MEDIA")
 
         headers = {"Authorization": "Bearer " + whatsapp_token}
 
@@ -77,8 +76,8 @@ def obtener_media_id(file_path):
 def enviar_mensaje_whatsapp(data):
     """send message"""
     try:
-        whatsapp_token = sett.WHATSAPP_TOKEN
-        whatsapp_url = sett.WHATSAPP_URL
+        whatsapp_token = os.getenv("WHATSAPP_TOKEN")
+        whatsapp_url = os.getenv("WHATSAPP_URL")
         headers = {"Content-Type": "application/json", "Authorization": "Bearer " + whatsapp_token}
         print("se envia ", data)
         response = requests.post(whatsapp_url, headers=headers, data=data, timeout=5)
@@ -186,20 +185,6 @@ def sticker_message(number, sticker_id):
         }
     )
     return data
-
-
-def get_media_id(media_name, media_type):
-    """get typpe of media"""
-    media_id = ""
-    if media_type == "sticker":
-        media_id = sett.stickers.get(media_name, None)
-    # elif media_type == "image":
-    #    media_id = sett.images.get(media_name, None)
-    # elif media_type == "video":
-    #    media_id = sett.videos.get(media_name, None)
-    # elif media_type == "audio":
-    #    media_id = sett.audio.get(media_name, None)
-    return media_id
 
 
 def reply_reaction_message(number, message_id, emoji):
