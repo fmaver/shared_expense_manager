@@ -1,4 +1,5 @@
 """Whatsapp Bot"""
+import logging
 import os
 from collections import defaultdict
 
@@ -15,6 +16,9 @@ from template.service_layer.whatsapp_service import (
 )
 
 load_dotenv()  # Load environment variables from .env file
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # import services
 router = APIRouter()
@@ -41,6 +45,8 @@ estado_actual: defaultdict[str, dict] = defaultdict(
 @router.get("/webhook", response_class=PlainTextResponse)
 async def verificar_token(request: Request) -> str:
     """verifico tokern"""
+    logging.info("verifico token")
+    logger.info("verifico token")
     try:
         print("Trying to verify token...")
         token = request.query_params.get("hub.verify_token")
