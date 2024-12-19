@@ -111,3 +111,4 @@ class MonthlyShare:
                     self.balances[member_id_str] -= share
                 else:
                     self.balances[member_id_str] -= share
+        print(f"Recalculated balances for {self.period_key}: {self.balances}")

@@ -177,5 +177,6 @@ class ExpenseManager:
                 if expense.id == expense_to_delete.id:
                     monthly_share.expenses.remove(expense)
                     break
+            print("RECALCULATING BALANCES")
             monthly_share.recalculate_balances(self.members)
             self.repository.save_monthly_share(monthly_share)
