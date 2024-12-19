@@ -44,19 +44,30 @@ estado_actual: defaultdict[str, dict] = defaultdict(
 
 @router.get("/webhook", response_class=PlainTextResponse)
 async def verificar_token(request: Request) -> str:
-    """verifico tokern"""
-    logging.info("verifico token")
-    logger.info("verifico token")
+    """Verify token for webhook"""
+    logger.info("Webhook verification attempt started")
     try:
-        print("Trying to verify token...")
-        token = request.query_params.get("hub.verify_token")
-        challenge = request.query_params.get("hub.challenge")
+        # Log all incoming query parameters
+        query_params = dict(request.query_params)
+        logger.info("Received query parameters: %s", query_params)
 
-        if token == os.getenv("TOKEN") and challenge is not None:
-            print(f"returning the challenge {challenge}")
+        # Extract specific query parameters
+        token = query_params.get("hub.verify_token")
+        challenge = query_params.get("hub.challenge")
+
+        # Log extracted values
+        logger.info("Extracted token: %s, challenge: %s", token, challenge)
+
+        # Check the token and challenge
+        if token == os.getenv("TOKEN") and challenge:
+            logger.info("Token verified successfully. Returning challenge: %s", challenge)
             return challenge
+
+        # Token mismatch or challenge missing
+        logger.warning("Invalid token or missing challenge")
         raise HTTPException(status_code=403, detail="token incorrecto")
     except Exception as e:
+        logger.error("Error verifying token: %s", str(e))
         raise HTTPException(status_code=403, detail=str(e)) from e
 
 

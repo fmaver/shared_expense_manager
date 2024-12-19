@@ -1,5 +1,5 @@
 """Expense API endpoints."""
-
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -72,6 +72,9 @@ async def get_monthly_balance(
         print("\nBalances:")
         for member_id, balance in monthly_share.balances.items():
             print(f"Member {member_id}: {balance}")
+        token = os.getenv("TOKEN")
+        print("\nToken:")
+        print(f"Token: {token}")
 
         return ResponseModel(
             data=MonthlyBalanceResponse(
