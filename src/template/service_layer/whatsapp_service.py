@@ -241,6 +241,10 @@ def administrar_chatbot(text, number, message_id, estado_actual_usuario, service
         responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario)
         user_responses.extend(responses)
 
+    elif "no gracias" in text.lower():
+        responses, estado_actual_usuario = handle_no_thanks(number, estado_actual_usuario, message_id)
+        user_responses.extend(responses)
+
     elif "obtener documento" in text.lower():
         responses, estado_actual_usuario = handle_document_request(number, estado_actual_usuario, service)
         user_responses.extend(responses)
@@ -307,10 +311,6 @@ def administrar_chatbot(text, number, message_id, estado_actual_usuario, service
         responses, estado_actual_usuario = handle_waiting_for_percentage(number, estado_actual_usuario, text, service)
         user_responses.extend(responses)
 
-    elif "no gracias" in text.lower():
-        responses, estado_actual_usuario = handle_no_thanks(number, estado_actual_usuario, message_id)
-        user_responses.extend(responses)
-
     else:
         data = text_message(number, "Lo siento, no entendí lo que dijiste.")
         user_responses.append(data)
@@ -354,6 +354,23 @@ def replace_start(s):
     return s
 
 
+def clean_estado_usuario(estado_actual_usuario):
+    """clean user state"""
+    estado_actual_usuario["estado"] = "inicial"
+    estado_actual_usuario["expense_data"] = {
+        "service": None,
+        "description": None,
+        "amount": None,
+        "date": None,
+        "category": None,
+        "payer_id": None,
+        "payment_type": None,
+        "installments": 1,
+        "split_strategy": None,
+    }
+    return estado_actual_usuario
+
+
 def handle_greetings(number, estado_actual_usuario):
     """handle greetings"""
     user_responses = []
@@ -367,18 +384,8 @@ def handle_greetings(number, estado_actual_usuario):
     user_responses.append(reply_button_data)
 
     # Siempre que volvemos al estado inicial, reseteamos el estado del usuario
-    estado_actual_usuario["estado"] = "inicial"
-    estado_actual_usuario["expense_data"] = {
-        "service": None,
-        "description": None,
-        "amount": None,
-        "date": None,
-        "category": None,
-        "payer_id": None,
-        "payment_type": None,
-        "installments": 1,
-        "split_strategy": None,
-    }
+    estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
+
     return user_responses, estado_actual_usuario
 
 
@@ -787,16 +794,6 @@ def handle_no_thanks(number, estado_actual_usuario, message_id):
     user_responses.append(reply_text)
 
     # Siempre que terminemos una conversación, reseteamos el estado del usuario
-    estado_actual_usuario["estado"] = "inicial"
-    estado_actual_usuario["expense_data"] = {
-        "service": None,
-        "description": None,
-        "amount": None,
-        "date": None,
-        "category": None,
-        "payer_id": None,
-        "payment_type": None,
-        "installments": 1,
-        "split_strategy": None,
-    }
+    estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
+
     return user_responses, estado_actual_usuario
