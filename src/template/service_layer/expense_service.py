@@ -139,3 +139,13 @@ class ExpenseService:
             raise ValueError(f"No monthly share found for {year}-{month}.")
 
         return monthly_share
+
+    def recalculate_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
+        """Recalculate a monthly share - resolve balances."""
+
+        monthly_share = self._manager.get_monthly_balance(year, month)
+
+        if not monthly_share:
+            raise ValueError(f"No monthly share found for {year}-{month}.")
+
+        return self._manager.recalculate_monthly_share(monthly_share)

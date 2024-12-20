@@ -180,3 +180,11 @@ class ExpenseManager:
             print("RECALCULATING BALANCES")
             monthly_share.recalculate_balances(self.members)
             self.repository.save_monthly_share(monthly_share)
+
+    def recalculate_monthly_share(self, monthly_share: MonthlyShare) -> MonthlyShare:
+        """Recalculate a monthly share - resolve balances."""
+        monthly_share.recalculate_balances(self.members)
+        self.repository.save_monthly_share(monthly_share)
+        print("Monthly share recalculated")
+
+        return monthly_share
