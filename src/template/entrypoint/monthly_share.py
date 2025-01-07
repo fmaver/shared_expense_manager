@@ -107,8 +107,9 @@ async def recalculate_monthly_share(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No monthly share found for {year}-{month:02d}",
             )
-
+        print(f"Balances recalculatedfor {year}-{month:02d}: {monthly_share.balances}")
         monthly_share = service.get_monthly_balance(year, month)
+        print(f"GettingBalances for {year}-{month:02d}: {monthly_share.balances}")
 
         expenses = service.get_monthly_expenses(year, month)
         if not expenses:

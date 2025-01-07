@@ -71,18 +71,8 @@ class MonthlyShare:
         if self.is_settled:
             raise ValueError(f"No se puede agregar el gasto al balance de {self.month}-{self.year} ya que está saldado")
 
-        # Calculate shares for this specific expense
-        shares = expense.split_strategy.calculate_shares(expense.amount, list(members.values()))
-
-        # Add what others owe to the payer
-        self.balances.setdefault(str(expense.payer_id), 0)  # Convert to string for JSON compatibility
-        self.balances[str(expense.payer_id)] += expense.amount
-
-        # Subtract what each member owes
-        for member_id, share in shares.items():
-            member_id_str = str(member_id)  # Convert to string for JSON compatibility
-            self.balances.setdefault(member_id_str, 0)
-            self.balances[member_id_str] -= share
+        # Recalculate balances
+        self.calculate_share_for_expense(expense, members)
 
         # Add expense to the list
         self.expenses.append(expense)
@@ -97,18 +87,23 @@ class MonthlyShare:
 
         # Recalculate for each expense
         for expense in self.expenses:
-            shares = expense.split_strategy.calculate_shares(expense.amount, list(members.values()))
+            self.calculate_share_for_expense(expense, members)
 
-            # Add what others owe to the payer
-            self.balances.setdefault(str(expense.payer_id), 0)
-            self.balances[str(expense.payer_id)] += expense.amount
-
-            # Subtract what each member owes
-            for member_id, share in shares.items():
-                member_id_str = str(member_id)  # Convert to string for JSON compatibility
-                self.balances.setdefault(member_id_str, 0)
-                if member_id != expense.payer_id:
-                    self.balances[member_id_str] -= share
-                else:
-                    self.balances[member_id_str] -= share
         print(f"Recalculated balances for {self.period_key}: {self.balances}")
+        for member_id, balance in self.balances.items():
+            print(f"{members[int(member_id)].name}: {balance}")
+
+    def calculate_share_for_expense(self, expense: Expense, members: Dict[int, Member]) -> None:
+        """Calculates the share for a specific expense"""
+        shares = expense.split_strategy.calculate_shares(expense.amount, list(members.values()))
+
+        # Add what the payer paid
+        payer_id_str = str(expense.payer_id)
+        self.balances.setdefault(payer_id_str, 0)
+        self.balances[payer_id_str] = round(self.balances[payer_id_str] + expense.amount, 2)
+
+        # Subtract each member's share (including the payer)
+        for member_id, share in shares.items():
+            member_id_str = str(member_id)
+            self.balances.setdefault(member_id_str, 0)
+            self.balances[member_id_str] = round(self.balances[member_id_str] - share, 2)
