@@ -1,23 +1,23 @@
 """Database adapter"""
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from template.settings.database_settings import DatabaseSettings
 
-settings = DatabaseSettings()
-
-
-# Add retry logic for initial connection
-def get_engine():
-    """Get database engine."""
-    return create_engine(
+# Use in-memory SQLite for testing if TEST_ENV is set
+if os.getenv("TEST_ENV") == "true":
+    SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+    engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    settings = DatabaseSettings()
+    engine = create_engine(
         settings.url,
         echo=settings.echo,
         pool_pre_ping=True,  # Enables connection health checks
     )
 
-
-engine = get_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

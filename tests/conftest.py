@@ -3,13 +3,17 @@ Pytest Fixtures.
 """
 from datetime import date
 from typing import Dict, List, Optional
+from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
 
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
-from template.main import app
+
+# Mock database settings before importing app
+with patch.dict("os.environ", {"DATABASE_URL": "postgresql://postgres:postgres@db:5432/expense_manager_test"}):
+    from template.main import app
 
 
 @pytest.fixture(name="test_client")
