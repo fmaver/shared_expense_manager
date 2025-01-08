@@ -29,11 +29,12 @@ class PercentageSplit(SplitStrategy):
         self.validate_percentages(percentages)
         self.percentages = percentages
 
-    def calculate_shares(self, amount: float, members: list[Member]) -> Dict[int, float]:
+    def calculate_shares(self, amount: float, members: list["Member"]) -> Dict[int, float]:
         """Calculate shares based on predefined percentages."""
         print(f"A percentage split with {self.percentages}")
         # Initialize shares for all members to 0
         shares = {member.id: 0.0 for member in members}
+        print(f"Shares: {shares}")
         total_allocated = 0.0
         # Calculate each member's share and track total allocated
         for member_id, percentage in self.percentages.items():
