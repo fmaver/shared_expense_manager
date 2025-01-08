@@ -107,3 +107,4 @@ class MonthlyShare:
             member_id_str = str(member_id)
             self.balances.setdefault(member_id_str, 0)
             self.balances[member_id_str] = round(self.balances[member_id_str] - share, 2)
+        print(f"Expense {expense.id} recalculated balances: {self.balances}")
