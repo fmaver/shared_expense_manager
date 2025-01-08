@@ -33,9 +33,9 @@ class TestCategory:
         WHEN validating the category
         THEN it should validate regardless of case
         """
-        assert Category.is_valid_category("COMIDA")
-        assert Category.is_valid_category("comida")
-        assert Category.is_valid_category("Comida")
+        assert Category.is_valid_category("mascota")
+        assert Category.is_valid_category("Mascota")
+        assert Category.is_valid_category("MASCOTA")
 
     def test_invalid_category(self):
         """
