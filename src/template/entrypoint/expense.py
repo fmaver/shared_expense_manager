@@ -51,6 +51,7 @@ async def update_expense(
         updated_expense = service.update_expense(expense_id, expense_data)
 
         response_data = ExpenseResponse(
+            id=updated_expense.id,
             description=updated_expense.description,
             amount=updated_expense.amount,
             date=updated_expense.date,
@@ -59,7 +60,10 @@ async def update_expense(
             installments=updated_expense.installments,
             installment_no=updated_expense.installment_no,
             payment_type=updated_expense.payment_type,
-            split_strategy=updated_expense.split_strategy,
+            split_strategy=SplitStrategySchema(
+                type="equal" if isinstance(updated_expense.split_strategy, EqualSplit) else "percentage",
+                percentages=getattr(updated_expense.split_strategy, "percentages", None),
+            ),
         )
 
         return ResponseModel(data=response_data)

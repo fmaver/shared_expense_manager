@@ -11,7 +11,7 @@ class TestCategory:
         THEN it should return the default set of categories
         """
         categories = Category.get_categories()
-        assert "comida" in categories
+        assert "mascota" in categories
         assert "auto" in categories
         assert "casa" in categories
         assert "entretenimiento" in categories
