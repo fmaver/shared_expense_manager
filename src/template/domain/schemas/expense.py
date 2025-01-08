@@ -18,6 +18,10 @@ class CategorySchema(CamelCaseModel):
     name: str = Field(..., min_length=1)
 
 
+class CategoryResponse(CamelCaseModel):
+    categories: list[str]
+
+
 class ExpenseCreate(CamelCaseModel):
     description: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
@@ -30,6 +34,7 @@ class ExpenseCreate(CamelCaseModel):
 
 
 class ExpenseResponse(CamelCaseModel):
+    id: Optional[int] = None
     description: str
     amount: float
     date: date

@@ -7,7 +7,14 @@ Resources:
 """
 from fastapi import APIRouter
 
-from template.entrypoint import expense, member, monitor, monthly_share, whatsapp_bot
+from template.entrypoint import (
+    category,
+    expense,
+    member,
+    monitor,
+    monthly_share,
+    whatsapp_bot,
+)
 
 api_v1_prefix: str = "/api/v1"
 
@@ -19,4 +26,5 @@ root_router.include_router(monitor.router)
 api_router_v1.include_router(expense.router)
 api_router_v1.include_router(member.router)
 api_router_v1.include_router(monthly_share.router)
+api_router_v1.include_router(category.router)
 root_router.include_router(whatsapp_bot.router)

@@ -5,12 +5,12 @@ from typing import Set
 
 class Category:
     _categories: Set[str] = {
-        "comida",
         "auto",
         "casa",
-        "entretenimiento",
+        "salidas",
         "compras",
         "mascota",
+        "entretenimiento",
         "prestamo",
         "shopping",
         "balance",
@@ -34,6 +34,11 @@ class Category:
             A set of all valid category names
         """
         return cls._categories.copy()
+
+    @classmethod
+    def get_all_categories(cls) -> Set[str]:
+        """Get all available categories."""
+        return cls._categories
 
     @classmethod
     def is_valid_category(cls, category: str) -> bool:
