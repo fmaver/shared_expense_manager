@@ -36,13 +36,17 @@ class PercentageSplit(SplitStrategy):
         shares = {member.id: 0.0 for member in members}
         print(f"Shares: {shares}")
         total_allocated = 0.0
+        print(f"percentages: {self.percentages}")
         # Calculate each member's share and track total allocated
         for member_id, percentage in self.percentages.items():
+            print(f"member_id: {member_id}, percentage: {percentage}")
             if member_id in shares:
                 print(f"member_id {member_id} in shares")
                 share = round((amount * percentage / 100), 2)
                 shares[member_id] = share
                 total_allocated += share
+            else:
+                print(f"member_id {member_id} not in shares")
         print(f"Shares: {shares}")
 
         # Handle any rounding discrepancy
