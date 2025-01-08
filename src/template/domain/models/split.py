@@ -31,13 +31,27 @@ class PercentageSplit(SplitStrategy):
 
     def calculate_shares(self, amount: float, members: list[Member]) -> Dict[int, float]:
         """Calculate shares based on predefined percentages."""
-        # Ensure all members have a percentage, default to 0
+        print(f"A percentage split with {self.percentages}")
+        # Initialize shares for all members to 0
         shares = {member.id: 0.0 for member in members}
+        total_allocated = 0.0
 
-        # Apply defined percentages
+        # Calculate each member's share and track total allocated
         for member_id, percentage in self.percentages.items():
             if member_id in shares:
-                shares[member_id] = round((amount * percentage / 100), 2)
+                share = round((amount * percentage / 100), 2)
+                shares[member_id] = share
+                total_allocated += share
+
+        # Handle any rounding discrepancy
+        discrepancy = round(amount - total_allocated, 2)
+        if discrepancy != 0:
+            # Add the discrepancy to the member with the highest percentage
+            max_percentage_member = max(self.percentages.items(), key=lambda x: x[1])[0]
+            if max_percentage_member in shares:
+                shares[max_percentage_member] = round(shares[max_percentage_member] + discrepancy, 2)
+        print(f"Shares after rounding: {shares}")
+
         return shares
 
     @staticmethod
