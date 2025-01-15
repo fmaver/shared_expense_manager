@@ -77,7 +77,9 @@ async def recibir_mensajes(
 ):  # Add service as a dependency
     """recieve messages"""
     try:
+        print("recibiendo mensajes")
         body = await request.json()
+        print("body: ", body)
         entry = body["entry"][0]
         changes = entry["changes"][0]
         value = changes["value"]
