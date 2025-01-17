@@ -400,7 +400,7 @@ def handle_greetings(number: str, estado_actual_usuario: Dict[str, Any]) -> Tupl
     """handle greetings"""
     user_responses = []
 
-    body = "👋 ¡Hola! Bienvenido a F&G Expenses ✨\n¿Cómo podemos ayudarte hoy?"
+    body = "👋 ¡Hola! Bienvenido a Jirense Expenses ✨\n¿Cómo podemos ayudarte hoy?"
     footer = "Fran y Guadi 💫"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
 
@@ -459,7 +459,9 @@ def handle_balance_request(
 
     estado_actual_usuario["expense_data"]["service"] = "generar balance"
 
-    body = "📊 ¡Genial! Indica el mes y año para calcular el balance con el formato MM-AAAA"
+    body = """📊 ¿De qué mes quieres ver el balance?\n
+Por favor, ingresa el mes y año en el formato:\nMM-AAAA\n
+✨ Ejemplo: 01-2025"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
@@ -513,9 +515,9 @@ def handle_settle_accounts(
 
     # Llamar al método settle_monthly_share del servicio
     try:
-        body = "Cuentas saldadas. Deseas hacer algo mas?"
-        options = ["Ir al Inicio", "No gracias", "Obtener Documento"]
-        footer = "Fran y Guadi"
+        body = """✨ ¡Cuentas saldadas!\n\n¿Te gustaría hacer algo más? 🤔"""
+        options = ["🏠 Ir al Inicio", "👋 No gracias", "📄 Obtener Documento"]
+        footer = "Fran y Guadi 💫"
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
@@ -563,8 +565,8 @@ def handle_waiting_for_balance_date(
         monthly_balance = process_balance(month_year)
         if monthly_balance:
             body = generate_balance_message(monthly_balance, month_year)
-            options = ["Obtener Documento", "Saldar Cuentas", "Ir al Inicio"]
-            reply_button_data = button_reply_message(number, options, body, "Fran y Guadi", "sed1")
+            options = ["📄 Obtener Documento", "💰 Saldar Cuentas", "🏠 Ir al Inicio"]
+            reply_button_data = button_reply_message(number, options, body, "Fran y Guadi 💫", "sed1")
             user_responses.append(reply_button_data)
         else:
             user_responses.append(text_message(number, "No se encontraron gastos para el mes y año seleccionados."))
@@ -573,7 +575,7 @@ def handle_waiting_for_balance_date(
 
     except ValueError:
         user_responses.append(
-            text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con MM-AAAA.")
+            text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con\nMM-AAAA.")
         )
         return user_responses, estado_actual_usuario
 
@@ -586,7 +588,8 @@ def handle_lending_money(
 
     estado_actual_usuario["expense_data"]["service"] = "prestar plata"
 
-    body = "💰 ¡Perfecto! Por favor, indicanos el monto que deseas prestar"
+    body = """💸 ¿Cuánto dinero deseas prestar?\n\nPor favor, ingresa el monto sin símbolos\n
+✨ Ejemplo: 1234.56"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
@@ -603,9 +606,8 @@ def handle_loading_expense(
 
     estado_actual_usuario["expense_data"]["service"] = "cargar gasto"
 
-    body = """💰 ¡Perfecto! Por favor indicanos el monto del gasto, sin símbolos\n
-ejemplo: 1234.56
-"""
+    body = """💰 ¿Cuál es el monto del gasto?\n\nPor favor, ingresa el valor sin símbolos\n
+✨ Ejemplo: 1234.56"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
@@ -624,7 +626,7 @@ def handle_waiting_for_amount(
         amount = float(text)
         estado_actual_usuario["expense_data"]["amount"] = amount
 
-        body = "👌🏾 ¡Genial! Ahora por favor proporciona una breve descripción del consumo."
+        body = "🖊️ ¿Cuál es el motivo del gasto?\n\nPor favor, escribe una breve descripción 📝"
         reply_text = reply_text_message(number, message_id, body)
         user_responses.append(reply_text)
 
@@ -644,10 +646,10 @@ def handle_waiting_for_description(
     user_responses = []
     if estado_actual_usuario["expense_data"]["service"] == "cargar gasto":
         estado_actual_usuario["expense_data"]["description"] = text.lower()
-        body = "👤 ¡Genial! Ahora por favor indica quién realizó el gasto"
+        body = "👤 ¿Quién realizó el gasto?\n\nSelecciona la persona que pagó ⬇️"
     else:
         estado_actual_usuario["expense_data"]["description"] = f"{text.lower()}"
-        body = "👤 ¡Genial! Ahora por favor indica quién realizó el préstamo"
+        body = "👤 ¿Quién realizó el préstamo?\n\nSelecciona la persona que prestó el dinero ⬇️"
 
     footer = "Fran y Guadi 💫"
     options = ["👨🏽‍💻 Fran", "👷🏽‍♀️ Guadi"]
@@ -668,9 +670,9 @@ def handle_waiting_for_payer(
         1 if "fran" in text.lower() else 2
     )  # revisar si es la mejor forma de hacerlo
 
-    body = """Por favor, proporciona la fecha del consumo en el formato DD-MM-AAAA\n
-Ejemplo: 01-01-2025
-"""
+    body = """📅 ¿Cuándo se realizó el gasto?\n
+Por favor, ingresa la fecha en el formato:\nDD-MM-AAAA\n
+✨ Ejemplo: 01-01-2025"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
@@ -725,7 +727,7 @@ def handle_waiting_for_payment_date(
 
     except ValueError:
         user_responses.append(
-            text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con DD-MM-AAAA.")
+            text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con\nDD-MM-AAAA.")
         )
         return user_responses, estado_actual_usuario
 
@@ -760,8 +762,8 @@ def handle_waiting_for_category(
             user_responses.append(reply_text)
             return user_responses, estado_actual_usuario
 
-    body = "Recibido! Ahora, elige un tipo de pago:"
-    footer = "Fran y Guadi"
+    body = "💳 ¿Qué método de pago se utilizó?\n\nSelecciona una opción ⬇️"
+    footer = "Fran y Guadi 💫"
     options = ["💳 Crédito", "💰 Débito"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
@@ -857,9 +859,8 @@ def handle_waiting_for_split_strategy(
     print("esperando_estrategia")
 
     if text.lower() == "porcentaje":
-        body = """Por favor, indica el porcentaje del valor del pagador, sin simbolos.
-Ejemplo: 65.4
-"""
+        body = """📊 ¿Qué porcentaje corresponde al pagador?\n\nPor favor, ingresa solo el número sin símbolos\n
+✨ Ejemplo: 65.4"""
         reply_text = reply_text_message(number, message_id, body)
         user_responses.append(reply_text)
         estado_actual_usuario["estado"] = "esperando_porcentaje"
