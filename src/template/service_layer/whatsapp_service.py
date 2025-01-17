@@ -913,7 +913,7 @@ def handle_waiting_for_percentage(
         summary = get_expense_summary(estado_actual_usuario["expense_data"])
         payer_name = "Fran" if estado_actual_usuario["expense_data"]["payer_id"] == 1 else "Guadi"
         other_name = "Guadi" if payer_name == "Fran" else "Fran"
-        summary += f"""\n\n💡 División: {payer_name}: {payer_percentage}%, {other_name}: {100 - payer_percentage}%
+        summary += f"""\n\n💡 División:\n{payer_name}: {payer_percentage}%, {other_name}: {100 - payer_percentage}%
                         \n\n¿Confirmas que los datos son correctos?
                     """
 
@@ -967,7 +967,7 @@ def handle_no_thanks(
     """handle goodbye"""
     user_responses = []
 
-    body = "👋 ¡Gracias por usar F&G Expenses! ¡Hasta pronto! ✨"
+    body = "👋 ¡Gracias por usar Jirens Shared Expenses! ¡Hasta pronto! ✨"
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
