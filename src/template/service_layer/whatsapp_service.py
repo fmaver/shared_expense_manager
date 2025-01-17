@@ -400,8 +400,8 @@ def handle_greetings(number: str, estado_actual_usuario: Dict[str, Any]) -> Tupl
     """handle greetings"""
     user_responses = []
 
-    body = "👋 ¡Hola! Bienvenido a Jirense Expenses ✨\n¿Cómo podemos ayudarte hoy?"
-    footer = "Fran y Guadi 💫"
+    body = "👋 ¡Hola! Bienvenido a Jirens Shared Expenses ✨\n¿Cómo podemos ayudarte hoy?"
+    footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
@@ -499,7 +499,7 @@ def handle_settle_accounts(
     if text.lower() == "no":
         body = "👍 ¡De acuerdo! ¿Podemos ayudarte con algo más?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]
-        footer = "Fran y Guadi"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
@@ -517,7 +517,7 @@ def handle_settle_accounts(
     try:
         body = """✨ ¡Cuentas saldadas!\n\n¿Te gustaría hacer algo más? 🤔"""
         options = ["🏠 Ir al Inicio", "👋 No gracias", "📄 Obtener Documento"]
-        footer = "Fran y Guadi 💫"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
@@ -566,7 +566,7 @@ def handle_waiting_for_balance_date(
         if monthly_balance:
             body = generate_balance_message(monthly_balance, month_year)
             options = ["📄 Obtener Documento", "💰 Saldar Cuentas", "🏠 Ir al Inicio"]
-            reply_button_data = button_reply_message(number, options, body, "Fran y Guadi 💫", "sed1")
+            reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
             user_responses.append(reply_button_data)
         else:
             user_responses.append(text_message(number, "No se encontraron gastos para el mes y año seleccionados."))
@@ -651,7 +651,7 @@ def handle_waiting_for_description(
         estado_actual_usuario["expense_data"]["description"] = f"{text.lower()}"
         body = "👤 ¿Quién realizó el préstamo?\n\nSelecciona la persona que prestó el dinero ⬇️"
 
-    footer = "Fran y Guadi 💫"
+    footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["👨🏽‍💻 Fran", "👷🏽‍♀️ Guadi"]
 
     estado_actual_usuario["estado"] = "esperando_pagador"
@@ -712,7 +712,7 @@ def handle_waiting_for_payment_date(
 
             options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
 
-            reply_button_data = button_reply_message(number, options, summary, "Fran y Guadi", "sed1")
+            reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
             user_responses.append(reply_button_data)
 
             estado_actual_usuario["estado"] = "esperando_confirmacion"
@@ -763,7 +763,7 @@ def handle_waiting_for_category(
             return user_responses, estado_actual_usuario
 
     body = "💳 ¿Qué método de pago se utilizó?\n\nSelecciona una opción ⬇️"
-    footer = "Fran y Guadi 💫"
+    footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💳 Crédito", "💰 Débito"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
@@ -790,7 +790,7 @@ def handle_waiting_for_payment_type(
         estado_actual_usuario["estado"] = "esperando_cuotas"
     else:
         body = "📊 ¿Cómo deseas dividir el gasto?"
-        footer = "Fran y Guadi"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
         options = ["🔄 Partes Iguales", "📊 Porcentajes"]
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
@@ -812,7 +812,7 @@ def handle_waiting_for_installments(
         estado_actual_usuario["expense_data"]["installments"] = int(text)
 
         body = "📊 ¿Cómo deseas dividir el gasto?"
-        footer = "Fran y Guadi"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
         options = ["🔄 Partes Iguales", "📊 Porcentajes"]
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
@@ -879,7 +879,7 @@ def handle_waiting_for_split_strategy(
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
 
-        reply_button_data = button_reply_message(number, options, body, "Fran y Guadi", "sed1")
+        reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
         user_responses.append(reply_button_data)
 
         estado_actual_usuario["estado"] = "esperando_confirmacion"
@@ -919,7 +919,7 @@ def handle_waiting_for_percentage(
 
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
 
-        reply_button_data = button_reply_message(number, options, summary, "Fran y Guadi", "sed1")
+        reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
         user_responses.append(reply_button_data)
 
         estado_actual_usuario["estado"] = "esperando_confirmacion"
@@ -943,7 +943,7 @@ def handle_waiting_for_confirmation(
 
         body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]
-        footer = "Fran y Guadi"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
@@ -951,7 +951,7 @@ def handle_waiting_for_confirmation(
     else:  # Cancelled
         body = "Gasto cancelado. ¿Deseas realizar otra operación?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]
-        footer = "Fran y Guadi"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
