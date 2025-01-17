@@ -298,7 +298,7 @@ def administrar_chatbot(
         responses, estado_actual_usuario = handle_waiting_for_description(number, estado_actual_usuario, text)
         user_responses.extend(responses)
 
-    elif estado_actual_usuario["estado"] == "esperando_pagador" and text.lower() in ["fran", "guadi"]:
+    elif estado_actual_usuario["estado"] == "esperando_pagador" and ("fran" in text.lower() or "guadi" in text.lower()):
         responses, estado_actual_usuario = handle_waiting_for_payer(number, estado_actual_usuario, message_id, text)
         user_responses.extend(responses)
 
@@ -604,7 +604,7 @@ def handle_loading_expense(
     estado_actual_usuario["expense_data"]["service"] = "cargar gasto"
 
     body = """💰 ¡Perfecto! Por favor indicanos el monto del gasto, sin símbolos\n
-ejemplo: 1234,56
+ejemplo: 1234.56
 """
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
@@ -665,7 +665,7 @@ def handle_waiting_for_payer(
     """handle waiting for payer"""
     user_responses = []
     estado_actual_usuario["expense_data"]["payer_id"] = (
-        1 if text.lower() == "fran" else 2
+        1 if "fran" in text.lower() else 2
     )  # revisar si es la mejor forma de hacerlo
 
     body = """Por favor, proporciona la fecha del consumo en el formato DD-MM-AAAA\n
