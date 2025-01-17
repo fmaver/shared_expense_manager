@@ -671,7 +671,7 @@ def handle_waiting_for_payer(
     )  # revisar si es la mejor forma de hacerlo
 
     body = """📅 ¿Cuándo se realizó el gasto?\n
-Por favor, ingresa la fecha en el formato:\nDD-MM-AAAA\n
+Por favor, ingresa la fecha en el formato: DD-MM-AAAA\n
 ✨ Ejemplo: 01-01-2025"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
@@ -783,7 +783,7 @@ def handle_waiting_for_payment_type(
     print("esperando_tipo_pago")
     estado_actual_usuario["expense_data"]["payment_type"] = text.lower()
 
-    if text.lower() == "crédito":
+    if "crédito" in text.lower():
         body = "📅 Por favor, indica el número de cuotas (1-12)"
         reply_text = reply_text_message(number, message_id, body)
         user_responses.append(reply_text)
@@ -858,7 +858,7 @@ def handle_waiting_for_split_strategy(
 
     print("esperando_estrategia")
 
-    if text.lower() == "porcentaje":
+    if "porcentaje" in text.lower():
         body = """📊 ¿Qué porcentaje corresponde al pagador?\n\nPor favor, ingresa solo el número sin símbolos\n
 ✨ Ejemplo: 65.4"""
         reply_text = reply_text_message(number, message_id, body)
