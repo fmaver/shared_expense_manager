@@ -34,25 +34,29 @@ class CamelCaseModel(BaseModel):
         self,
         *,
         mode: Literal["json", "python"] | str = "json",
-        include=None,
-        exclude=None,
+        include: Any | None = None,
+        exclude: Any | None = None,
+        context: Any | None = None,
         by_alias: bool = True,
         exclude_unset: bool = True,
         exclude_defaults: bool = False,
         exclude_none: bool = True,
         round_trip: bool = False,
-        warnings: bool = True,
+        warnings: Literal["none", "warn", "error"] | bool = True,
+        serialize_as_any: bool = False,
     ) -> dict[str, Any]:
         return super().model_dump(
             mode=mode,
             include=include,
             exclude=exclude,
+            context=context,
             by_alias=by_alias,
             exclude_unset=exclude_unset,
             exclude_defaults=exclude_defaults,
             exclude_none=exclude_none,
             round_trip=round_trip,
             warnings=warnings,
+            serialize_as_any=serialize_as_any,
         )
 
 
