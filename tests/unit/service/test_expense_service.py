@@ -50,8 +50,8 @@ class TestExpenseService:
         )
 
     def test_update_expense(self, service, debit_expense, expense_data):
-        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890"))
-        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891"))
+        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890", email="john@example.com"))
+        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"))
 
         service.create_expense(expense_data)
 
@@ -79,8 +79,8 @@ class TestExpenseService:
         assert updated_expense.amount == 150.0
 
     def test_delete_expense(self, service, debit_expense, expense_data):
-        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890"))
-        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891"))
+        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890", email="john@example.com"))
+        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"))
 
         # Create the expense
         service.create_expense(expense_data)

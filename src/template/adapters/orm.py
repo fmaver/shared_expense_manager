@@ -15,6 +15,8 @@ class MemberModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     telephone: Mapped[str] = mapped_column(String(20))
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expenses: Mapped[list["ExpenseModel"]] = relationship(back_populates="payer")
 
 

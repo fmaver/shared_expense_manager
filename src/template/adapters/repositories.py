@@ -21,7 +21,7 @@ class MemberRepository:
 
     def add(self, member: Member) -> Member:
         """Add a member to the repository."""
-        db_member = MemberModel(id=member.id, name=member.name, telephone=member.telephone)
+        db_member = MemberModel(id=member.id, name=member.name, telephone=member.telephone, email=member.email)
         self.session.add(db_member)
         self.session.commit()
         return member
@@ -30,13 +30,26 @@ class MemberRepository:
         """Get a member by ID."""
         db_member = self.session.query(MemberModel).filter(MemberModel.id == member_id).first()
         if db_member:
-            return Member(id=db_member.id, name=db_member.name, telephone=db_member.telephone)
+            return Member(id=db_member.id, name=db_member.name, telephone=db_member.telephone, email=db_member.email)
+        return None
+
+    def get_member_by_email(self, email: str) -> Optional[Member]:
+        """Get a member by their email address."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.email == email).first()
+        if db_member:
+            return Member(
+                id=db_member.id,
+                name=db_member.name,
+                telephone=db_member.telephone,
+                email=db_member.email,
+                hashed_password=db_member.hashed_password,
+            )
         return None
 
     def list(self) -> List[Member]:
         """List all members."""
         db_members = self.session.query(MemberModel).all()
-        return [Member(id=m.id, name=m.name, telephone=m.telephone) for m in db_members]
+        return [Member(id=m.id, name=m.name, telephone=m.telephone, email=m.email) for m in db_members]
 
 
 class SQLAlchemyExpenseRepository(ExpenseRepository):

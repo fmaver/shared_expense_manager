@@ -16,8 +16,8 @@ class TestExpenseManager:
     @pytest.fixture
     def manager(self, mock_repository):
         manager = ExpenseManager(mock_repository)
-        manager.add_member(Member(id=1, name="John", telephone="+1234567890"))
-        manager.add_member(Member(id=2, name="Jane", telephone="+1234567891"))
+        manager.add_member(Member(id=1, name="John", telephone="+1234567890", email="john@example.com"))
+        manager.add_member(Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"))
         return manager
 
     @pytest.fixture
@@ -55,7 +55,7 @@ class TestExpenseManager:
         WHEN adding a new member
         THEN the member should be stored
         """
-        new_member = Member(id=3, name="Bob", telephone="+1234567892")
+        new_member = Member(id=3, name="Bob", telephone="+1234567892", email="bob@example.com")
         manager.add_member(new_member)
         assert manager.members[3] == new_member
 

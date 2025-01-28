@@ -3,7 +3,7 @@ import json
 import os
 import re
 import time
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Collection, Dict, List, Optional, Tuple
 
 import requests
@@ -710,17 +710,21 @@ def handle_waiting_for_payment_date(
 ¿Confirmas que los datos son correctos?
 """
 
-            options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
+            reply_button_data = button_reply_message(
+                number, ["✅ Sí, crear préstamo", "❌ No, cancelar"], summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1"
+            )
 
-            reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
             user_responses.append(reply_button_data)
 
             estado_actual_usuario["estado"] = "esperando_confirmacion"
 
         else:
-            categories_text = "\n".join([f"{num}: {cat}" for num, cat in Category.get_numbered_categories()])
+            numbered_categories = Category.get_numbered_categories_with_emoji()
+            categories_text = "\n".join(
+                [f"{num}: {cat.capitalize()} {emoji}" for num, cat, emoji in numbered_categories]
+            )
 
-            body = f"🏷️ Por favor, selecciona la categoría del gasto\n{categories_text}\n"
+            body = f"🏷️ Por favor, selecciona la categoría del gasto:\n{categories_text}\n"
             user_responses.append(reply_text_message(number, message_id, body))
 
             estado_actual_usuario["estado"] = "esperando_categoria"
@@ -755,9 +759,11 @@ def handle_waiting_for_category(
         if Category.is_valid_category(text):
             estado_actual_usuario["expense_data"]["category"] = text
         else:
-            numbered_categories = Category.get_numbered_categories()
-            categories_text = "\n".join([f"{num}: {cat}" for num, cat in numbered_categories])
-            body = f"Categoría no válida. Por favor elige una de las siguientes:\n{categories_text}"
+            numbered_categories = Category.get_numbered_categories_with_emoji()
+            categories_text = "\n".join(
+                [f"{num}: {cat.capitalize()} {emoji}" for num, cat, emoji in numbered_categories]
+            )
+            body = f"❌ Categoría no válida. Por favor elige una de las siguientes:\n{categories_text}"
             reply_text = reply_text_message(number, message_id, body)
             user_responses.append(reply_text)
             return user_responses, estado_actual_usuario
@@ -831,23 +837,34 @@ def handle_waiting_for_installments(
 
 def get_expense_summary(expense_data: Dict[str, Any]) -> str:
     """Generate a summary of the expense for confirmation"""
-    payer_id = expense_data.get("payer_id")
-    payer_name = "Fran" if payer_id == 1 else "Guadi"
-    expense_date: Optional[date] = expense_data.get("date")
-    payment_type: Optional[str] = expense_data.get("payment_type")
+    category = expense_data.get("category", "")
+    category_emoji = Category.get_category_emoji(category)
+    category_display = f"{category.capitalize()} {category_emoji}" if category_emoji else category.capitalize()
 
-    summary = f"""📝 *Resumen del gasto:*
-💰 Monto: ${expense_data.get('amount')}
-📝 Descripción: {expense_data.get('description')}
-👤 Pagador: {payer_name}
-📅 Fecha: {expense_date.strftime('%d-%m-%Y') if expense_date else 'No especificada'}
-🏷️ Categoría: {expense_data.get('category')}
-💳 Tipo de pago: {payment_type}"""
+    summary = [
+        "📝 *Resumen del gasto:*",
+        f"💬 Descripción: {expense_data.get('description', '')}",
+        f"💰 Monto: ${expense_data.get('amount', 0):.2f}",
+        f"📅 Fecha: {expense_data.get('date', '')}",
+        f"📂 Categoría: {category_display}",
+        f"👤 Pagador: {expense_data.get('payer_name', '')}",
+        f"💳 Método de pago: {expense_data.get('payment_type', '')}",
+    ]
 
-    if payment_type and payment_type.lower() == "crédito":
-        summary += f"\n📅 Cuotas: {expense_data.get('installments')}"
+    installments = expense_data.get("installments")
+    if installments and installments > 1:
+        summary.append(f"📅 Cuotas: {installments}")
 
-    return summary
+    split_strategy = expense_data.get("split_strategy", {})
+    if split_strategy:
+        strategy_type = split_strategy.get("type", "")
+        if strategy_type == "percentage":
+            percentages = split_strategy.get("percentages", {})
+            summary.append("\n💹 *Porcentajes de división:*")
+            for member_id, percentage in percentages.items():
+                summary.append(f"- {expense_data.get('member_names', {}).get(member_id, '')}: {percentage}%")
+
+    return "\n".join(summary)
 
 
 def handle_waiting_for_split_strategy(
@@ -937,7 +954,7 @@ def handle_waiting_for_confirmation(
     """handle waiting for confirmation"""
     user_responses = []
 
-    if "crear gasto" in text.lower():  # Confirmed
+    if "crear" in text.lower():  # Confirmed
         split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
         create_expense(estado_actual_usuario, service, split_strategy_dict=split_strategy)
 

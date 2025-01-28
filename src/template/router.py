@@ -8,6 +8,7 @@ Resources:
 from fastapi import APIRouter
 
 from template.entrypoint import (
+    auth,
     category,
     expense,
     member,
@@ -27,4 +28,5 @@ api_router_v1.include_router(expense.router)
 api_router_v1.include_router(member.router)
 api_router_v1.include_router(monthly_share.router)
 api_router_v1.include_router(category.router)
+api_router_v1.include_router(auth.router)  # Add auth router
 root_router.include_router(whatsapp_bot.router)

@@ -11,5 +11,5 @@ router = APIRouter(prefix="/categories", tags=["Categories"])
 @router.get("/", response_model=ResponseModel[CategoryResponse])
 async def get_categories() -> ResponseModel[CategoryResponse]:
     """Get all available categories."""
-    categories = Category.get_all_categories()
+    categories = Category.get_categories()
     return ResponseModel(data=CategoryResponse(categories=list(categories)))

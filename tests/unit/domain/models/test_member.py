@@ -13,11 +13,12 @@ class TestMember:
         WHEN creating a Member instance
         THEN it should create successfully
         """
-        member = Member(id=1, name="John Doe", telephone="+1234567890")
+        member = Member(id=1, name="John Doe", telephone="+1234567890", email="john.doe@example.com")
 
         assert member.id == 1
         assert member.name == "John Doe"
         assert member.telephone == "+1234567890"
+        assert member.email == "john.doe@example.com"
 
     def test_invalid_name(self):
         """
@@ -26,7 +27,7 @@ class TestMember:
         THEN it should raise ValidationError
         """
         with pytest.raises(ValidationError):
-            Member(id=1, name="", telephone="+1234567890")
+            Member(id=1, name="", telephone="+1234567890", email="john.doe@example.com")
 
     def test_invalid_telephone(self):
         """
@@ -35,4 +36,4 @@ class TestMember:
         THEN it should raise ValidationError
         """
         with pytest.raises(ValidationError):
-            Member(id=1, name="John Doe", telephone="invalid")
+            Member(id=1, name="John Doe", telephone="invalid", email="john.doe@example.com")
