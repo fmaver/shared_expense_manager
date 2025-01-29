@@ -5,6 +5,7 @@ Revises: add_parent_expense_id_20250128
 Create Date: 2025-01-28 14:30:15.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa

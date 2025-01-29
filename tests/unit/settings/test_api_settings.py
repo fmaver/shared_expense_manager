@@ -1,6 +1,7 @@
 """
 Test suite for API Settings
 """
+
 import pytest
 
 from template.settings.api_settings import ApplicationSettings, ContactInfo, LicenseInfo

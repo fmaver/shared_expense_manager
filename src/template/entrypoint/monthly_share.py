@@ -1,4 +1,5 @@
 """Monthly Share API endpoints."""
+
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status

@@ -1,4 +1,5 @@
 """Repository interface"""
+
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import Dict, List, Optional

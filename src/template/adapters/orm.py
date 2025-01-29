@@ -1,4 +1,5 @@
 """ORM adapter"""
+
 from typing import List, Optional
 
 from sqlalchemy import JSON, Date, Enum, Float, ForeignKey, Integer, String

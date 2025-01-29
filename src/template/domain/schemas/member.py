@@ -1,4 +1,5 @@
 """Member schemas"""
+
 from pydantic import BaseModel, EmailStr
 
 from template.domain.schema_model import CamelCaseModel
