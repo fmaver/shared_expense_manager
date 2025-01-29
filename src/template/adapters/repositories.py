@@ -195,6 +195,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             installment_no=expense.installment_no,
             split_strategy=self._serialize_split_strategy(expense.split_strategy),
             monthly_share_id=monthly_share_id,
+            parent_expense_id=expense.parent_expense_id,
         )
         self.session.add(db_expense)
         self.session.commit()
@@ -203,40 +204,36 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
     def get_expense(self, expense_id: int) -> Optional[Expense]:
         """Get an expense by ID from the database."""
-        print("finding the expense...")
-        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
+        db_expense = self.session.query(ExpenseModel).filter_by(id=expense_id).first()
         if not db_expense:
-            print("didn't find the expense")
+            return None
+        return self._to_domain_expense(db_expense)
+
+    def get_child_expenses(self, parent_expense_id: int) -> List[Expense]:
+        """Get all child expenses for a given parent expense ID."""
+        db_expenses = self.session.query(ExpenseModel).filter_by(parent_expense_id=parent_expense_id).all()
+        return [self._to_domain_expense(db_expense) for db_expense in db_expenses]
+
+    def get_parent_expense(self, expense_id: int) -> Optional[Expense]:
+        """Get the parent expense for a given expense ID."""
+        # First get the expense to check its parent_expense_id
+        db_expense = self.session.query(ExpenseModel).filter_by(id=expense_id).first()
+        if not db_expense or not db_expense.parent_expense_id:
             return None
 
-        print("found the expense")
-        # Convert the database model to the domain model
-        category = Category()
-        category.name = db_expense.category
+        # Now get the parent expense
+        parent_expense = self.session.query(ExpenseModel).filter_by(id=db_expense.parent_expense_id).first()
 
-        split_strategy = self._deserialize_split_strategy(db_expense.split_strategy)
+        return self._to_domain_expense(parent_expense) if parent_expense else None
 
-        return Expense(
-            id=db_expense.id,
-            description=db_expense.description,
-            amount=db_expense.amount,
-            date=db_expense.date,
-            category=category,
-            payer_id=db_expense.payer_id,
-            payment_type=db_expense.payment_type,
-            installments=db_expense.installments,
-            installment_no=db_expense.installment_no,
-            split_strategy=split_strategy,
-        )
-
-    def delete_expense(self, expense_to_delete: Expense) -> None:
-        """Delete an expense by ID from the database."""
-        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_to_delete.id).first()
-        if not db_expense:
-            raise ValueError(f"Expense with ID {expense_to_delete.id} not found.")
-
-        self.session.delete(db_expense)
-        self.session.commit()
+    def delete_expense(self, expense_id: int) -> None:
+        """Delete an expense from the database."""
+        print(f"Deleting expense with ID: {expense_id}")
+        expense = self.session.query(ExpenseModel).filter_by(id=expense_id).first()
+        if expense:
+            self.session.delete(expense)
+            self.session.commit()
+            print(f"Successfully deleted expense with ID: {expense_id}")
 
     def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
         """Get all expenses for a specific date."""
@@ -281,3 +278,24 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         # Commit the changes to the database
         self.session.commit()
         print(f"Successfully updated expense with ID: {expense.id}")
+
+    def _to_domain_expense(self, db_expense: ExpenseModel) -> Expense:
+        """Convert database model to domain model."""
+        category = Category()
+        category.name = db_expense.category
+
+        split_strategy = self._deserialize_split_strategy(db_expense.split_strategy)
+
+        return Expense(
+            id=db_expense.id,
+            description=db_expense.description,
+            amount=db_expense.amount,
+            date=db_expense.date,
+            category=category,
+            payer_id=db_expense.payer_id,
+            payment_type=db_expense.payment_type,
+            installments=db_expense.installments,
+            installment_no=db_expense.installment_no,
+            split_strategy=split_strategy,
+            parent_expense_id=db_expense.parent_expense_id,
+        )

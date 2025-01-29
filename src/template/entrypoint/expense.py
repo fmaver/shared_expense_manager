@@ -21,10 +21,11 @@ async def create_expense(
 ) -> ResponseModel[ExpenseResponse]:
     """Create a new expense."""
     try:
-        service.create_expense(expense_data)
+        expense = service.create_expense(expense_data)
 
         # Create response data
         response_data = ExpenseResponse(
+            id=expense.id,
             description=expense_data.description,
             amount=expense_data.amount,
             date=expense_data.date,
@@ -34,6 +35,7 @@ async def create_expense(
             installment_no=1,
             payment_type=expense_data.payment_type,
             split_strategy=expense_data.split_strategy,
+            parent_expense_id=expense.parent_expense_id,
         )
 
         return ResponseModel(data=response_data)
@@ -64,6 +66,7 @@ async def update_expense(
                 type="equal" if isinstance(updated_expense.split_strategy, EqualSplit) else "percentage",
                 percentages=getattr(updated_expense.split_strategy, "percentages", None),
             ),
+            parent_expense_id=updated_expense.parent_expense_id,
         )
 
         return ResponseModel(data=response_data)
@@ -74,13 +77,15 @@ async def update_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{expense_id}")
 async def delete_expense(expense_id: int, service: ExpenseService = Depends(get_expense_service)) -> None:
-    """Delete an existing expense."""
+    """Delete an expense."""
     try:
         service.delete_expense(expense_id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
 
 @router.get("/{expense_id}", response_model=ResponseModel[ExpenseResponse])
@@ -104,6 +109,7 @@ async def get_expense(
             raise ValueError(f"Unknown split strategy type: {type(expense.split_strategy)}")
 
         response_data = ExpenseResponse(
+            id=expense.id,
             description=expense.description,
             amount=expense.amount,
             date=expense.date,
@@ -113,6 +119,7 @@ async def get_expense(
             installment_no=expense.installment_no,
             payment_type=expense.payment_type,
             split_strategy=split_strategy,
+            parent_expense_id=expense.parent_expense_id,
         )
 
         return ResponseModel(data=response_data)
@@ -120,3 +127,40 @@ async def get_expense(
     except ValueError as e:
         print(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{expense_id}/parent", response_model=ResponseModel[ExpenseResponse])
+async def get_parent_expense(
+    expense_id: int, service: ExpenseService = Depends(get_expense_service)
+) -> ResponseModel[ExpenseResponse]:
+    """Get the parent expense for a given expense ID."""
+    try:
+        parent_expense = service.get_parent_expense(expense_id)
+        if not parent_expense:
+            raise HTTPException(
+                status_code=404,
+                detail="No parent expense found. This expense might be a parent itself or a standalone expense.",
+            )
+
+        response_data = ExpenseResponse(
+            id=parent_expense.id,
+            description=parent_expense.description,
+            amount=parent_expense.amount,
+            date=parent_expense.date,
+            category=parent_expense.category.name,
+            payer_id=parent_expense.payer_id,
+            installments=parent_expense.installments,
+            installment_no=parent_expense.installment_no,
+            payment_type=parent_expense.payment_type,
+            split_strategy=SplitStrategySchema(
+                type="equal" if isinstance(parent_expense.split_strategy, EqualSplit) else "percentage",
+                percentages=getattr(parent_expense.split_strategy, "percentages", None),
+            ),
+            parent_expense_id=parent_expense.parent_expense_id,
+        )
+
+        return ResponseModel(data=response_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

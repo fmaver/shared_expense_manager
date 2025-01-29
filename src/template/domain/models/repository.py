@@ -28,8 +28,12 @@ class ExpenseRepository(ABC):
         """Get an expense by ID."""
 
     @abstractmethod
-    def delete_expense(self, expense_to_delete: Expense) -> None:
+    def delete_expense(self, expense_id: int) -> None:
         """Delete an expense by ID."""
+
+    @abstractmethod
+    def get_child_expenses(self, parent_expense_id: int) -> List[Expense]:
+        """Get all child expenses for a given parent expense ID."""
 
     @abstractmethod
     def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
