@@ -1,4 +1,5 @@
 """Expense manager"""
+
 import re
 from datetime import date
 from typing import Dict, Optional
@@ -163,23 +164,31 @@ class ExpenseManager:
                 monthly_share.recalculate_balances(self.members)
                 self.repository.save_monthly_share(monthly_share)
 
-    def update_expense(self, updated_expense: Expense):
+    def update_expense(self, updated_expense: Expense) -> Expense:
         """Update the expense and recalculate balances"""
         self.repository.update_expense(updated_expense)
 
-        # Fetch the monthly share associated with the expense
-        monthly_share = self.get_monthly_balance(updated_expense.date.year, updated_expense.date.month)
+        if updated_expense.payment_type == PaymentType.DEBIT:
+            # Fetch the monthly share associated with the expense
+            monthly_share = self.get_monthly_balance(updated_expense.date.year, updated_expense.date.month)
+        else:
+            installment_date = updated_expense.date + relativedelta(months=updated_expense.installment_no + 1)
+            monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
+
         if monthly_share:  # Update the expense in the monthly share
             for i, expense in enumerate(monthly_share.expenses):
                 if expense.id == updated_expense.id:  # Assuming Expense has an 'id' attribute
                     monthly_share.expenses[i] = updated_expense
-                    break
+                break
             # Recalculate balances for the monthly share
             monthly_share.recalculate_balances(self.members)
             # Save the updated monthly share
             self.repository.save_monthly_share(monthly_share)
 
+        return updated_expense
+
     # flake8: noqa: C901
+    # pylint: disable=R0915
     def update_credit_expense(self, updated_expense: Expense) -> Expense:
         """Update a credit expense and all its related installments."""
         print(f"\n=== Starting credit expense update process for ID: {updated_expense.id} ===")
@@ -188,31 +197,52 @@ class ExpenseManager:
         if updated_expense.id is None:
             raise ValueError("Expense ID cannot be None")
         child_expenses = self.repository.get_child_expenses(updated_expense.id)
+        print(f"Parent expense ID: {updated_expense.id}")
+        print(f"Child expenses found with IDs: {[child_expense.id for child_expense in child_expenses]}")
 
         # Calculate amount per installment from the total amount
         amount_per_installment = updated_expense.amount / updated_expense.installments
 
         # Clean base description (remove any existing installment suffix)
         base_description = re.sub(r"\s*\(\d+\/\d+\)\s*$", "", updated_expense.description)
+        current_total_installments = len(child_expenses) + 1
+        print(
+            f"We currently have {current_total_installments} installments, but we want {updated_expense.installments}"
+        )
 
         # First, if we're reducing installments, delete the excess ones
-        if updated_expense.installments < len(child_expenses):
-            # Drop excess installments if the updated number is less
-            # Start from updated_expense.installments since we're 0-based
-            for i in range((len(child_expenses) + 1), updated_expense.installments, -1):  # TODO
+        if updated_expense.installments < current_total_installments:
+            print(f"Reducing installments from {current_total_installments} to {updated_expense.installments}")
+
+            for i in range(current_total_installments, updated_expense.installments, -1):
                 excess_child = child_expenses[i - 2]
-                print(f"Deleting excess installment {i - 2}: {excess_child.description}")
+                print(f"Deleting excess installment {i}: {excess_child.description}")
                 if excess_child.id is None:
                     raise ValueError("Expense ID cannot be None")
                 self.repository.delete_expense(excess_child.id)
 
+                # Get and recalculate the monthly share for this installment
+                installment_date = updated_expense.date + relativedelta(months=i)
+                monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
+                if monthly_share:
+                    self.recalculate_monthly_share(monthly_share)
+
         # Update the first installment with the per-installment amount
         updated_expense.amount = amount_per_installment
         updated_expense.description = f"{base_description} (1/{updated_expense.installments})"
+        print("Updating first installment:")
         self.repository.update_expense(updated_expense)
 
+        # recalculate monthly share
+        installment_date = updated_expense.date + relativedelta(months=1)
+        monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
+        if monthly_share:
+            self.recalculate_monthly_share(monthly_share)
+
         # Update remaining child installments
-        for i in range(updated_expense.installments - 1):  # -1 because first installment is already handled
+        for i in range(
+            updated_expense.installments - 1
+        ):  # from 1 because first installment (position 0) is already handled
             if i < len(child_expenses):
                 child = child_expenses[i]
                 child.description = f"{base_description} ({i + 2}/{updated_expense.installments})"
@@ -234,6 +264,8 @@ class ExpenseManager:
                 monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
                 if monthly_share:
                     self.recalculate_monthly_share(monthly_share)
+
+        print("Check if we need to create new installments...")
 
         # If we're increasing installments, create new ones
         if updated_expense.installments > (len(child_expenses) + 1):  # +1 to account for the parent expense
@@ -260,12 +292,6 @@ class ExpenseManager:
                 monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
                 if monthly_share:
                     self.recalculate_monthly_share(monthly_share)
-
-        # Recalculate the monthly share for the first installment
-        first_installment_date = updated_expense.date + relativedelta(months=1)
-        monthly_share = self.get_monthly_balance(first_installment_date.year, first_installment_date.month)
-        if monthly_share:
-            self.recalculate_monthly_share(monthly_share)
 
         print("\n=== Credit expense update process completed ===")
         return updated_expense

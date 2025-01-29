@@ -49,7 +49,7 @@ class TestExpenseManager:
             split_strategy=EqualSplit(),
         )
 
-    def test_add_member(self, manager):
+    def test_add_member(self, manager: ExpenseManager):
         """
         GIVEN an ExpenseManager
         WHEN adding a new member
@@ -59,7 +59,7 @@ class TestExpenseManager:
         manager.add_member(new_member)
         assert manager.members[3] == new_member
 
-    def test_create_debit_expense(self, manager, debit_expense):
+    def test_create_debit_expense(self, manager: ExpenseManager, debit_expense: Expense):
         """
         GIVEN an ExpenseManager
         WHEN creating a debit expense
@@ -72,7 +72,7 @@ class TestExpenseManager:
         assert len(monthly_share.expenses) == 1
         assert monthly_share.expenses[0].amount == Decimal("100")
 
-    def test_create_credit_expense(self, manager, credit_expense):
+    def test_create_credit_expense(self, manager: ExpenseManager, credit_expense: Expense):
         """
         GIVEN an ExpenseManager
         WHEN creating a credit expense with installments
@@ -87,7 +87,7 @@ class TestExpenseManager:
             assert len(monthly_share.expenses) == 1
             assert monthly_share.expenses[0].amount == Decimal("100")  # 300/3 installments
 
-    def test_settle_monthly_share(self, manager, debit_expense):
+    def test_settle_monthly_share(self, manager: ExpenseManager, debit_expense: Expense):
         """
         GIVEN an ExpenseManager with expenses
         WHEN settling a monthly share
@@ -100,7 +100,7 @@ class TestExpenseManager:
         assert monthly_share is not None
         assert monthly_share.is_settled
 
-    def test_create_multiple_expenses(self, manager, debit_expense):
+    def test_create_multiple_expenses(self, manager: ExpenseManager, debit_expense: Expense):
         """
         GIVEN an ExpenseManager
         WHEN creating multiple expenses
@@ -118,7 +118,7 @@ class TestExpenseManager:
         assert monthly_share is not None
         assert len(monthly_share.expenses) == 2
 
-    def test_update_expense_recalculates_balances(self, manager, debit_expense):
+    def test_update_expense_recalculates_balances(self, manager: ExpenseManager, debit_expense: Expense):
         """
         GIVEN an ExpenseManager with existing expenses
         WHEN updating an expense
@@ -158,7 +158,9 @@ class TestExpenseManager:
         assert monthly_share.balances[str(1)] == 200.0  # Payer should have a balance of 200
         assert monthly_share.balances[str(2)] == -200.0  # Other member should owe 200
 
-    def test_delete_expense_recalculates_balances(self, manager, debit_expense, credit_expense):
+    def test_delete_expense_recalculates_balances(
+        self, manager: ExpenseManager, debit_expense: Expense, credit_expense: Expense
+    ):
         """
         GIVEN an ExpenseManager with existing expenses
         WHEN deleting an expense
@@ -174,7 +176,7 @@ class TestExpenseManager:
         assert len(monthly_share.expenses) == 2  # Ensure the expense is added
         print(monthly_share.balances)
         # Delete the expense
-        manager.delete_expense(debit_expense)
+        manager.delete_expense(debit_expense.id)
 
         # Check that the expense has been removed
         monthly_share = manager.get_monthly_balance(debit_expense.date.year, debit_expense.date.month)
@@ -189,7 +191,7 @@ class TestExpenseManager:
         assert monthly_share.balances[str(1)] == 50.0  # Payer should have a balance of 0
         assert monthly_share.balances[str(2)] == -50.0  # Other member should also have a balance of 0
 
-    def test_delete_expense__leaving_empty_balance(self, manager, debit_expense):
+    def test_delete_expense__leaving_empty_balance(self, manager: ExpenseManager, debit_expense: Expense):
         """
         GIVEN an ExpenseManager with existing expenses
         WHEN deleting an expense
@@ -204,7 +206,7 @@ class TestExpenseManager:
         assert len(monthly_share.expenses) == 1  # Ensure the expense is added
         print(monthly_share.balances)
         # Delete the expense
-        manager.delete_expense(debit_expense)
+        manager.delete_expense(debit_expense.id)
 
         # Check that the expense has been removed
         monthly_share = manager.get_monthly_balance(debit_expense.date.year, debit_expense.date.month)
@@ -218,7 +220,7 @@ class TestExpenseManager:
         # Check the balances after deletion
         assert monthly_share.balances == {}
 
-    def test_settle_monthly_share_updates_balances(self, manager, debit_expense):
+    def test_settle_monthly_share_updates_balances(self, manager: ExpenseManager, debit_expense: Expense):
         """
         GIVEN an ExpenseManager with an expense
         WHEN settling a monthly share
@@ -243,7 +245,7 @@ class TestExpenseManager:
         assert monthly_share.balances[str(1)] == 0.0  # Payer should have a balance of 0
         assert monthly_share.balances[str(2)] == 0.0  # Other member should owe 100
 
-    def test_settle_monthly_share_creates_balancing_expense(self, manager):
+    def test_settle_monthly_share_creates_balancing_expense(self, manager: ExpenseManager):
         """
         GIVEN an ExpenseManager with expenses
         WHEN settling a monthly share with balances

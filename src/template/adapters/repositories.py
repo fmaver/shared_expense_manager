@@ -1,4 +1,5 @@
 """Repository adapter"""
+
 from datetime import date
 from typing import Dict, List, Optional
 
@@ -257,12 +258,12 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
     def update_expense(self, expense: Expense) -> None:
         """Update an existing expense in the database."""
-        print(f"Updating expense: {expense.description} (ID: {expense.id})")
 
         # Fetch the existing expense from the database
         db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense.id).first()
         if not db_expense:
             raise ValueError(f"Expense with ID {expense.id} not found.")
+        print(f"Updating expense {db_expense.description} (ID: {db_expense.id}) as {expense.description}")
 
         # Update the fields of the existing expense
         db_expense.description = expense.description

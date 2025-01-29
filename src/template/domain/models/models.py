@@ -90,7 +90,7 @@ class MonthlyShare:
         for expense in self.expenses:
             self.calculate_share_for_expense(expense, members)
 
-        print(f"Recalculated balances for {self.period_key}: {self.balances}")
+        # print(f"Recalculated balances for {self.period_key}: {self.balances}")
         for member_id, balance in self.balances.items():
             print(f"{members[int(member_id)].name}: {balance}")
 
@@ -108,4 +108,4 @@ class MonthlyShare:
             member_id_str = str(member_id)
             self.balances.setdefault(member_id_str, 0)
             self.balances[member_id_str] = round(self.balances[member_id_str] - share, 2)
-        print(f"Expense {expense.id} recalculated balances: {self.balances}")
+        # print(f"Expense {expense.id} recalculated balances: {self.balances}")

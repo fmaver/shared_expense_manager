@@ -1,6 +1,7 @@
 """
 Pytest Fixtures.
 """
+
 from datetime import date
 from typing import Dict, List, Optional
 from unittest.mock import patch
@@ -69,7 +70,12 @@ def mock_repository():  # noqa: F811, C901
         def delete_expense(self, expense_id: int) -> None:
             """Mock implementation to delete an expense."""
             print(f"deleting the expense {expense_id}")
+            # Remove from repository's expenses list
             self.expenses = [expense for expense in self.expenses if expense.id != expense_id]
+
+            # Remove from monthly shares
+            for monthly_share in self.monthly_shares.values():
+                monthly_share.expenses = [expense for expense in monthly_share.expenses if expense.id != expense_id]
 
         def get_expense(self, expense_id: int) -> Optional[Expense]:
             """Mock implementation to get an expense by ID."""
