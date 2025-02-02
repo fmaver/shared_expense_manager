@@ -1,6 +1,6 @@
 """Module for managing expense categories."""
 
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 
 class Category:
@@ -19,15 +19,33 @@ class Category:
 
     _internal_categories: Set[str] = {"balance", "prestamo"}
 
+    # Emoji mapping for each category
+    _category_emojis: Dict[str, str] = {
+        "auto": "🚙",
+        "casa": "🏠",
+        "salidas": "🍽️",
+        "compras": "🛒",
+        "mascota": "🐾",
+        "entretenimiento": "🎮",
+        "prestamo": "💰",
+        "shopping": "🛍️",
+        "balance": "💵",
+        "otros": "📦",
+    }
+
     @classmethod
-    def add_category(cls, name: str) -> None:
+    def add_category(cls, name: str, emoji: Optional[str] = None) -> None:
         """Add a new category to the list of valid categories.
 
         Args:
             name: The name of the category to add
+            emoji: Optional emoji for the category
         """
-        if name.lower() not in cls._categories:
-            cls._categories.append(name.lower())
+        name = name.lower()
+        if name not in cls._categories:
+            cls._categories.append(name)
+            if emoji:
+                cls._category_emojis[name] = emoji
 
     @classmethod
     def get_categories(cls) -> List[str]:
@@ -49,50 +67,57 @@ class Category:
 
     @classmethod
     def get_numbered_categories(cls, include_internal: bool = False) -> List[Tuple[int, str]]:
-        """Return all categories with their corresponding numbers.
+        """Return a list of tuples containing category numbers and names.
 
         Args:
-            include_internal: Whether to include internal categories like 'balance' and 'prestamo'
+            include_internal: Whether to include internal categories
 
         Returns:
-            List[Tuple[int, str]]: List of tuples containing (number, category_name)
+            List[Tuple[int, str]]: List of tuples (number, category_name)
         """
         categories = cls._categories if include_internal else cls.get_user_categories()
-        return [(i + 1, cat) for i, cat in enumerate(categories)]
+        return list(enumerate(categories, start=1))
+
+    @classmethod
+    def get_numbered_categories_with_emoji(cls, include_internal: bool = False) -> List[Tuple[int, str, str]]:
+        """Return a list of tuples containing category numbers, names, and emojis.
+
+        Args:
+            include_internal: Whether to include internal categories
+
+        Returns:
+            List[Tuple[int, str, str]]: List of tuples (number, category_name, emoji)
+        """
+        categories = cls._categories if include_internal else cls.get_user_categories()
+        return [(i, cat, cls._category_emojis.get(cat, "")) for i, cat in enumerate(categories, start=1)]
 
     @classmethod
     def get_category_by_number(cls, number: int, include_internal: bool = False) -> Optional[str]:
         """Get a category name by its number.
 
         Args:
-            number: The number of the category (1-based index)
-            include_internal: Whether to include internal categories in the numbering
+            number: The category number (1-based)
+            include_internal: Whether to include internal categories
 
         Returns:
-            Optional[str]: The category name if found, None otherwise
+            Optional[str]: The category name, or None if not found
         """
         categories = cls._categories if include_internal else cls.get_user_categories()
-        try:
+        if 1 <= number <= len(categories):
             return categories[number - 1]
-        except IndexError:
-            return None
+        return None
 
     @classmethod
-    def get_category_number(cls, category: str, include_internal: bool = False) -> Optional[int]:
-        """Get the number for a given category name.
+    def get_category_emoji(cls, category: str) -> str:
+        """Get the emoji for a category.
 
         Args:
-            category: The name of the category
-            include_internal: Whether to include internal categories in the numbering
+            category: The category name
 
         Returns:
-            Optional[int]: The category number (1-based index) if found, None otherwise
+            str: The emoji for the category, or empty string if not found
         """
-        categories = cls._categories if include_internal else cls.get_user_categories()
-        try:
-            return categories.index(category.lower()) + 1
-        except ValueError:
-            return None
+        return cls._category_emojis.get(category.lower(), "")
 
     @classmethod
     def is_valid_category(cls, category: str) -> bool:

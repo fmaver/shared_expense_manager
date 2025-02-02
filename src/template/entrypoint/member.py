@@ -1,4 +1,5 @@
 """Member entrypoint"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -17,5 +18,8 @@ async def get_members(db: Session = Depends(get_db)) -> ResponseModel[list[Membe
     members = repository.list()
 
     return ResponseModel(
-        data=[MemberResponse(id=member.id, name=member.name, telephone=member.telephone) for member in members]
+        data=[
+            MemberResponse(id=member.id, name=member.name, telephone=member.telephone, email=member.email)
+            for member in members
+        ]
     )

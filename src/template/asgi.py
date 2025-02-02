@@ -70,20 +70,15 @@ def get_application() -> FastAPI:
 
     settings = ApplicationSettings()
 
-    license_info: dict[str, str] = settings.PROJECT_LICENSE.model_dump(mode="json")
-    contact_info: dict[str, str] = settings.PROJECT_CONTACT.model_dump(mode="json")
-
     app = FastAPI(
         title=settings.PROJECT_NAME,
         description=settings.PROJECT_DESCRIPTION,
-        debug=settings.DEBUG,
         version=settings.VERSION,
         docs_url=settings.DOCS_URL,
         lifespan=lifespan,
-        license_info=license_info,
-        contact=contact_info,
     )
 
+    # Configure CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -94,11 +89,11 @@ def get_application() -> FastAPI:
             "*",
         ],  # Add your frontend URL
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-        allow_headers=["Content-Type", "Authorization", "Accept"],
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
-    log.debug("Add application routes.")
+    # Include routers
     app.include_router(root_router)
     app.include_router(api_router_v1)
 

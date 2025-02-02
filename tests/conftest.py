@@ -1,6 +1,7 @@
 """
 Pytest Fixtures.
 """
+
 from datetime import date
 from typing import Dict, List, Optional
 from unittest.mock import patch
@@ -66,17 +67,26 @@ def mock_repository():  # noqa: F811, C901
                     self.expenses[i] = expense
                     break
 
-        def delete_expense(self, expense_to_delete: Expense) -> None:
+        def delete_expense(self, expense_id: int) -> None:
             """Mock implementation to delete an expense."""
-            print(f"deleting the expense {expense_to_delete.id}")
-            self.expenses = [expense for expense in self.expenses if expense.id != expense_to_delete.id]
+            print(f"deleting the expense {expense_id}")
+            # Remove from repository's expenses list
+            self.expenses = [expense for expense in self.expenses if expense.id != expense_id]
 
-        def get_expense(self, expense_id: int) -> Expense:
+            # Remove from monthly shares
+            for monthly_share in self.monthly_shares.values():
+                monthly_share.expenses = [expense for expense in monthly_share.expenses if expense.id != expense_id]
+
+        def get_expense(self, expense_id: int) -> Optional[Expense]:
             """Mock implementation to get an expense by ID."""
             for expense in self.expenses:
                 if expense.id == expense_id:
                     return expense
-            raise ValueError("Expense not found")
+            return None
+
+        def get_child_expenses(self, parent_expense_id: int) -> List[Expense]:
+            """Get all child expenses for a given parent expense ID."""
+            return [expense for expense in self.expenses if expense.parent_expense_id == parent_expense_id]
 
         def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
             """Mock implementation to get expenses by date."""

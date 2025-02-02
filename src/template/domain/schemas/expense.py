@@ -22,6 +22,13 @@ class CategoryResponse(CamelCaseModel):
     categories: list[str]
 
 
+class CategoryWithEmojiResponse(CamelCaseModel):
+    """Response model for categories with emojis."""
+
+    name: str
+    emoji: str
+
+
 class ExpenseCreate(CamelCaseModel):
     description: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
@@ -44,6 +51,7 @@ class ExpenseResponse(CamelCaseModel):
     installments: int
     installment_no: int = 1
     split_strategy: SplitStrategySchema
+    parent_expense_id: Optional[int] = None
 
 
 class MonthlyBalanceResponse(CamelCaseModel):

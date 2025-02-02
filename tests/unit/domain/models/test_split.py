@@ -10,9 +10,9 @@ class TestSplitStrategies:
     @pytest.fixture
     def members(self):
         return [
-            Member(id=1, name="John", telephone="+1234567890"),
-            Member(id=2, name="Jane", telephone="+1234567891"),
-            Member(id=3, name="Bob", telephone="+1234567892"),
+            Member(id=1, name="John", telephone="+1234567890", email="john@example.com"),
+            Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"),
+            Member(id=3, name="Bob", telephone="+1234567892", email="bob@example.com"),
         ]
 
     def test_equal_split(self, members):

@@ -13,8 +13,8 @@ class TestMonthlyShare:
     @pytest.fixture
     def members(self):
         return {
-            1: Member(id=1, name="John", telephone="+1234567890"),
-            2: Member(id=2, name="Jane", telephone="+1234567891"),
+            1: Member(id=1, name="John", telephone="+1234567890", email="john@example.com"),
+            2: Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"),
         }
 
     @pytest.fixture

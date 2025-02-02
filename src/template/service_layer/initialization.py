@@ -34,20 +34,33 @@ class InitializationService:
         """Initialize default members if they don't exist."""
 
         default_members = [
-            {"id": 1, "name": "Fran", "telephone": "+1234567890"},
-            {"id": 2, "name": "Guadi", "telephone": "+1234567891"},
+            {"id": 1, "name": "Fran", "telephone": "5491138718498", "email": "franciscomaver.fm@gmail.com"},
+            {"id": 2, "name": "Guadi", "telephone": "5491122766501", "email": "g.rodriguezmazza@gmail.com"},
         ]
 
         for member_data in default_members:
-            # Check if member already exists
-            existing = db.query(MemberModel).filter_by(id=member_data["id"]).first()
-            if not existing:
+            # First try to find by ID
+            existing = db.query(MemberModel).filter(MemberModel.id == member_data["id"]).first()
+
+            if existing:
+                # Member exists, check if it needs email update
+                if not hasattr(existing, "email") or not existing.email:
+                    log.info("Updating existing member %s with email information", existing.name)
+                    existing.email = member_data["email"]
+                    db.add(existing)
+            else:
+                # Member doesn't exist, create new
                 member = MemberModel(**member_data)
                 db.add(member)
-                log.debug("Added default member: %s (ID: %d)", member.name, member.id)
-                print(f"Added default member: {member.name} (ID: {member.id})")
+                log.info("Added default member: %s (ID: %d)", member.name, member.id)
 
-        db.commit()
+        try:
+            db.commit()
+            log.info("Successfully initialized/updated default members")
+        except Exception as e:
+            db.rollback()
+            log.error("Error initializing/updating default members: %s", str(e))
+            raise
 
     @staticmethod
     def initialize_expense_manager(db: Session) -> ExpenseManager:

@@ -49,14 +49,14 @@ class TestExpenseService:
             split_strategy=SplitStrategySchema(type="equal"),
         )
 
-    def test_update_expense(self, service, debit_expense, expense_data):
-        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890"))
-        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891"))
+    def test_update_expense(self, service: ExpenseService, debit_expense, expense_data: ExpenseCreate):
+        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890", email="john@example.com"))
+        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"))
 
         service.create_expense(expense_data)
 
         expenses = service._manager.repository.get_expenses_by_date(expense_data.date)
-        assert len(service._manager.repository.expenses) == 1
+        assert len(expenses) == 1
         expense_id = expenses[0].id
 
         # Prepare updated expense data
@@ -78,9 +78,9 @@ class TestExpenseService:
         assert updated_expense.description == "Updated Test Debit"
         assert updated_expense.amount == 150.0
 
-    def test_delete_expense(self, service, debit_expense, expense_data):
-        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890"))
-        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891"))
+    def test_delete_expense(self, service: ExpenseService, debit_expense, expense_data):
+        service._manager.add_member(Member(id=1, name="John", telephone="+1234567890", email="john@example.com"))
+        service._manager.add_member(Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"))
 
         # Create the expense
         service.create_expense(expense_data)
