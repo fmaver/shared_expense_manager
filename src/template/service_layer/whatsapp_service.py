@@ -38,7 +38,6 @@ def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
         text = message["interactive"]["button_reply"]["title"]
     else:
         text = "mensaje no procesado"
-
     return text
 
 
@@ -52,14 +51,12 @@ def obtener_media_id(file_path: str) -> Tuple[str, int]:
             raise ValueError("WHATSAPP_TOKEN environment variable is not set")
         if url is None:
             raise ValueError("WHATSAPP_URL_MEDIA environment variable is not set")
-
         headers = {"Authorization": "Bearer " + whatsapp_token}
 
         with open(file_path, "rb") as file:
             files = {
                 "file": (file_path, file, "application/pdf", {"Expires": "0"}),
             }
-
             upload_media = requests.post(
                 url,
                 data={
@@ -70,7 +67,6 @@ def obtener_media_id(file_path: str) -> Tuple[str, int]:
                 headers=headers,
                 timeout=5,
             )
-
         if upload_media.status_code == 200:
             upload_media_data = upload_media.json()
             document_id = upload_media_data.get("id")
@@ -95,8 +91,6 @@ def enviar_mensaje_whatsapp(data: str) -> Dict[str, Any]:
         headers = {"Content-Type": "application/json", "Authorization": "Bearer " + whatsapp_token}
         print("se envia ", data)
         response = requests.post(whatsapp_url, headers=headers, data=data, timeout=5)
-
-        # Log the response
         print("WhatsApp API response:", response.status_code, response.text)
 
         if response.status_code == 200:
@@ -239,6 +233,21 @@ def mark_read_message(message_id: str) -> str:
     return data
 
 
+def get_payer_id_from_name(name: str, expense_service: ExpenseService) -> int | None:
+    """get payer id from name"""
+    members_dict = expense_service.get_member_names()
+    for member_id, member_name in members_dict.items():
+        if name in member_name.lower():
+            return member_id
+    return None
+
+
+def get_payer_name_from_id(payer_id: int, expense_service: ExpenseService) -> str:
+    """get payer name from id"""
+    members_dict = expense_service.get_member_names()
+    return members_dict.get(payer_id, "Desconocido")
+
+
 # pylint: disable=too-many-branches, too-many-statements
 # flake8: noqa: C901
 def administrar_chatbot(
@@ -299,8 +308,10 @@ def administrar_chatbot(
         responses, estado_actual_usuario = handle_waiting_for_description(number, estado_actual_usuario, text)
         user_responses.extend(responses)
 
-    elif estado_actual_usuario["estado"] == "esperando_pagador" and ("fran" in text.lower() or "guadi" in text.lower()):
-        responses, estado_actual_usuario = handle_waiting_for_payer(number, estado_actual_usuario, message_id, text)
+    elif estado_actual_usuario["estado"] == "esperando_pagador":
+        responses, estado_actual_usuario = handle_waiting_for_payer(
+            number, estado_actual_usuario, message_id, text, service
+        )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_fecha_pago" and re.match(r"^\d{2}-\d{2}-\d{4}$", text):
@@ -353,7 +364,6 @@ def create_expense(estado_actual_usuario: Dict[str, Any], service: ExpenseServic
     payment_type = (
         PaymentType.CREDIT if estado_actual_usuario["expense_data"]["payment_type"] == "crédito" else PaymentType.DEBIT
     )
-
     expense_data = ExpenseCreate(
         description=estado_actual_usuario["expense_data"]["description"],
         amount=estado_actual_usuario["expense_data"]["amount"],
@@ -364,11 +374,10 @@ def create_expense(estado_actual_usuario: Dict[str, Any], service: ExpenseServic
         installments=estado_actual_usuario["expense_data"]["installments"],
         split_strategy=SplitStrategySchema(**split_strategy_dict),
     )
-
     service.create_expense(expense_data)
 
 
-# al parecer para mexico, whatsapp agrega 521 como prefijo en lugar de 52,
+# al parecer para Argentina, whatsapp agrega 549 como prefijo en lugar de 54,
 # este codigo soluciona ese inconveniente.
 def replace_start(s: str) -> str:
     """replace starting number"""
@@ -653,6 +662,7 @@ def handle_waiting_for_description(
         body = "👤 ¿Quién realizó el préstamo?\n\nSelecciona la persona que prestó el dinero ⬇️"
 
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
+    # TODO: in future avoid harcoded values (remember if there are more then 3 members, cant show options like this)
     options = ["👨🏽‍💻 Fran", "👷🏽‍♀️ Guadi"]
 
     estado_actual_usuario["estado"] = "esperando_pagador"
@@ -663,13 +673,21 @@ def handle_waiting_for_description(
 
 
 def handle_waiting_for_payer(
-    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str
+    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, service: ExpenseService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for payer"""
     user_responses = []
-    estado_actual_usuario["expense_data"]["payer_id"] = (
-        1 if "fran" in text.lower() else 2
-    )  # revisar si es la mejor forma de hacerlo
+
+    payer_id = get_payer_id_from_name(text.lower(), service)
+
+    if payer_id is None:
+        error_message = text_message(
+            number, "❌ No se encontró a la persona seleccionada. Por favor, intenta de nuevo."
+        )
+        user_responses.append(error_message)
+        return user_responses, estado_actual_usuario
+
+    estado_actual_usuario["expense_data"]["payer_id"] = payer_id
 
     body = """📅 ¿Cuándo se realizó el gasto?\n
 Por favor, ingresa la fecha en el formato: DD-MM-AAAA\n
@@ -693,6 +711,7 @@ def handle_waiting_for_payment_date(
         # SI ES UN PRESTAMO, LUEGO DE LA FECHA YA PODEMOS CARGARLO ##
         if estado_actual_usuario["expense_data"]["service"] == "prestar plata":
             print("cargando el prestamo...")
+            # TODO: not sure if this is the best way to do it
             id_of_not_payer = 1 if estado_actual_usuario["expense_data"]["payer_id"] == 2 else 2
 
             split_strategy_dict = {
@@ -704,12 +723,8 @@ def handle_waiting_for_payment_date(
             estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
 
             # Instead of creating the expense immediately, show summary and ask for confirmation
-            summary = get_expense_summary(estado_actual_usuario["expense_data"])
-            payer_name = "Fran" if estado_actual_usuario["expense_data"]["payer_id"] == 1 else "Guadi"
-            other_name = "Guadi" if payer_name == "Fran" else "Fran"
-            summary += f"""\n\n💡 División: {other_name} pagará el 100% (préstamo)\n\n
-¿Confirmas que los datos son correctos?
-"""
+            summary = get_expense_summary(estado_actual_usuario["expense_data"], service)
+            summary += """\n¿Confirmas que los datos son correctos?"""
 
             reply_button_data = button_reply_message(
                 number, ["✅ Sí, crear préstamo", "❌ No, cancelar"], summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1"
@@ -729,13 +744,11 @@ def handle_waiting_for_payment_date(
             user_responses.append(reply_text_message(number, message_id, body))
 
             estado_actual_usuario["estado"] = "esperando_categoria"
-
     except ValueError:
         user_responses.append(
             text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con\nDD-MM-AAAA.")
         )
         return user_responses, estado_actual_usuario
-
     return user_responses, estado_actual_usuario
 
 
@@ -746,8 +759,7 @@ def handle_waiting_for_category(
     user_responses = []
     print("esperando_categoria")
 
-    # Try to get category by number first
-    try:
+    try:  # Try to get category by number first
         category_number = int(text)
         category = Category.get_category_by_number(category_number)
         if category:
@@ -755,7 +767,6 @@ def handle_waiting_for_category(
         else:
             raise ValueError
     except ValueError:
-        # If not a number or invalid number, try as category name
         text = text.lower()
         if Category.is_valid_category(text):
             estado_actual_usuario["expense_data"]["category"] = text
@@ -788,14 +799,15 @@ def handle_waiting_for_payment_type(
     user_responses = []
 
     print("esperando_tipo_pago")
-    estado_actual_usuario["expense_data"]["payment_type"] = text.lower()
 
     if "crédito" in text.lower():
+        estado_actual_usuario["expense_data"]["payment_type"] = "crédito"
         body = "📅 Por favor, indica el número de cuotas (1-12)"
         reply_text = reply_text_message(number, message_id, body)
         user_responses.append(reply_text)
         estado_actual_usuario["estado"] = "esperando_cuotas"
     else:
+        estado_actual_usuario["expense_data"]["payment_type"] = "debito"
         body = "📊 ¿Cómo deseas dividir el gasto?"
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
         options = ["🔄 Partes Iguales", "📊 Porcentajes"]
@@ -813,7 +825,6 @@ def handle_waiting_for_installments(
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for installments"""
     user_responses = []
-
     print("esperando_cuotas")
     try:
         estado_actual_usuario["expense_data"]["installments"] = int(text)
@@ -836,11 +847,12 @@ def handle_waiting_for_installments(
     return user_responses, estado_actual_usuario
 
 
-def get_expense_summary(expense_data: Dict[str, Any]) -> str:
+def get_expense_summary(expense_data: Dict[str, Any], service: ExpenseService) -> str:
     """Generate a summary of the expense for confirmation"""
     category = expense_data.get("category", "")
     category_emoji = Category.get_category_emoji(category)
     category_display = f"{category.capitalize()} {category_emoji}" if category_emoji else category.capitalize()
+    payer_name = get_payer_name_from_id(expense_data.get("payer_id", ""), service)
 
     summary = [
         "📝 *Resumen del gasto:*",
@@ -848,7 +860,7 @@ def get_expense_summary(expense_data: Dict[str, Any]) -> str:
         f"💰 Monto: ${expense_data.get('amount', 0):.2f}",
         f"📅 Fecha: {expense_data.get('date', '')}",
         f"📂 Categoría: {category_display}",
-        f"👤 Pagador: {expense_data.get('payer_name', '')}",
+        f"👤 Pagador: {payer_name}",
         f"💳 Método de pago: {expense_data.get('payment_type', '')}",
     ]
 
@@ -891,7 +903,7 @@ def handle_waiting_for_split_strategy(
         estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
 
         # Instead of creating the expense, show summary and ask for confirmation
-        summary = get_expense_summary(estado_actual_usuario["expense_data"])
+        summary = get_expense_summary(estado_actual_usuario["expense_data"], service)
         summary += "\n\n💡 División: Equitativa"
 
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
@@ -913,11 +925,11 @@ def handle_waiting_for_percentage(
     print("esperando_porcentaje")
     try:
         payer_percentage = float(text)
+        # TODO: in future avoid harcoded values
         id_of_not_payer = 1 if estado_actual_usuario["expense_data"]["payer_id"] == 2 else 2
 
         if not 0 <= payer_percentage <= 100:
             raise ValueError("El porcentaje debe estar entre 0 y 100")
-
         strategy_dict = {
             "type": "percentage",
             "percentages": {
@@ -928,13 +940,8 @@ def handle_waiting_for_percentage(
         estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
 
         # Instead of creating the expense, show summary and ask for confirmation
-        summary = get_expense_summary(estado_actual_usuario["expense_data"])
-        payer_name = "Fran" if estado_actual_usuario["expense_data"]["payer_id"] == 1 else "Guadi"
-        other_name = "Guadi" if payer_name == "Fran" else "Fran"
-        summary += f"""\n\n💡 División:\n{payer_name}: {payer_percentage}%, {other_name}: {100 - payer_percentage}%
-                        \n\n¿Confirmas que los datos son correctos?
-                    """
-
+        summary = get_expense_summary(estado_actual_usuario["expense_data"], service)
+        summary += """\n¿Confirmas que los datos son correctos?"""
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
 
         reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
@@ -962,7 +969,6 @@ def handle_waiting_for_confirmation(
         body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
-
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
 
