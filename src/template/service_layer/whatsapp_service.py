@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """wpp service"""
 
 import json
@@ -305,7 +306,7 @@ def administrar_chatbot(
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_descripcion":
-        responses, estado_actual_usuario = handle_waiting_for_description(number, estado_actual_usuario, text)
+        responses, estado_actual_usuario = handle_waiting_for_description(number, estado_actual_usuario, text, service)
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_pagador":
@@ -650,7 +651,7 @@ def handle_waiting_for_amount(
 
 
 def handle_waiting_for_description(
-    number: str, estado_actual_usuario: Dict[str, Any], text: str
+    number: str, estado_actual_usuario: Dict[str, Any], text: str, expense_service: ExpenseService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle wiaitng for desc"""
     user_responses = []
@@ -662,8 +663,9 @@ def handle_waiting_for_description(
         body = "👤 ¿Quién realizó el préstamo?\n\nSelecciona la persona que prestó el dinero ⬇️"
 
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
-    # TODO: in future avoid harcoded values (remember if there are more then 3 members, cant show options like this)
-    options = ["👨🏽‍💻 Fran", "👷🏽‍♀️ Guadi"]
+    # TODO: in future: remember if there are more then 3 members, cant show options like this
+    members_dict = expense_service.get_member_names()
+    options = list(members_dict.values())
 
     estado_actual_usuario["estado"] = "esperando_pagador"
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
