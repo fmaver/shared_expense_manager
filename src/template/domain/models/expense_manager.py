@@ -87,7 +87,8 @@ class ExpenseManager:
         return first_installment
 
     def _add_to_monthly_share(self, expense: Expense, share_date: date) -> None:
-        """Add expense to monthly share and save both."""
+        """Create monthly Share if doesn't exists.
+        Add expense to monthly share and save both."""
         print("creating balance expenses..")
         # Get or create monthly share for the given date
         monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
@@ -155,35 +156,38 @@ class ExpenseManager:
 
     def add_member(self, member: Member) -> None:
         """Adds a new member and recalculates all active monthly shares"""
+        # TODO -> Ideally, when adding a new member, we shoudln't recalculate balances.
+        # ALSO like this, is not being persisted the new member in the DB
         self.members[member.id] = member
 
         # Recalculate balances for all active monthly shares
         monthly_shares = self.repository.get_all_monthly_shares()
         for monthly_share in monthly_shares.values():
             if not monthly_share.is_settled:
-                monthly_share.recalculate_balances(self.members)
-                self.repository.save_monthly_share(monthly_share)
+                self.recalculate_monthly_share(monthly_share)
 
     def update_expense(self, updated_expense: Expense) -> Expense:
-        """Update the expense and recalculate balances"""
+        """Update the expense and recalculate balances.
+        In this case the expense is either DEBIT or CREDIT with 1 installment"""
         self.repository.update_expense(updated_expense)
 
         if updated_expense.payment_type == PaymentType.DEBIT:
+            print("---- UPDATING DEBIT EXPENSE ----")
             # Fetch the monthly share associated with the expense
             monthly_share = self.get_monthly_balance(updated_expense.date.year, updated_expense.date.month)
         else:
-            installment_date = updated_expense.date + relativedelta(months=updated_expense.installment_no + 1)
+            print("---- UPDATING CREDIT EXPENSE WITH 1 INSTALLMENT ----")
+            installment_date = updated_expense.date + relativedelta(months=1)
             monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
+            print(f"The expense was created on: {updated_expense.date}")
 
         if monthly_share:  # Update the expense in the monthly share
+            print(f"We recalculate the monthly share for the date: {monthly_share.year}-{monthly_share.month}")
             for i, expense in enumerate(monthly_share.expenses):
                 if expense.id == updated_expense.id:  # Assuming Expense has an 'id' attribute
                     monthly_share.expenses[i] = updated_expense
                 break
-            # Recalculate balances for the monthly share
-            monthly_share.recalculate_balances(self.members)
-            # Save the updated monthly share
-            self.repository.save_monthly_share(monthly_share)
+            self.recalculate_monthly_share(monthly_share)
 
         return updated_expense
 
