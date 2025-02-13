@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 from template.domain.models.category import Category
 from template.domain.models.expense_manager import ExpenseManager
+from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare, PaymentType
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, PercentageSplit
@@ -84,6 +85,10 @@ class ExpenseService:
     def get_member_names(self) -> Dict[int, str]:
         """Devuelve un diccionario de miembros con su ID como clave y nombre como valor."""
         return {member.id: member.name for member in self._manager.members.values()}
+
+    def get_members(self) -> List[Member]:
+        """Devuelve una lista de miembros."""
+        return list(self._manager.members.values())
 
     def update_expense(self, expense_id: int, expense_data: ExpenseCreate) -> Expense:
         """Update an existing expense."""

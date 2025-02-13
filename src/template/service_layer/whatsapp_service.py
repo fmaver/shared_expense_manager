@@ -234,19 +234,40 @@ def mark_read_message(message_id: str) -> str:
     return data
 
 
-def get_payer_id_from_name(name: str, expense_service: ExpenseService) -> int | None:
+def get_payer_id_from_name(name: str, service: ExpenseService) -> int | None:
     """get payer id from name"""
-    members_dict = expense_service.get_member_names()
+    members_dict = service.get_member_names()
     for member_id, member_name in members_dict.items():
         if name in member_name.lower():
             return member_id
     return None
 
 
-def get_payer_name_from_id(payer_id: int, expense_service: ExpenseService) -> str:
+def get_payer_name_from_id(payer_id: int, service: ExpenseService) -> str:
     """get payer name from id"""
-    members_dict = expense_service.get_member_names()
+    members_dict = service.get_member_names()
     return members_dict.get(payer_id, "Desconocido")
+
+
+def validate_number_returning_member(number: str, service: ExpenseService) -> Optional[str]:
+    """
+    Validates if a member with the given number exists and returns their name.
+
+    Args:
+        number (str): The phone number to validate. i.e: 5491123456789
+        service (ExpenseService): The expense service instance
+
+    Returns:
+        Optional[str]: The member's name if found, None otherwise
+    """
+    # Get all members from the service
+    members_list = service.get_members()
+
+    # Check each member to find one with matching number
+    for member in members_list:
+        if number in member.telephone:
+            return member.name
+    return None
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -264,7 +285,7 @@ def administrar_chatbot(
     time.sleep(2)
 
     if "hola" in text.lower() or "inicio" in text.lower():
-        responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario)
+        responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, service)
         user_responses.extend(responses)
 
     elif "no gracias" in text.lower():
@@ -407,9 +428,20 @@ def clean_estado_usuario(estado_actual_usuario: Dict[str, Any]) -> Dict[str, Any
     return estado_actual_usuario
 
 
-def handle_greetings(number: str, estado_actual_usuario: Dict[str, Any]) -> Tuple[List[str], Dict[str, Any]]:
+def handle_greetings(
+    number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService
+) -> Tuple[List[str], Dict[str, Any]]:
     """handle greetings"""
     user_responses = []
+
+    member_name = validate_number_returning_member(number, service)
+
+    if not member_name:
+        body = """👋 ¡Hola! Tu número no está registrado en Jirens Shared Expenses.
+\n\nPara poder utilizar el servicio, por favor regístrate en:\nhttps://shared-expense-front.onrender.com/"""
+        response = text_message(number, body)
+        user_responses.append(response)
+        return user_responses, estado_actual_usuario
 
     body = "👋 ¡Hola! Bienvenido a Jirens Shared Expenses ✨\n¿Cómo podemos ayudarte hoy?"
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
