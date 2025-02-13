@@ -443,7 +443,7 @@ def handle_greetings(
         user_responses.append(response)
         return user_responses, estado_actual_usuario
 
-    body = "👋 ¡Hola! Bienvenido a Jirens Shared Expenses ✨\n¿Cómo podemos ayudarte hoy?"
+    body = f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨\n¿Cómo podemos ayudarte hoy?"
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
 
