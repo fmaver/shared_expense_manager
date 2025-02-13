@@ -266,6 +266,7 @@ def validate_number_returning_member(number: str, service: ExpenseService) -> Op
     # Check each member to find one with matching number
     for member in members_list:
         if number in member.telephone:
+            print(f"Found member: {member.name} with number: {member.telephone}")
             return member.name
     return None
 
@@ -434,6 +435,7 @@ def handle_greetings(
     """handle greetings"""
     user_responses = []
 
+    print(f"Validating number: {number}")
     member_name = validate_number_returning_member(number, service)
 
     if not member_name:
