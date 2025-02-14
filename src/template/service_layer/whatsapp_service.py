@@ -1,6 +1,7 @@
 # pylint: disable=too-many-lines
 """wpp service"""
 
+import asyncio
 import json
 import os
 import re
@@ -12,6 +13,7 @@ import requests
 
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
+from template.domain.models.member import Member
 from template.domain.models.models import MonthlyShare
 from template.domain.models.pdf_builder import ExpensePDF
 from template.domain.schemas.expense import (
@@ -20,6 +22,7 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.notification_service import NotificationService
 
 
 def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
@@ -249,6 +252,23 @@ def get_payer_name_from_id(payer_id: int, service: ExpenseService) -> str:
     return members_dict.get(payer_id, "Desconocido")
 
 
+def get_member_name_from_phone(number: str, members: Collection[Member]) -> Optional[Member]:
+    """Get member by phone number
+
+    Args:
+        number (str): The phone number to search for
+        members (Collection[Member]): The list of members to search in
+
+    Returns:
+        Optional[Member]: The member if found, None otherwise
+    """
+    # Find member by phone
+    for member in members:
+        if member.telephone and number in member.telephone:
+            return member
+    return None
+
+
 def validate_number_returning_member(number: str, service: ExpenseService) -> Optional[str]:
     """
     Validates if a member with the given number exists and returns their name.
@@ -382,7 +402,9 @@ def administrar_chatbot(
     return estado_actual_usuario  # noqa: C901
 
 
-def create_expense(estado_actual_usuario: Dict[str, Any], service: ExpenseService, split_strategy_dict: Dict[str, Any]):
+def create_expense(
+    number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService, split_strategy_dict: Dict[str, Any]
+):
     """create expense"""
     payment_type = (
         PaymentType.CREDIT if estado_actual_usuario["expense_data"]["payment_type"] == "crédito" else PaymentType.DEBIT
@@ -397,7 +419,19 @@ def create_expense(estado_actual_usuario: Dict[str, Any], service: ExpenseServic
         installments=estado_actual_usuario["expense_data"]["installments"],
         split_strategy=SplitStrategySchema(**split_strategy_dict),
     )
-    service.create_expense(expense_data)
+    expense = service.create_expense(expense_data)
+
+    # Get all members to notify
+    members = service.get_members()
+
+    # Get creator member by phone number
+    member_creator = get_member_name_from_phone(number, members)
+
+    # Send notifications asynchronously
+    if member_creator:
+        print("member_creator:", member_creator.name)
+        notification_service = NotificationService()
+        asyncio.create_task(notification_service.notify_expense_created(expense, members, member_creator, service))
 
 
 # al parecer para Argentina, whatsapp agrega 549 como prefijo en lugar de 54,
@@ -1000,7 +1034,7 @@ def handle_waiting_for_confirmation(
 
     if "crear" in text.lower():  # Confirmed
         split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
-        create_expense(estado_actual_usuario, service, split_strategy_dict=split_strategy)
+        create_expense(number, estado_actual_usuario, service, split_strategy_dict=split_strategy)
 
         body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]
