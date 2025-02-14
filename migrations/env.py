@@ -1,5 +1,6 @@
 """Alembic migrations environment."""
 
+import os
 from logging.config import fileConfig
 from typing import Any, Dict
 
@@ -7,7 +8,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from template.adapters.orm import Base
-from template.settings.database_settings import get_database_settings
+from template.settings.database_settings import DatabaseSettings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -27,7 +28,7 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-settings = get_database_settings()
+settings = DatabaseSettings(database_env="PROD", url=os.getenv("DATABASE_URL"))
 
 
 def run_migrations_offline() -> None:
@@ -42,7 +43,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = str(settings.DATABASE_URL)  # Convert to str to satisfy type checker
+    url = str(settings.url)  # Convert to str to satisfy type checker
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -62,7 +63,7 @@ def run_migrations_online() -> None:
 
     """
     configuration: Dict[str, Any] = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = str(settings.DATABASE_URL)  # Convert to str
+    configuration["sqlalchemy.url"] = str(settings.url)  # Convert to str
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
