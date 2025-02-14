@@ -22,7 +22,6 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
-from template.service_layer.notification_service import NotificationService
 
 
 def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
@@ -429,7 +428,10 @@ def create_expense(
 
     # Send notifications asynchronously
     if member_creator:
-        print("member_creator:", member_creator.name)
+        print("the member creator is: ", member_creator)
+        # pylint: disable=C0415  # Import outside toplevel
+        from template.service_layer.notification_service import NotificationService
+
         notification_service = NotificationService()
         asyncio.create_task(notification_service.notify_expense_created(expense, members, member_creator, service))
 
