@@ -109,7 +109,7 @@ class NotificationService:
             summary.append(f"📅 Cuotas: {expense.installments}")
 
         if isinstance(expense.split_strategy, PercentageSplit):
-            summary.append("\n💹 *Porcentajes de división:*")
+            summary.append("\n💹 Porcentajes de división:")
             for member_id, percentage in expense.split_strategy.percentages.items():
                 member_name = get_payer_name_from_id(int(member_id), service)
                 summary.append(f"- {member_name}: {percentage}%")
