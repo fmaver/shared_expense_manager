@@ -2,9 +2,14 @@
 Applicant Main File.
 """
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from template.asgi import get_application
+
+# Load environment variables from .env file
+load_dotenv()
+
 
 app: FastAPI = get_application()
 
@@ -20,8 +25,8 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "template.main:app",
-        host=str(settings.HOST),
-        port=settings.PORT,
-        log_level=settings.LOG_LEVEL,
-        reload=settings.RELOAD,
+        host=settings.host,
+        port=settings.port,
+        reload=settings.reload,
+        workers=settings.workers,
     )

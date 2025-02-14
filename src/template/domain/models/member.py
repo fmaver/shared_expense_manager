@@ -3,6 +3,7 @@
 from pydantic import EmailStr, Field
 
 from ..schema_model import CamelCaseModel
+from .enums import NotificationType
 
 
 class Member(CamelCaseModel):
@@ -13,3 +14,6 @@ class Member(CamelCaseModel):
     telephone: str = Field(..., pattern=r"^\+?1?\d{9,15}$", description="Telephone number of the member")
     email: EmailStr = Field(..., description="Email address of the member")
     hashed_password: str | None = Field(None, description="Hashed password for the member")
+    notification_preference: NotificationType = Field(
+        default=NotificationType.NONE, description="Preferred notification method for the member"
+    )
