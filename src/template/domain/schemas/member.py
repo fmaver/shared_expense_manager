@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, EmailStr
 
+from template.domain.models.enums import NotificationType
 from template.domain.schema_model import CamelCaseModel
 
 
@@ -9,6 +10,7 @@ class MemberBase(CamelCaseModel):
     name: str
     telephone: str
     email: EmailStr
+    notification_preference: NotificationType = NotificationType.NONE
 
 
 class MemberCreate(MemberBase):
@@ -19,6 +21,11 @@ class MemberUpdate(BaseModel):
     name: str | None = None
     telephone: str | None = None
     email: EmailStr | None = None
+    notification_preference: NotificationType | None = None
+
+
+class NotificationPreferenceUpdate(BaseModel):
+    notification_preference: NotificationType
 
 
 class PasswordUpdate(BaseModel):
@@ -38,6 +45,7 @@ class MemberResponse(MemberBase):
     name: str
     telephone: str
     email: EmailStr
+    notification_preference: NotificationType
 
     class Config:
         from_attributes = True

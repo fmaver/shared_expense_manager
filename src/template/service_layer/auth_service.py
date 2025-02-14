@@ -21,7 +21,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 
 class AuthService:
@@ -61,37 +61,23 @@ class AuthService:
             telephone=db_member.telephone,
             email=db_member.email,
             hashed_password=db_member.hashed_password,
+            notification_preference=db_member.notification_preference,
         )
 
     def update_member(self, member: Member, update_data: MemberUpdate) -> Member:
         """Update member information."""
-        # Get the ORM model
-        db_member = self.db.query(MemberModel).filter(MemberModel.id == member.id).first()
-        if not db_member:
-            raise HTTPException(status_code=404, detail="Member not found")
-
-        # Update the member information
-        if update_data.name is not None:
-            db_member.name = update_data.name
-        if update_data.telephone is not None:
-            db_member.telephone = update_data.telephone
+        # If email is being updated, check if it's already taken
         if update_data.email is not None:
-            # Check if email is already taken by another member
             existing = self.get_member_by_email(update_data.email)
             if existing and existing.id != member.id:
                 raise ValueError("Email already registered")
-            db_member.email = update_data.email
 
-        self.db.commit()
+        # Use the repository to update the member
+        updated_member = self.member_repository.update(member.id, update_data)
+        if not updated_member:
+            raise HTTPException(status_code=404, detail="Member not found")
 
-        # Return domain model
-        return Member(
-            id=db_member.id,
-            name=db_member.name,
-            telephone=db_member.telephone,
-            email=db_member.email,
-            hashed_password=db_member.hashed_password,
-        )
+        return updated_member
 
     def create_member(self, member: MemberCreate) -> Member:
         """Create a new member."""
@@ -99,25 +85,28 @@ class AuthService:
             email=member.email,
             name=member.name,
             telephone=member.telephone,
+            notification_preference=member.notification_preference,
             hashed_password=self.get_password_hash(member.password),
         )
         self.db.add(db_member)
         self.db.commit()
         self.db.refresh(db_member)
 
-        # Return domain model
         return Member(
             id=db_member.id,
             name=db_member.name,
             telephone=db_member.telephone,
             email=db_member.email,
             hashed_password=db_member.hashed_password,
+            notification_preference=db_member.notification_preference,
         )
 
     def authenticate_member(self, email: str, password: str) -> Optional[Member]:
-        """Authenticate a member by their email and password."""
+        """Authenticate a member."""
         member = self.get_member_by_email(email)
-        if not member or not member.hashed_password:
+        if not member:
+            return None
+        if not member.hashed_password:
             return None
         if not self.verify_password(password, member.hashed_password):
             return None

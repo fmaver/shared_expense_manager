@@ -1,7 +1,10 @@
 """Expense API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
+from template.adapters.database import get_db
+from template.adapters.repositories import MemberRepository
 from template.dependencies import get_expense_service
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
@@ -10,18 +13,38 @@ from template.domain.schemas.expense import (
     ExpenseResponse,
     SplitStrategySchema,
 )
+from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.notification_service import NotificationService
 
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ResponseModel[ExpenseResponse])
 async def create_expense(
-    expense_data: ExpenseCreate, service: ExpenseService = Depends(get_expense_service)
+    expense_data: ExpenseCreate,
+    background_tasks: BackgroundTasks,
+    service: ExpenseService = Depends(get_expense_service),
+    db: Session = Depends(get_db),
+    current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Create a new expense."""
     try:
         expense = service.create_expense(expense_data)
+
+        # Get all members to notify
+        member_repository = MemberRepository(db)
+        members = member_repository.list()
+
+        # Add notification task to background tasks
+        notification_service = NotificationService()
+        background_tasks.add_task(
+            notification_service.notify_expense_created,
+            expense=expense,
+            members=members,
+            creator=current_member,
+            service=service,
+        )
 
         # Create response data
         response_data = ExpenseResponse(

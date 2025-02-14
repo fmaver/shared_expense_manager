@@ -1,4 +1,4 @@
-"""Repository adapter"""
+"""Repository implementations."""
 
 from datetime import date
 from typing import Dict, List, Optional
@@ -11,6 +11,7 @@ from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, PercentageSplit
+from template.domain.schemas.member import MemberUpdate
 
 
 class MemberRepository:
@@ -22,7 +23,13 @@ class MemberRepository:
 
     def add(self, member: Member) -> Member:
         """Add a member to the repository."""
-        db_member = MemberModel(id=member.id, name=member.name, telephone=member.telephone, email=member.email)
+        db_member = MemberModel(
+            id=member.id,
+            name=member.name,
+            telephone=member.telephone,
+            email=member.email,
+            notification_preference=member.notification_preference,
+        )
         self.session.add(db_member)
         self.session.commit()
         return member
@@ -31,7 +38,13 @@ class MemberRepository:
         """Get a member by ID."""
         db_member = self.session.query(MemberModel).filter(MemberModel.id == member_id).first()
         if db_member:
-            return Member(id=db_member.id, name=db_member.name, telephone=db_member.telephone, email=db_member.email)
+            return Member(
+                id=db_member.id,
+                name=db_member.name,
+                telephone=db_member.telephone,
+                email=db_member.email,
+                notification_preference=db_member.notification_preference,
+            )
         return None
 
     def get_member_by_email(self, email: str) -> Optional[Member]:
@@ -44,13 +57,53 @@ class MemberRepository:
                 telephone=db_member.telephone,
                 email=db_member.email,
                 hashed_password=db_member.hashed_password,
+                notification_preference=db_member.notification_preference,
             )
         return None
 
     def list(self) -> List[Member]:
         """List all members."""
-        db_members = self.session.query(MemberModel).all()
-        return [Member(id=m.id, name=m.name, telephone=m.telephone, email=m.email) for m in db_members]
+        return [
+            Member(
+                id=m.id,
+                name=m.name,
+                telephone=m.telephone,
+                email=m.email,
+                notification_preference=m.notification_preference,
+            )
+            for m in self.session.query(MemberModel).all()
+        ]
+
+    def update(self, member_id: int, update_data: MemberUpdate) -> Optional[Member]:
+        """Update a member's information."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.id == member_id).first()
+        if not db_member:
+            return None
+
+        print("Updating member with fields:")
+        print(f"\tname: {update_data.name}")
+        print(f"\ttelephone: {update_data.telephone}")
+        print(f"\temail: {update_data.email}")
+        print(f"\tnotification_preference: {update_data.notification_preference}")
+
+        # Update only the fields that are provided
+        if update_data.name is not None:
+            db_member.name = update_data.name
+        if update_data.telephone is not None:
+            db_member.telephone = update_data.telephone
+        if update_data.email is not None:
+            db_member.email = update_data.email
+        if update_data.notification_preference is not None:
+            db_member.notification_preference = update_data.notification_preference
+
+        self.session.commit()
+        return Member(
+            id=db_member.id,
+            name=db_member.name,
+            telephone=db_member.telephone,
+            email=db_member.email,
+            notification_preference=db_member.notification_preference,
+        )
 
 
 class SQLAlchemyExpenseRepository(ExpenseRepository):

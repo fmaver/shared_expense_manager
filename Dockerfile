@@ -17,8 +17,9 @@ ENV ENV=${ENV} \
 
 # Deploy application
 WORKDIR $APP_DIR
-COPY pyproject.toml poetry.lock README.md ${APP_DIR}/
+COPY pyproject.toml poetry.lock README.md alembic.ini ${APP_DIR}/
 ADD src ${APP_DIR}/src
+ADD migrations ${APP_DIR}/migrations
 
 # System dependencies
 RUN pip install --disable-pip-version-check "poetry==$POETRY_VERSION"

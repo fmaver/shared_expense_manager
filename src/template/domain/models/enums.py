@@ -9,3 +9,11 @@ from enum import Enum
 class PaymentType(str, Enum):
     DEBIT = "debit"
     CREDIT = "credit"
+
+
+class NotificationType(str, Enum):
+    """Notification type for members."""
+
+    WHATSAPP = "whatsapp"
+    EMAIL = "email"
+    NONE = "none"
