@@ -28,9 +28,7 @@ def upgrade() -> None:
     # Add notification_preference column with default value
     op.add_column(
         "members",
-        sa.Column(
-            "notification_preference", notification_type, nullable=False, server_default=NotificationType.NONE.value
-        ),
+        sa.Column("notification_preference", notification_type, nullable=True, server_default=NotificationType.NONE),
     )
 
 

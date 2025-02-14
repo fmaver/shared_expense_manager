@@ -14,6 +14,6 @@ class PaymentType(str, Enum):
 class NotificationType(str, Enum):
     """Notification type for members."""
 
-    WHATSAPP = "whatsapp"
-    EMAIL = "email"
-    NONE = "none"
+    WHATSAPP = "WHATSAPP"
+    EMAIL = "EMAIL"
+    NONE = "NONE"
