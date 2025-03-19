@@ -15,6 +15,11 @@ def get_repository(db: Session = Depends(get_db)) -> ExpenseRepository:
     return SQLAlchemyExpenseRepository(db)
 
 
+def get_member_repository(db: Session = Depends(get_db)) -> MemberRepository:
+    """Get member repository instance."""
+    return MemberRepository(db)
+
+
 def get_expense_service(
     repository: ExpenseRepository = Depends(get_repository),
 ) -> ExpenseService:
@@ -23,7 +28,7 @@ def get_expense_service(
 
 
 def get_member_service(
-    repository: MemberRepository = Depends(get_repository),
+    repository: MemberRepository = Depends(get_member_repository),
 ) -> MemberService:
     """Get member service instance."""
     return MemberService(repository)
