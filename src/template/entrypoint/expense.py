@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
 from template.adapters.repositories import MemberRepository
+from template.service_layer.member_service import MemberService
 from template.dependencies import get_expense_service, get_member_service
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
