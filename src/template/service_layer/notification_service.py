@@ -52,18 +52,29 @@ class NotificationService:
                 print(f"Sending WhatsApp notification to {member.telephone}")
                 last_interacted_with_wpp = member_service.get_last_wpp_chat_time(member)
                 time_now = datetime.now(timezone.utc)
+                
+                # Ensure last_interacted_with_wpp is timezone-aware
+                if last_interacted_with_wpp and not last_interacted_with_wpp.tzinfo:
+                    last_interacted_with_wpp = last_interacted_with_wpp.replace(tzinfo=timezone.utc)
+                
                 print(f"Last interaction: {last_interacted_with_wpp}")
                 print(f"Time now: {time_now}")
-                print(f"Time difference: {(time_now - last_interacted_with_wpp).days}")
+                
+                # Only calculate time difference if last_interacted_with_wpp exists
+                time_difference_days = None
+                if last_interacted_with_wpp:
+                    time_difference_days = (time_now - last_interacted_with_wpp).days
+                    print(f"Time difference: {time_difference_days} days")
 
-                if last_interacted_with_wpp is None or (time_now - last_interacted_with_wpp).days > 1:
-                    message = self._create_expense_message(expense, creator, member_service)
-                    print("Sending regular message")
-                    await self._send_whatsapp(member.telephone, message)
-                else:
+                if last_interacted_with_wpp is None or time_difference_days > 1:
                     parameters = self._create_expense_template_parameters(expense, creator, member_service)
                     print("Sending template message")
                     await self._send_whatsapp_template(member.telephone, parameters)
+
+                else:
+                    message = self._create_expense_message(expense, creator, member_service)
+                    print("Sending regular message")
+                    await self._send_whatsapp(member.telephone, message)
 
             else:
                 print("No notification sent (preference is NONE)")
