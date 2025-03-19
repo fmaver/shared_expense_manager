@@ -1,5 +1,7 @@
 """Module for managing members."""
 
+from datetime import datetime
+
 from pydantic import EmailStr, Field
 
 from ..schema_model import CamelCaseModel
@@ -17,3 +19,4 @@ class Member(CamelCaseModel):
     notification_preference: NotificationType = Field(
         default=NotificationType.NONE, description="Preferred notification method for the member"
     )
+    last_wpp_chat_datetime: datetime | None = Field(None, description="Last WhatsApp chat datetime")

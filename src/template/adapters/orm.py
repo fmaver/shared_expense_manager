@@ -1,8 +1,9 @@
 """ORM adapter"""
 
+from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, Date, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Date, DateTime, Enum, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from template.domain.models.enums import NotificationType, PaymentType
@@ -23,6 +24,7 @@ class MemberModel(Base):
     notification_preference: Mapped[NotificationType] = mapped_column(
         Enum(NotificationType), default=NotificationType.NONE
     )
+    last_wpp_chat_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expenses: Mapped[list["ExpenseModel"]] = relationship(back_populates="payer")
 
 

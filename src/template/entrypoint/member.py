@@ -30,6 +30,7 @@ async def get_members(db: Session = Depends(get_db)) -> ResponseModel[list[Membe
                 telephone=member.telephone,
                 email=member.email,
                 notification_preference=member.notification_preference,
+                last_wpp_chat_datetime=member.last_wpp_chat_datetime,
             )
             for member in members
         ]
@@ -46,6 +47,7 @@ async def get_current_member_info(current_member=Depends(get_current_member)) ->
             telephone=current_member.telephone,
             email=current_member.email,
             notification_preference=current_member.notification_preference,
+            last_wpp_chat_datetime=current_member.last_wpp_chat_datetime,
         )
     )
 
@@ -66,6 +68,7 @@ async def update_member_info(
                 telephone=updated_member.telephone,
                 email=updated_member.email,
                 notification_preference=updated_member.notification_preference,
+                last_wpp_chat_datetime=updated_member.last_wpp_chat_datetime,
             )
         )
     except ValueError as e:
@@ -90,5 +93,6 @@ async def update_password(
             telephone=updated_member.telephone,
             email=updated_member.email,
             notification_preference=updated_member.notification_preference,
+            last_wpp_chat_datetime=updated_member.last_wpp_chat_datetime,
         )
     )

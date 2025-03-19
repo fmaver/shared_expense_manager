@@ -8,8 +8,12 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-from template.dependencies import get_expense_service  # Import the dependency
+from template.dependencies import (  # Import the dependency
+    get_expense_service,
+    get_member_service,
+)
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_service import (
     administrar_chatbot,
     obtener_mensaje_whatsapp,
@@ -74,7 +78,9 @@ async def verificar_token(request: Request) -> str:
 
 @router.post("/webhook")
 async def recibir_mensajes(
-    request: Request, service: ExpenseService = Depends(get_expense_service)
+    request: Request,
+    service: ExpenseService = Depends(get_expense_service),
+    member_service: MemberService = Depends(get_member_service),
 ):  # Add service as a dependency
     """recieve messages"""
     try:
@@ -87,7 +93,7 @@ async def recibir_mensajes(
         message_id = message["id"]
         text = obtener_mensaje_whatsapp(message)
 
-        estado_nuevo = administrar_chatbot(text, number, message_id, estado_actual[number], service)
+        estado_nuevo = administrar_chatbot(text, number, message_id, estado_actual[number], service, member_service)
         estado_actual[number] = estado_nuevo
         return "enviado"
 
