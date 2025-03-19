@@ -1,5 +1,7 @@
 """Member schemas"""
 
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr
 
 from template.domain.models.enums import NotificationType
@@ -22,6 +24,7 @@ class MemberUpdate(BaseModel):
     telephone: str | None = None
     email: EmailStr | None = None
     notification_preference: NotificationType | None = None
+    last_wpp_chat_datetime: datetime | None = None
 
 
 class NotificationPreferenceUpdate(BaseModel):
@@ -46,6 +49,7 @@ class MemberResponse(MemberBase):
     telephone: str
     email: EmailStr
     notification_preference: NotificationType
+    last_wpp_chat_datetime: datetime | None = None
 
     class Config:
         from_attributes = True

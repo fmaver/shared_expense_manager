@@ -4,9 +4,10 @@ import os
 import re
 import smtplib
 import ssl
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List
+from typing import Any, Dict, List
 
 import certifi
 import requests
@@ -15,10 +16,10 @@ from template.domain.models.enums import NotificationType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense
 from template.domain.models.split import PercentageSplit
-from template.service_layer.expense_service import ExpenseService
+from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
-    get_payer_name_from_id,
+    template_message,
     text_message,
 )
 
@@ -35,19 +36,35 @@ class NotificationService:
         self.smtp_password = os.getenv("SMTP_PASSWORD", "")
 
     async def notify_expense_created(
-        self, expense: Expense, members: List[Member], creator: Member, service: ExpenseService
+        self, expense: Expense, members: List[Member], creator: Member, member_service: MemberService
     ) -> None:
         """Notify members about a new expense based on their notification preferences."""
-        message = self._create_expense_message(expense, creator, service)
 
         for member in members:
             if member.id == creator.id:
                 continue  # Skip the creator
 
             if member.notification_preference == NotificationType.EMAIL:
-                await self._send_email(member.email, "New Expense Added 🗂️", message)
+                message = self._create_expense_message(expense, creator, member_service)
+                await self._send_email(member.email, "Notificación de Gasto 🗂️", message)
+
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
-                await self._send_whatsapp(member.telephone, message)
+                print(f"Sending WhatsApp notification to {member.telephone}")
+                last_interacted_with_wpp = member_service.get_last_wpp_chat_time(member)
+                time_now = datetime.now(timezone.utc)
+                print(f"Last interaction: {last_interacted_with_wpp}")
+                print(f"Time now: {time_now}")
+                print(f"Time difference: {(time_now - last_interacted_with_wpp).days}")
+
+                if last_interacted_with_wpp is None or (time_now - last_interacted_with_wpp).days > 1:
+                    message = self._create_expense_message(expense, creator, member_service)
+                    print("Sending regular message")
+                    await self._send_whatsapp(member.telephone, message)
+                else:
+                    parameters = self._create_expense_template_parameters(expense, creator, member_service)
+                    print("Sending template message")
+                    await self._send_whatsapp_template(member.telephone, parameters)
+
             else:
                 print("No notification sent (preference is NONE)")
 
@@ -73,7 +90,7 @@ class NotificationService:
 
     async def _send_whatsapp(self, phone_number: str, message: str) -> None:
         """Send a WhatsApp notification."""
-        message = "New Expense Added 🗂️\n\n" + message
+        message = "📝 Notamos un nuevo Gasto\nA continuación puede ver un resumen👇\n\n" + message
         try:
             # Format the message data using the text_message helper
             message_data = text_message(phone_number, message)
@@ -89,9 +106,26 @@ class NotificationService:
         except (requests.RequestException, ValueError, ConnectionError) as e:
             print(f"Failed to send WhatsApp message to {phone_number}: {str(e)}")
 
-    def _create_expense_message(self, expense: Expense, creator: Member, service: ExpenseService) -> str:
+    async def _send_whatsapp_template(self, phone_number: str, parameters: List[Dict[str, Any]]) -> None:
+        """Send a WhatsApp notification using a template."""
+        try:
+            # Format the message data using the text_message helper
+            message_data = template_message(phone_number, "expense_notification", "es_AR", parameters)
+
+            # Send the message using the WhatsApp service
+            response = enviar_mensaje_whatsapp(message_data)
+
+            if response.get("status_code") == 200:
+                print(f"Sent WhatsApp template message to {phone_number}")
+            else:
+                print(f"Failed to send WhatsApp template message: {response.get('detail')}")
+
+        except (requests.RequestException, ValueError, ConnectionError) as e:
+            print(f"Failed to send WhatsApp template message to {phone_number}: {str(e)}")
+
+    def _create_expense_message(self, expense: Expense, creator: Member, member_service: MemberService) -> str:
         """Create a message summarizing the expense."""
-        payer = get_payer_name_from_id(expense.payer_id, service)
+        payer = member_service.get_member_name_by_id(expense.payer_id)
 
         description = self._remove_installments_from_description(expense.description)
 
@@ -107,11 +141,13 @@ class NotificationService:
 
         if expense.installments > 1:
             summary.append(f"📅 Cuotas: {expense.installments}")
+        else:
+            summary.append("📅 Cuotas: -")
 
         if isinstance(expense.split_strategy, PercentageSplit):
             summary.append("\n💹 Porcentajes de división:")
             for member_id, percentage in expense.split_strategy.percentages.items():
-                member_name = get_payer_name_from_id(int(member_id), service)
+                member_name = member_service.get_member_name_by_id(int(member_id))
                 summary.append(f"- {member_name}: {percentage}%")
 
         return "\n".join(summary)
@@ -121,3 +157,53 @@ class NotificationService:
         i.e: "Gasto de prueba (1/2)" becomes "Gasto de prueba"
         """
         return re.sub(r"\s*\(\d+\/\d+\)\s*$", "", description)
+
+    def _create_expense_template_parameters(
+        self, expense: Expense, creator: Member, member_service: MemberService
+    ) -> List[Dict[str, str]]:
+        """Create template parameters for WhatsApp template notification.
+
+        Args:
+            expense: The expense to create the parameters for
+            creator: The member who created the expense
+            member_service: The member service instance
+
+        Returns:
+            List of parameters for the WhatsApp template
+        """
+        description = self._remove_installments_from_description(expense.description)
+        payer = member_service.get_member_name_by_id(expense.payer_id)
+
+        parameters = [
+            {"type": "text", "parameter_name": "creator_name", "text": creator.name},
+            {"type": "text", "parameter_name": "descripcion", "text": description},
+            {"type": "text", "parameter_name": "monto", "text": f"{expense.amount * expense.installments:.2f}"},
+            {"type": "text", "parameter_name": "fecha", "text": expense.date.strftime("%Y-%m-%d")},
+            {
+                "type": "text",
+                "parameter_name": "categoria",
+                "text": f"{expense.category.name} {expense.category.get_category_emoji(expense.category.name)}",
+            },
+            {"type": "text", "parameter_name": "pagador", "text": payer},
+            {"type": "text", "parameter_name": "pago", "text": expense.payment_type},
+            {
+                "type": "text",
+                "parameter_name": "cuotas",
+                "text": str(expense.installments) if expense.installments > 1 else "-",
+            },
+        ]
+
+        # Add division information
+        division_text = ""
+        if isinstance(expense.split_strategy, PercentageSplit):
+            division_parts = []
+            for member_id, percentage in expense.split_strategy.percentages.items():
+                member_name = member_service.get_member_name_by_id(int(member_id))
+                division_parts.append(f"{member_name}: {percentage}%")
+            division_text = ", ".join(division_parts)
+
+        parameters.append(
+            {"type": "text", "parameter_name": "division", "text": division_text if division_text else "-"}
+        )
+
+        return parameters

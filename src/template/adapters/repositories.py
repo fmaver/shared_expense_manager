@@ -1,6 +1,6 @@
 """Repository implementations."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -44,6 +44,7 @@ class MemberRepository:
                 telephone=db_member.telephone,
                 email=db_member.email,
                 notification_preference=db_member.notification_preference,
+                last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
             )
         return None
 
@@ -58,8 +59,52 @@ class MemberRepository:
                 email=db_member.email,
                 hashed_password=db_member.hashed_password,
                 notification_preference=db_member.notification_preference,
+                last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
             )
         return None
+
+    def get_member_by_phone(self, phone: str) -> Optional[Member]:
+        """Get a member by their phone number."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.telephone == phone).first()
+        if db_member:
+            return Member(
+                id=db_member.id,
+                name=db_member.name,
+                telephone=db_member.telephone,
+                email=db_member.email,
+                notification_preference=db_member.notification_preference,
+                last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
+            )
+        return None
+
+    def update_last_wpp_chat(self, phone: str) -> Optional[Member]:
+        """Update the last WhatsApp chat datetime for a member."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.telephone == phone).first()
+        if not db_member:
+            return None
+
+        # Use timezone-aware UTC datetime
+        db_member.last_wpp_chat_datetime = datetime.now(timezone.utc)
+        self.session.commit()
+
+        # print updated datetime
+        print("Updated last_wpp_chat_datetime for member:", db_member.last_wpp_chat_datetime)
+
+        return Member(
+            id=db_member.id,
+            name=db_member.name,
+            telephone=db_member.telephone,
+            email=db_member.email,
+            notification_preference=db_member.notification_preference,
+            last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
+        )
+
+    def get_last_wpp_chat_time(self, member: Member) -> Optional[datetime]:
+        """Get the last WhatsApp chat datetime for a member."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.id == member.id).first()
+        if not db_member:
+            return None
+        return db_member.last_wpp_chat_datetime
 
     def list(self) -> List[Member]:
         """List all members."""
@@ -70,9 +115,28 @@ class MemberRepository:
                 telephone=m.telephone,
                 email=m.email,
                 notification_preference=m.notification_preference,
+                last_wpp_chat_datetime=m.last_wpp_chat_datetime,
             )
             for m in self.session.query(MemberModel).all()
         ]
+
+    def _should_update_chat_datetime(
+        self, new_datetime: Optional[datetime], current_datetime: Optional[datetime]
+    ) -> bool:
+        """Check if the last WhatsApp chat datetime should be updated."""
+        if not new_datetime:
+            return False
+
+        if not new_datetime.tzinfo:
+            new_datetime = new_datetime.replace(tzinfo=timezone.utc)
+
+        if not current_datetime:
+            return True
+
+        if not current_datetime.tzinfo:
+            current_datetime = current_datetime.replace(tzinfo=timezone.utc)
+
+        return new_datetime > current_datetime
 
     def update(self, member_id: int, update_data: MemberUpdate) -> Optional[Member]:
         """Update a member's information."""
@@ -85,6 +149,7 @@ class MemberRepository:
         print(f"\ttelephone: {update_data.telephone}")
         print(f"\temail: {update_data.email}")
         print(f"\tnotification_preference: {update_data.notification_preference}")
+        print(f"\tlast_wpp_chat_datetime: {update_data.last_wpp_chat_datetime}")
 
         # Update only the fields that are provided
         if update_data.name is not None:
@@ -95,6 +160,9 @@ class MemberRepository:
             db_member.email = update_data.email
         if update_data.notification_preference is not None:
             db_member.notification_preference = update_data.notification_preference
+        if update_data.last_wpp_chat_datetime is not None:
+            if self._should_update_chat_datetime(update_data.last_wpp_chat_datetime, db_member.last_wpp_chat_datetime):
+                db_member.last_wpp_chat_datetime = update_data.last_wpp_chat_datetime
 
         self.session.commit()
         return Member(
@@ -103,6 +171,7 @@ class MemberRepository:
             telephone=db_member.telephone,
             email=db_member.email,
             notification_preference=db_member.notification_preference,
+            last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
         )
 
 

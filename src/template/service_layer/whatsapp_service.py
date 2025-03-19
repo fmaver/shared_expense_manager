@@ -13,7 +13,6 @@ import requests
 
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
-from template.domain.models.member import Member
 from template.domain.models.models import MonthlyShare
 from template.domain.models.pdf_builder import ExpensePDF
 from template.domain.schemas.expense import (
@@ -22,6 +21,7 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.member_service import MemberService
 
 
 def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
@@ -114,6 +114,24 @@ def text_message(number: str, text: str) -> str:
             "to": number,
             "type": "text",
             "text": {"body": text},
+        }
+    )
+    return data
+
+
+def template_message(number: str, template_name: str, language: str, parametes: List[Dict[str, Any]]) -> str:
+    """template message"""
+    data = json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language},
+                "components": [{"type": "body", "parameters": parametes}],
+            },
         }
     )
     return data
@@ -236,64 +254,26 @@ def mark_read_message(message_id: str) -> str:
     return data
 
 
-def get_payer_id_from_name(name: str, service: ExpenseService) -> int | None:
-    """get payer id from name"""
-    members_dict = service.get_member_names()
-    for member_id, member_name in members_dict.items():
-        if name in member_name.lower():
-            return member_id
-    return None
-
-
-def get_payer_name_from_id(payer_id: int, service: ExpenseService) -> str:
-    """get payer name from id"""
-    members_dict = service.get_member_names()
-    return members_dict.get(payer_id, "Desconocido")
-
-
-def get_member_name_from_phone(number: str, members: Collection[Member]) -> Optional[Member]:
-    """Get member by phone number
-
-    Args:
-        number (str): The phone number to search for
-        members (Collection[Member]): The list of members to search in
-
-    Returns:
-        Optional[Member]: The member if found, None otherwise
-    """
-    # Find member by phone
-    for member in members:
-        if member.telephone and number in member.telephone:
-            return member
-    return None
-
-
-def validate_number_returning_member(number: str, service: ExpenseService) -> Optional[str]:
-    """
-    Validates if a member with the given number exists and returns their name.
-
-    Args:
-        number (str): The phone number to validate. i.e: 5491123456789
-        service (ExpenseService): The expense service instance
-
-    Returns:
-        Optional[str]: The member's name if found, None otherwise
-    """
-    # Get all members from the service
-    members_list = service.get_members()
-
-    # Check each member to find one with matching number
-    for member in members_list:
-        if number in member.telephone:
-            print(f"Found member: {member.name} with number: {member.telephone}")
-            return member.name
-    return None
+def update_member_last_chat(number: str, member_service: MemberService) -> None:
+    """Update member's last WhatsApp chat datetime if member exists."""
+    member = member_service.get_member_by_phone(number)
+    if member:
+        member_service.update_last_wpp_chat(number)
+    else:
+        print(f"Member with phone {number} not found")
 
 
 # pylint: disable=too-many-branches, too-many-statements
 # flake8: noqa: C901
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-positional-arguments
 def administrar_chatbot(
-    text: str, number: str, message_id: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService
+    text: str,
+    number: str,
+    message_id: str,
+    estado_actual_usuario: Dict[str, Any],
+    service: ExpenseService,
+    member_service: MemberService,
 ) -> Dict[str, Any]:  # noqa: C901
     """logica del bot"""
     user_responses = []
@@ -304,11 +284,15 @@ def administrar_chatbot(
     user_responses.append(mark_read)
     time.sleep(2)
 
-    if "hola" in text.lower() or "inicio" in text.lower():
-        responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, service)
+    if "hola" in text.lower() or "inicio" in text.lower() or "entendido" in text.lower():
+        # Update last WhatsApp chat datetime at the start of any interaction
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service)
         user_responses.extend(responses)
 
     elif "no gracias" in text.lower():
+        # Update last WhatsApp chat datetime at the start of any interaction
+        update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_no_thanks(number, estado_actual_usuario, message_id)
         user_responses.extend(responses)
 
@@ -352,13 +336,13 @@ def administrar_chatbot(
 
     elif estado_actual_usuario["estado"] == "esperando_pagador":
         responses, estado_actual_usuario = handle_waiting_for_payer(
-            number, estado_actual_usuario, message_id, text, service
+            number, estado_actual_usuario, message_id, text, member_service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_fecha_pago" and re.match(r"^\d{2}-\d{2}-\d{4}$", text):
         responses, estado_actual_usuario = handle_waiting_for_payment_date(
-            number, estado_actual_usuario, text, service, message_id
+            number, estado_actual_usuario, text, member_service, message_id
         )
         user_responses.extend(responses)
 
@@ -378,19 +362,25 @@ def administrar_chatbot(
 
     elif estado_actual_usuario["estado"] == "esperando_estrategia":
         responses, estado_actual_usuario = handle_waiting_for_split_strategy(
-            number, estado_actual_usuario, message_id, text, service
+            number, estado_actual_usuario, message_id, text, member_service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_porcentaje" and text.replace(".", "", 1).isdigit():
-        responses, estado_actual_usuario = handle_waiting_for_percentage(number, estado_actual_usuario, text, service)
+        responses, estado_actual_usuario = handle_waiting_for_percentage(
+            number, estado_actual_usuario, text, member_service
+        )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_confirmacion":
-        responses, estado_actual_usuario = handle_waiting_for_confirmation(number, estado_actual_usuario, text, service)
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_waiting_for_confirmation(
+            number, estado_actual_usuario, text, service, member_service
+        )
         user_responses.extend(responses)
 
     else:
+        update_member_last_chat(number, member_service)
         data = text_message(number, "Lo siento, no entendí lo que dijiste.")
         user_responses.append(data)
 
@@ -402,7 +392,11 @@ def administrar_chatbot(
 
 
 def create_expense(
-    number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService, split_strategy_dict: Dict[str, Any]
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    service: ExpenseService,
+    split_strategy_dict: Dict[str, Any],
+    member_service: MemberService,
 ):
     """create expense"""
     payment_type = (
@@ -424,11 +418,11 @@ def create_expense(
     members = service.get_members()
 
     # Get creator member by phone number
-    member_creator = get_member_name_from_phone(number, members)
+    member_creator = member_service.get_member_by_phone(number)
 
     # Send notifications asynchronously
     if member_creator:
-        print("the member creator is: ", member_creator)
+        print("the member creator is: ", member_creator.name)
         # pylint: disable=C0415  # Import outside toplevel
         from template.service_layer.notification_service import NotificationService
 
@@ -466,13 +460,13 @@ def clean_estado_usuario(estado_actual_usuario: Dict[str, Any]) -> Dict[str, Any
 
 
 def handle_greetings(
-    number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService
+    number: str, estado_actual_usuario: Dict[str, Any], member_service: MemberService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle greetings"""
     user_responses = []
 
     print(f"Validating number: {number}")
-    member_name = validate_number_returning_member(number, service)
+    member_name = member_service.get_member_name_by_phone(number)
 
     if not member_name:
         body = """👋 ¡Hola! Tu número no está registrado en Jirens Shared Expenses.
@@ -745,12 +739,12 @@ def handle_waiting_for_description(
 
 
 def handle_waiting_for_payer(
-    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, service: ExpenseService
+    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, member_service: MemberService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for payer"""
     user_responses = []
 
-    payer_id = get_payer_id_from_name(text.lower(), service)
+    payer_id = member_service.get_member_id_by_name(text.lower())
 
     if payer_id is None:
         error_message = text_message(
@@ -773,7 +767,7 @@ Por favor, ingresa la fecha en el formato: DD-MM-AAAA\n
 
 
 def handle_waiting_for_payment_date(
-    number: str, estado_actual_usuario: Dict[str, Any], text: str, service: ExpenseService, message_id: str
+    number: str, estado_actual_usuario: Dict[str, Any], text: str, member_service: MemberService, message_id: str
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for payment date"""
     user_responses = []
@@ -795,7 +789,7 @@ def handle_waiting_for_payment_date(
             estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
 
             # Instead of creating the expense immediately, show summary and ask for confirmation
-            summary = get_expense_summary(estado_actual_usuario["expense_data"], service)
+            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
             summary += """\n¿Confirmas que los datos son correctos?"""
 
             reply_button_data = button_reply_message(
@@ -919,12 +913,12 @@ def handle_waiting_for_installments(
     return user_responses, estado_actual_usuario
 
 
-def get_expense_summary(expense_data: Dict[str, Any], service: ExpenseService) -> str:
+def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberService) -> str:
     """Generate a summary of the expense for confirmation"""
     category = expense_data.get("category", "")
     category_emoji = Category.get_category_emoji(category)
     category_display = f"{category.capitalize()} {category_emoji}" if category_emoji else category.capitalize()
-    payer_name = get_payer_name_from_id(expense_data.get("payer_id", ""), service)
+    payer_name = member_service.get_member_name_by_id(expense_data.get("payer_id", ""))
 
     summary = [
         "📝 *Resumen del gasto:*",
@@ -953,7 +947,7 @@ def get_expense_summary(expense_data: Dict[str, Any], service: ExpenseService) -
 
 
 def handle_waiting_for_split_strategy(
-    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, service: ExpenseService
+    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, member_service: MemberService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for split"""
     user_responses = []
@@ -975,7 +969,7 @@ def handle_waiting_for_split_strategy(
         estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
 
         # Instead of creating the expense, show summary and ask for confirmation
-        summary = get_expense_summary(estado_actual_usuario["expense_data"], service)
+        summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
         summary += "\n\n💡 División: Equitativa"
 
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
@@ -990,7 +984,7 @@ def handle_waiting_for_split_strategy(
 
 
 def handle_waiting_for_percentage(
-    number: str, estado_actual_usuario: Dict[str, Any], text: str, service: ExpenseService
+    number: str, estado_actual_usuario: Dict[str, Any], text: str, member_service: MemberService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for percentage"""
     user_responses = []
@@ -1012,7 +1006,7 @@ def handle_waiting_for_percentage(
         estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
 
         # Instead of creating the expense, show summary and ask for confirmation
-        summary = get_expense_summary(estado_actual_usuario["expense_data"], service)
+        summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
         summary += """\n¿Confirmas que los datos son correctos?"""
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
 
@@ -1029,14 +1023,20 @@ def handle_waiting_for_percentage(
 
 
 def handle_waiting_for_confirmation(
-    number: str, estado_actual_usuario: Dict[str, Any], text: str, service: ExpenseService
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    service: ExpenseService,
+    member_service: MemberService,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for confirmation"""
     user_responses = []
 
     if "crear" in text.lower():  # Confirmed
         split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
-        create_expense(number, estado_actual_usuario, service, split_strategy_dict=split_strategy)
+        create_expense(
+            number, estado_actual_usuario, service, split_strategy_dict=split_strategy, member_service=member_service
+        )
 
         body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]
