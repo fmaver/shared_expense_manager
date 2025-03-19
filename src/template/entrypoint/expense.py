@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
 from template.adapters.repositories import MemberRepository
-from template.dependencies import get_expense_service
+from template.dependencies import get_expense_service, get_member_service
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import (
@@ -25,6 +25,7 @@ async def create_expense(
     expense_data: ExpenseCreate,
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
+    member_service: MemberService = Depends(get_member_service),
     db: Session = Depends(get_db),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
@@ -43,7 +44,7 @@ async def create_expense(
             expense=expense,
             members=members,
             creator=current_member,
-            service=service,
+            member_service=member_service,
         )
 
         # Create response data
