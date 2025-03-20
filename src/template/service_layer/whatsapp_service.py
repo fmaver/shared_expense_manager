@@ -282,7 +282,7 @@ def administrar_chatbot(
 
     mark_read = mark_read_message(message_id)
     user_responses.append(mark_read)
-    time.sleep(2)
+    time.sleep(1)
 
     if "hola" in text.lower() or "inicio" in text.lower() or "entendido" in text.lower():
         # Update last WhatsApp chat datetime at the start of any interaction
@@ -941,7 +941,7 @@ def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberServ
             percentages = split_strategy.get("percentages", {})
             summary.append("\n💹 *Porcentajes de división:*")
             for member_id, percentage in percentages.items():
-                summary.append(f"- {expense_data.get('member_names', {}).get(member_id, '')}: {percentage}%")
+                summary.append(f"- {member_service.get_member_name_by_id(int(member_id))}: {percentage}%")
 
     return "\n".join(summary)
 

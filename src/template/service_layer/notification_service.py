@@ -15,7 +15,7 @@ import requests
 from template.domain.models.enums import NotificationType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense
-from template.domain.models.split import PercentageSplit
+from template.domain.models.split import PercentageSplit, EqualSplit
 from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
@@ -66,7 +66,7 @@ class NotificationService:
                     time_difference_days = (time_now - last_interacted_with_wpp).days
                     print(f"Time difference: {time_difference_days} days")
 
-                if last_interacted_with_wpp is None or time_difference_days > 1:
+                if last_interacted_with_wpp is None or time_difference_days >= 1:
                     parameters = self._create_expense_template_parameters(expense, creator, member_service)
                     print("Sending template message")
                     await self._send_whatsapp_template(member.telephone, parameters)
@@ -160,6 +160,8 @@ class NotificationService:
             for member_id, percentage in expense.split_strategy.percentages.items():
                 member_name = member_service.get_member_name_by_id(int(member_id))
                 summary.append(f"- {member_name}: {percentage}%")
+        elif isinstance(expense.split_strategy, EqualSplit):
+            summary.append("\n💡 División Equitativa")
 
         return "\n".join(summary)
 
@@ -210,8 +212,10 @@ class NotificationService:
             division_parts = []
             for member_id, percentage in expense.split_strategy.percentages.items():
                 member_name = member_service.get_member_name_by_id(int(member_id))
-                division_parts.append(f"{member_name}: {percentage}%")
+                division_parts.append(f"- {member_name}: {percentage}%")
             division_text = ", ".join(division_parts)
+        elif isinstance(expense.split_strategy, EqualSplit):
+            division_text = "División Equitativa"
 
         parameters.append(
             {"type": "text", "parameter_name": "division", "text": division_text if division_text else "-"}
