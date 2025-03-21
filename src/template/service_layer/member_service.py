@@ -1,7 +1,7 @@
 """Member service module."""
 
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 from template.adapters.repositories import MemberRepository
 from template.domain.models.member import Member
@@ -29,7 +29,7 @@ class MemberService:
     def update_last_wpp_chat(self, phone: str) -> Optional[Member]:
         """Update the last WhatsApp chat datetime for a member."""
         return self._member_repository.update_last_wpp_chat(phone)
-    
+
     def get_last_wpp_chat_time(self, member: Member) -> Optional[datetime]:
         """Get the last WhatsApp chat datetime for a member."""
         return self._member_repository.get_last_wpp_chat_time(member)
@@ -38,7 +38,7 @@ class MemberService:
         """Get a dictionary mapping member IDs to their names."""
         members = self.list_members()
         return {member.id: member.name for member in members if member.id is not None}
-        
+
     def get_member_id_by_name(self, name: str) -> Optional[int]:
         """Get member ID by their name (case-insensitive partial match)."""
         members_dict = self.get_member_names()

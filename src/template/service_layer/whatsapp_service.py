@@ -427,7 +427,9 @@ def create_expense(
         from template.service_layer.notification_service import NotificationService
 
         notification_service = NotificationService()
-        asyncio.create_task(notification_service.notify_expense_created(expense, members, member_creator, member_service))
+        asyncio.create_task(
+            notification_service.notify_expense_created(expense, members, member_creator, member_service)
+        )
 
 
 # al parecer para Argentina, whatsapp agrega 549 como prefijo en lugar de 54,

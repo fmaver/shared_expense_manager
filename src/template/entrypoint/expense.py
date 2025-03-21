@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
 from template.adapters.repositories import MemberRepository
-from template.service_layer.member_service import MemberService
 from template.dependencies import get_expense_service, get_member_service
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
@@ -16,11 +15,13 @@ from template.domain.schemas.expense import (
 )
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
 
 
+# pylint: disable=too-many-arguments, too-many-positional-arguments
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ResponseModel[ExpenseResponse])
 async def create_expense(
     expense_data: ExpenseCreate,
