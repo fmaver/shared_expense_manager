@@ -1000,7 +1000,7 @@ def handle_waiting_for_percentage(
             "type": "percentage",
             "percentages": {
                 estado_actual_usuario["expense_data"]["payer_id"]: payer_percentage,
-                id_of_not_payer: 100 - payer_percentage,
+                id_of_not_payer: round(100 - payer_percentage, 2),
             },
         }
         estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
