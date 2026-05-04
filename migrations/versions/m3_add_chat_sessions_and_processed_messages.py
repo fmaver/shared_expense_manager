@@ -18,6 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """Create chat_sessions and processed_wpp_messages tables."""
     op.create_table(
         "chat_sessions",
         sa.Column("telephone", sa.String(20), primary_key=True),
@@ -35,6 +36,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop chat_sessions and processed_wpp_messages tables."""
     op.drop_index("ix_processed_wpp_messages_processed_at", table_name="processed_wpp_messages")
     op.drop_table("processed_wpp_messages")
     op.drop_table("chat_sessions")
