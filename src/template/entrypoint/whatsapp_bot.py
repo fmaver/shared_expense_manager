@@ -15,10 +15,7 @@ from template.adapters.repositories import (
     ProcessedMessageRepository,
     SQLAlchemyExpenseRepository,
 )
-from template.dependencies import (
-    get_processed_message_repository,
-    get_whatsapp_client,
-)
+from template.dependencies import get_processed_message_repository, get_whatsapp_client
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_client import WhatsAppClient
