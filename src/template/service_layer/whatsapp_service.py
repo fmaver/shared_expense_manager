@@ -493,7 +493,7 @@ def handle_greetings(
     return user_responses, estado_actual_usuario
 
 
-def handle_document_request(
+def handle_document_request(  # pylint: disable=too-many-locals
     number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService, wpp_client: "WhatsAppClient"
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle document"""

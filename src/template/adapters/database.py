@@ -19,7 +19,7 @@ def get_engine():
 
 
 engine = get_engine()
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)  # pylint: disable=invalid-name
 
 
 def get_db():
