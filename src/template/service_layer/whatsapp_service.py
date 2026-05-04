@@ -22,6 +22,7 @@ from template.domain.schemas.expense import (
 )
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
+from template.service_layer.whatsapp_client import WhatsAppClient
 
 
 def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
@@ -274,6 +275,7 @@ def administrar_chatbot(
     estado_actual_usuario: Dict[str, Any],
     service: ExpenseService,
     member_service: MemberService,
+    wpp_client: "WhatsAppClient",
 ) -> Dict[str, Any]:  # noqa: C901
     """logica del bot"""
     user_responses = []
@@ -297,7 +299,7 @@ def administrar_chatbot(
         user_responses.extend(responses)
 
     elif "obtener documento" in text.lower():
-        responses, estado_actual_usuario = handle_document_request(number, estado_actual_usuario, service)
+        responses, estado_actual_usuario = handle_document_request(number, estado_actual_usuario, service, wpp_client)
         user_responses.extend(responses)
 
     elif "generar balance" in text.lower():
@@ -386,7 +388,7 @@ def administrar_chatbot(
 
     for item in user_responses:
         print("enviando...", item)
-        enviar_mensaje_whatsapp(item)
+        wpp_client.send_message(item)
 
     return estado_actual_usuario  # noqa: C901
 
@@ -492,7 +494,7 @@ def handle_greetings(
 
 
 def handle_document_request(
-    number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService
+    number: str, estado_actual_usuario: Dict[str, Any], service: ExpenseService, wpp_client: "WhatsAppClient"
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle document"""
     user_responses = []
@@ -517,7 +519,7 @@ def handle_document_request(
     )
     print(f"Archivo PDF generado en: {file_path}")
 
-    media_id = obtener_media_id(file_path)[0]
+    media_id = wpp_client.upload_media(file_path)[0]
 
     caption = f"📑 Balance de Fran Y Guadi para {month_year.month}/{month_year.year}"
 

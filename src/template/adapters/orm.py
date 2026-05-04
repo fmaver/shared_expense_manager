@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, Date, DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from template.domain.models.enums import NotificationType, PaymentType
@@ -65,3 +65,23 @@ class ExpenseModel(Base):
     child_expenses: Mapped[List["ExpenseModel"]] = relationship(
         "ExpenseModel", back_populates="parent_expense", cascade="all, delete-orphan"
     )
+
+
+class ChatSessionModel(Base):
+    """Persists per-user chatbot state, replacing the in-memory estado_actual dict."""
+
+    __tablename__ = "chat_sessions"
+
+    telephone: Mapped[str] = mapped_column(String(20), primary_key=True)
+    estado: Mapped[str] = mapped_column(String(50), default="inicial")
+    expense_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ProcessedMessageModel(Base):
+    """Tracks processed WhatsApp message IDs to prevent duplicate handling on webhook retries."""
+
+    __tablename__ = "processed_wpp_messages"
+
+    message_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

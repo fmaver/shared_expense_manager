@@ -4,10 +4,16 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
-from template.adapters.repositories import MemberRepository, SQLAlchemyExpenseRepository
+from template.adapters.repositories import (
+    ChatSessionRepository,
+    MemberRepository,
+    ProcessedMessageRepository,
+    SQLAlchemyExpenseRepository,
+)
 from template.domain.models.repository import ExpenseRepository
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
+from template.service_layer.whatsapp_client import MetaWhatsAppClient, WhatsAppClient
 
 
 def get_repository(db: Session = Depends(get_db)) -> ExpenseRepository:
@@ -32,3 +38,18 @@ def get_member_service(
 ) -> MemberService:
     """Get member service instance."""
     return MemberService(repository)
+
+
+def get_whatsapp_client() -> WhatsAppClient:
+    """Get WhatsApp client instance."""
+    return MetaWhatsAppClient()
+
+
+def get_chat_session_repository(db: Session = Depends(get_db)) -> ChatSessionRepository:
+    """Get chat session repository instance."""
+    return ChatSessionRepository(db)
+
+
+def get_processed_message_repository(db: Session = Depends(get_db)) -> ProcessedMessageRepository:
+    """Get processed message repository instance."""
+    return ProcessedMessageRepository(db)
