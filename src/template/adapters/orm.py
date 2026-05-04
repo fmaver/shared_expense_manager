@@ -3,7 +3,17 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from template.domain.models.enums import NotificationType, PaymentType

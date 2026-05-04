@@ -11,12 +11,11 @@ from sqlalchemy.orm import Session
 from template.adapters.database import SessionLocal, get_db
 from template.adapters.repositories import (
     ChatSessionRepository,
+    MemberRepository,
     ProcessedMessageRepository,
+    SQLAlchemyExpenseRepository,
 )
 from template.dependencies import (
-    get_chat_session_repository,
-    get_expense_service,
-    get_member_service,
     get_processed_message_repository,
     get_whatsapp_client,
 )
@@ -46,11 +45,6 @@ def _process_message(
     """Run chatbot logic in a background task with its own DB session."""
     with SessionLocal() as db:
         session_repo = ChatSessionRepository(db)
-        from template.adapters.repositories import (
-            MemberRepository,
-            SQLAlchemyExpenseRepository,
-        )
-
         expense_service = ExpenseService(SQLAlchemyExpenseRepository(db))
         member_service = MemberService(MemberRepository(db))
 
@@ -100,10 +94,8 @@ async def recibir_mensajes(
         message_id = message["id"]
         text = obtener_mensaje_whatsapp(message)
     except (KeyError, IndexError, ValueError):
-        # Not a user message (e.g. status update) — ack silently
         return "ok"
 
-    # Deduplicate: if this message_id was already processed, ignore
     if not processed_repo.mark_if_new(message_id):
         logger.info("Duplicate message_id %s ignored", message_id)
         return "ok"

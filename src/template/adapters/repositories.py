@@ -1,6 +1,6 @@
 """Repository implementations."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -492,8 +492,6 @@ class ProcessedMessageRepository:
 
     def _cleanup_old(self) -> None:
         """Delete entries older than 24 hours to keep the table small."""
-        from datetime import timedelta
-
         cutoff = datetime.utcnow() - timedelta(hours=24)
         self.session.query(ProcessedMessageModel).filter(ProcessedMessageModel.processed_at < cutoff).delete()
         self.session.commit()

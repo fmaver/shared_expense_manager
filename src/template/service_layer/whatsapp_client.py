@@ -20,6 +20,7 @@ class MetaWhatsAppClient:
     """Sends messages and uploads media via the Meta WhatsApp Cloud API."""
 
     def send_message(self, data: str) -> Dict[str, Any]:
+        """Send a pre-serialised JSON message to the WhatsApp Cloud API."""
         try:
             token = os.getenv("WHATSAPP_TOKEN")
             url = os.getenv("WHATSAPP_URL")
@@ -39,6 +40,7 @@ class MetaWhatsAppClient:
             return {"detail": "no enviado " + str(e)}
 
     def upload_media(self, file_path: str) -> Tuple[str, int]:
+        """Upload a PDF file and return (media_id, status_code)."""
         try:
             token = os.getenv("WHATSAPP_TOKEN")
             url = os.getenv("WHATSAPP_URL_MEDIA")
