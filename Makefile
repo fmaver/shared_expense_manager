@@ -30,6 +30,10 @@ cover: ## Executes tests cases with coverage reports
 	poetry run pytest --cov . --junitxml reports/xunit.xml \
 	--cov-report xml:reports/coverage.xml --cov-report term-missing
 
+.PHONY: integration
+integration: ## Run integration tests (requires TEST_DATABASE_URL)
+	poetry run pytest tests/integration/ -v --tb=short
+
 .PHONY: lint
 lint: ## Applies static analysis, checks and code formatting
 	poetry run pre-commit run --all-files

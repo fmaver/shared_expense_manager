@@ -1,55 +1,58 @@
-"""
-Pytest Fixtures.
+"""Pytest Fixtures.
+
+Sets DATABASE_URL before any template import so database.py picks up the right engine.
 """
 
+import os
 from datetime import date
 from typing import Dict, List, Optional
-from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from template.domain.models.models import Expense, MonthlyShare
-from template.domain.models.repository import ExpenseRepository
+# Must be set before template.adapters.database is imported (create_engine runs at module level)
+os.environ.setdefault("DATABASE_ENV", "PROD")
+os.environ.setdefault(
+    "DATABASE_URL",
+    os.environ.get(
+        "TEST_DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/test_expense_manager",
+    ),
+)
 
-# Mock database settings before importing app
-with patch.dict("os.environ", {"DATABASE_URL": "postgresql://postgres:postgres@db:5432/expense_manager_test"}):
-    from template.main import app
+# pylint: disable=wrong-import-position
+from template.domain.models.models import Expense, MonthlyShare  # noqa: E402
+from template.domain.models.repository import ExpenseRepository  # noqa: E402
 
 
 @pytest.fixture(name="test_client")
 def fixture_test_client() -> TestClient:
-    """
-    Create a test client for the FastAPI application.
+    """Test client without lifespan — safe to use without a live DB."""
+    from template.main import app  # pylint: disable=import-outside-toplevel
 
-    Returns:
-        TestClient: A test client for the app.
-    """
     return TestClient(app)
 
 
-@pytest.fixture  # noqa: F811
-def mock_repository():  # noqa: F811, C901
-    """Fixture that provides a mock expense repository for testing."""
+@pytest.fixture
+def mock_repository():  # noqa: C901
+    """In-memory expense repository for unit tests."""
 
     class MockExpenseRepository(ExpenseRepository):
         def __init__(self):
             self.expenses = []
             self.monthly_shares = {}
-            self.session = None  # For member repository compatibility
-            self.next_id = 1  # To simulate auto-incrementing IDs
+            self.session = None
+            self.next_id = 1
 
         def add(self, expense: Expense, monthly_share_id: int) -> None:
-            """Add an expense to the repository."""
-            expense.id = self.next_id  # Assign an ID to the expense
-            self.next_id += 1  # Increment the ID for the next expense
+            expense.id = self.next_id
+            self.next_id += 1
             self.expenses.append(expense)
-            print(f"expense id: {expense.id}")
 
         def save_monthly_share(self, monthly_share: MonthlyShare) -> None:
             self.monthly_shares[monthly_share.period_key] = monthly_share
             for expense in monthly_share.expenses:
-                if not expense.id:  # New expense
+                if not expense.id:
                     self.add(expense, 1)
 
         def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
@@ -60,46 +63,28 @@ def mock_repository():  # noqa: F811, C901
             return self.monthly_shares
 
         def update_expense(self, expense: Expense) -> None:
-            """Update an existing expense in the repository."""
-            print(f"updating the expense {expense.id}")
-            for i, existing_expense in enumerate(self.expenses):
-                if existing_expense.id == expense.id:
+            for i, existing in enumerate(self.expenses):
+                if existing.id == expense.id:
                     self.expenses[i] = expense
                     break
 
         def delete_expense(self, expense_id: int) -> None:
-            """Mock implementation to delete an expense."""
-            print(f"deleting the expense {expense_id}")
-            # Remove from repository's expenses list
-            self.expenses = [expense for expense in self.expenses if expense.id != expense_id]
-
-            # Remove from monthly shares
-            for monthly_share in self.monthly_shares.values():
-                monthly_share.expenses = [expense for expense in monthly_share.expenses if expense.id != expense_id]
+            self.expenses = [e for e in self.expenses if e.id != expense_id]
+            for ms in self.monthly_shares.values():
+                ms.expenses = [e for e in ms.expenses if e.id != expense_id]
 
         def get_expense(self, expense_id: int) -> Optional[Expense]:
-            """Mock implementation to get an expense by ID."""
-            for expense in self.expenses:
-                if expense.id == expense_id:
-                    return expense
-            return None
+            return next((e for e in self.expenses if e.id == expense_id), None)
 
         def get_child_expenses(self, parent_expense_id: int) -> List[Expense]:
-            """Get all child expenses for a given parent expense ID."""
-            return [expense for expense in self.expenses if expense.parent_expense_id == parent_expense_id]
+            return [e for e in self.expenses if e.parent_expense_id == parent_expense_id]
 
         def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
-            """Mock implementation to get expenses by date."""
-            return [expense for expense in self.expenses if expense.date == specific_date]
+            return [e for e in self.expenses if e.date == specific_date]
 
         def settle_monthly_share(self, year: int, month: int) -> None:
-            """Mock implementation to settle a monthly share."""
-            print(f"Settling monthly share for {year}-{month:02d}")
-            monthly_share = self.get_monthly_share(year, month)
-            if monthly_share:
-                monthly_share.settle()
-                print("Monthly share settled successfully.")
-            else:
-                print("Monthly share not found.")
+            ms = self.get_monthly_share(year, month)
+            if ms:
+                ms.settle()
 
-    return MockExpenseRepository()  # noqa: C901
+    return MockExpenseRepository()
