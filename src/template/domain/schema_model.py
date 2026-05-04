@@ -29,8 +29,8 @@ class CamelCaseModel(BaseModel):
         alias_generator=to_camel,
     )
 
-    # pylint: disable=too-many-arguments
-    def model_dump(
+    # pylint: disable=too-many-arguments,arguments-differ
+    def model_dump(  # type: ignore[override]
         self,
         *,
         mode: Literal["json", "python"] | str = "json",

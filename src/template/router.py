@@ -18,7 +18,7 @@ from template.entrypoint import (
     whatsapp_bot,
 )
 
-api_v1_prefix: str = "/api/v1"
+api_v1_prefix: str = "/api/v1"  # pylint: disable=invalid-name
 
 root_router: APIRouter = APIRouter()
 api_router_v1: APIRouter = APIRouter(prefix=api_v1_prefix)

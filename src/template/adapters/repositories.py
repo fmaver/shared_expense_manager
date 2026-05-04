@@ -1,11 +1,17 @@
 """Repository implementations."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from template.adapters.orm import ExpenseModel, MemberModel, MonthlyShareModel
+from template.adapters.orm import (
+    ChatSessionModel,
+    ExpenseModel,
+    MemberModel,
+    MonthlyShareModel,
+    ProcessedMessageModel,
+)
 from template.domain.models.category import Category
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
@@ -422,3 +428,70 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             split_strategy=split_strategy,
             parent_expense_id=db_expense.parent_expense_id,
         )
+
+
+_DEFAULT_EXPENSE_DATA: Dict = {
+    "service": None,
+    "description": None,
+    "amount": None,
+    "date": None,
+    "category": None,
+    "payer_id": None,
+    "payment_type": None,
+    "installments": 1,
+    "split_strategy": None,
+}
+
+
+class ChatSessionRepository:
+    """Persists chatbot conversation state keyed by telephone number."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_or_create(self, telephone: str) -> Dict:
+        """Return the current session state dict, creating a default one if absent."""
+        row = self.session.get(ChatSessionModel, telephone)
+        if row is None:
+            return {"estado": "inicial", "expense_data": dict(_DEFAULT_EXPENSE_DATA)}
+        return {"estado": row.estado, "expense_data": row.expense_data or dict(_DEFAULT_EXPENSE_DATA)}
+
+    def save(self, telephone: str, state: Dict) -> None:
+        """Upsert the session state for telephone."""
+        row = self.session.get(ChatSessionModel, telephone)
+        if row is None:
+            row = ChatSessionModel(
+                telephone=telephone,
+                estado=state["estado"],
+                expense_data=state.get("expense_data", {}),
+                updated_at=datetime.utcnow(),
+            )
+            self.session.add(row)
+        else:
+            row.estado = state["estado"]
+            row.expense_data = state.get("expense_data", {})
+            row.updated_at = datetime.utcnow()
+        self.session.commit()
+
+
+class ProcessedMessageRepository:
+    """Tracks processed WhatsApp message IDs to deduplicate webhook retries."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def mark_if_new(self, message_id: str) -> bool:
+        """Insert message_id if not already present. Returns True if new, False if duplicate."""
+        self._cleanup_old()
+        existing = self.session.get(ProcessedMessageModel, message_id)
+        if existing is not None:
+            return False
+        self.session.add(ProcessedMessageModel(message_id=message_id, processed_at=datetime.utcnow()))
+        self.session.commit()
+        return True
+
+    def _cleanup_old(self) -> None:
+        """Delete entries older than 24 hours to keep the table small."""
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        self.session.query(ProcessedMessageModel).filter(ProcessedMessageModel.processed_at < cutoff).delete()
+        self.session.commit()

@@ -6,6 +6,7 @@ repos:
         entry: poetry run pylint
         language: system
         types: [ python ]
+        exclude: ^migrations/
       - id: mypy
         name: mypy
         entry: poetry run mypy
