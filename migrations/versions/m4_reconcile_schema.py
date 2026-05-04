@@ -64,7 +64,7 @@ def upgrade() -> None:
         ),
     ]:
         if col_name not in expense_cols:
-            op.add_column("expenses", col_def)
+            op.add_column("expenses", col_def)  # type: ignore[arg-type]
 
     # Change date column from DateTime to Date if it is still DateTime
     conn = op.get_bind()

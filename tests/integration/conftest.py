@@ -1,5 +1,4 @@
 """Integration test fixtures — requires a live PostgreSQL instance."""
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import text
@@ -44,7 +43,7 @@ def fake_wpp() -> FakeWhatsAppClient:
 
 
 @pytest.fixture
-def client(fake_wpp: FakeWhatsAppClient):
+def client(fake_wpp: FakeWhatsAppClient):  # pylint: disable=redefined-outer-name
     """FastAPI TestClient with test DB and FakeWhatsAppClient injected."""
     app = get_application()
     app.dependency_overrides[get_whatsapp_client] = lambda: fake_wpp
@@ -54,7 +53,7 @@ def client(fake_wpp: FakeWhatsAppClient):
 
 
 @pytest.fixture
-def auth_headers(client: TestClient) -> dict:
+def auth_headers(client: TestClient) -> dict:  # pylint: disable=redefined-outer-name
     """Register a test member and return JWT Authorization headers."""
     r = client.post(
         "/api/v1/auth/register",

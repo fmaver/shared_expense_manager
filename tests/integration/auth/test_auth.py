@@ -1,6 +1,6 @@
 """Integration tests for auth endpoints."""
-import pytest
 
+import pytest
 
 REGISTER_PAYLOAD = {
     "name": "Alice",

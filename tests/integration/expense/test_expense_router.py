@@ -1,4 +1,5 @@
 """Integration tests for expense CRUD endpoints."""
+
 import pytest
 
 
