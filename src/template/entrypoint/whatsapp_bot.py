@@ -9,7 +9,10 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from template.adapters.database import SessionLocal, get_db
-from template.adapters.repositories import ChatSessionRepository, ProcessedMessageRepository
+from template.adapters.repositories import (
+    ChatSessionRepository,
+    ProcessedMessageRepository,
+)
 from template.dependencies import (
     get_chat_session_repository,
     get_expense_service,
@@ -43,13 +46,18 @@ def _process_message(
     """Run chatbot logic in a background task with its own DB session."""
     with SessionLocal() as db:
         session_repo = ChatSessionRepository(db)
-        from template.adapters.repositories import MemberRepository, SQLAlchemyExpenseRepository
+        from template.adapters.repositories import (
+            MemberRepository,
+            SQLAlchemyExpenseRepository,
+        )
 
         expense_service = ExpenseService(SQLAlchemyExpenseRepository(db))
         member_service = MemberService(MemberRepository(db))
 
         estado = session_repo.get_or_create(number)
-        nuevo_estado = administrar_chatbot(text, number, message_id, estado, expense_service, member_service, wpp_client)
+        nuevo_estado = administrar_chatbot(
+            text, number, message_id, estado, expense_service, member_service, wpp_client
+        )
         session_repo.save(number, nuevo_estado)
 
 

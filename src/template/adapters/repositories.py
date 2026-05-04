@@ -5,7 +5,13 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from template.adapters.orm import ChatSessionModel, ExpenseModel, MemberModel, MonthlyShareModel, ProcessedMessageModel
+from template.adapters.orm import (
+    ChatSessionModel,
+    ExpenseModel,
+    MemberModel,
+    MonthlyShareModel,
+    ProcessedMessageModel,
+)
 from template.domain.models.category import Category
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare

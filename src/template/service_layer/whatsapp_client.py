@@ -9,9 +9,11 @@ import requests
 class WhatsAppClient(Protocol):
     """Interface for sending WhatsApp messages and uploading media."""
 
-    def send_message(self, data: str) -> Dict[str, Any]: ...
+    def send_message(self, data: str) -> Dict[str, Any]:
+        """Send a pre-serialised JSON message payload."""
 
-    def upload_media(self, file_path: str) -> Tuple[str, int]: ...
+    def upload_media(self, file_path: str) -> Tuple[str, int]:
+        """Upload a file and return (media_id, status_code)."""
 
 
 class MetaWhatsAppClient:
