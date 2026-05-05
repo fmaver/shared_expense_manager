@@ -4,8 +4,7 @@ import pytest
 from sqlalchemy import text
 from starlette.testclient import TestClient
 
-from template.adapters.database import SessionLocal, engine
-from template.adapters.orm import Base
+from template.adapters.database import SessionLocal
 from template.asgi import get_application
 from template.dependencies import get_whatsapp_client
 from tests.fakes.fake_whatsapp_client import FakeWhatsAppClient
@@ -13,8 +12,14 @@ from tests.fakes.fake_whatsapp_client import FakeWhatsAppClient
 
 @pytest.fixture(scope="session", autouse=True)
 def _create_schema():
-    """Create all tables once for the session before any test fixture runs."""
-    Base.metadata.create_all(bind=engine)
+    """Bootstrap schema and seed default members (Fran/Guadi) once for the session.
+
+    Running lifespan here ensures members exist before clean_tables' setval
+    logic runs, so MAX(id)=2 and the sequence is safely advanced to 3.
+    """
+    app = get_application()
+    with TestClient(app):  # lifespan: create_all + seed Fran (id=1) / Guadi (id=2)
+        pass
 
 
 @pytest.fixture(autouse=True)
