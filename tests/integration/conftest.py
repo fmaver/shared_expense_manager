@@ -4,14 +4,21 @@ import pytest
 from sqlalchemy import text
 from starlette.testclient import TestClient
 
-from template.adapters.database import SessionLocal
+from template.adapters.database import SessionLocal, engine
+from template.adapters.orm import Base
 from template.asgi import get_application
 from template.dependencies import get_whatsapp_client
 from tests.fakes.fake_whatsapp_client import FakeWhatsAppClient
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _create_schema():
+    """Create all tables once for the session before any test fixture runs."""
+    Base.metadata.create_all(bind=engine)
+
+
 @pytest.fixture(autouse=True)
-def clean_tables():
+def clean_tables(_create_schema):  # pylint: disable=redefined-outer-name
     """Reset sequences and wipe transient rows around each test."""
     # Setup: advance sequences past the manually-seeded member IDs so that
     # new inserts don't collide with Fran (id=1) and Guadi (id=2).
