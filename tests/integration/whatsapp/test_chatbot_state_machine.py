@@ -8,10 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-# Fran's telephone as stored in DB; replace_start("5491138718498") = "541138718498"
-# which won't match the stored value, so we use a number that survives replace_start unchanged.
-UNKNOWN_PHONE = "5499900001111"  # not seeded → "not registered" path
-FRAN_RAW = "5491138718498"  # as sent by Meta; after replace_start → "541138718498"
+# Phones not registered in the DB hit the "not registered" path.
+UNKNOWN_PHONE = "5499900001111"
 
 
 def _post(client, from_number: str, message_id: str, text: str):
