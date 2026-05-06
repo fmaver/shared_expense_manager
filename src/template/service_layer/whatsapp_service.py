@@ -776,7 +776,7 @@ def handle_waiting_for_payment_date(
     """handle waiting for payment date"""
     user_responses = []
     try:
-        estado_actual_usuario["expense_data"]["date"] = datetime.strptime(text, "%d-%m-%Y").date()
+        estado_actual_usuario["expense_data"]["date"] = datetime.strptime(text, "%d-%m-%Y").date().isoformat()
 
         # SI ES UN PRESTAMO, LUEGO DE LA FECHA YA PODEMOS CARGARLO ##
         if estado_actual_usuario["expense_data"]["service"] == "prestar plata":
