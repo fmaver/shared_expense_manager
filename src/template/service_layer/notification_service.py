@@ -2,14 +2,9 @@
 
 import os
 import re
-import smtplib
-import ssl
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Any, Dict, List
 
-import certifi
 import requests
 
 from template.domain.models.enums import NotificationType
@@ -29,11 +24,8 @@ class NotificationService:
 
     def __init__(self):
         """Initialize notification service with configuration."""
-        # Email configuration
-        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.smtp_username = os.getenv("SMTP_USERNAME", "")
-        self.smtp_password = os.getenv("SMTP_PASSWORD", "")
+        self.sendgrid_api_key = os.getenv("SENDGRID_API_KEY", "")
+        self.sendgrid_from_email = os.getenv("SENDGRID_FROM_EMAIL", "")
 
     async def notify_expense_created(
         self, expense: Expense, members: List[Member], creator: Member, member_service: MemberService
@@ -80,23 +72,33 @@ class NotificationService:
                 print("No notification sent (preference is NONE)")
 
     async def _send_email(self, to_email: str, subject: str, message: str) -> None:
-        """Send an email notification."""
+        """Send an email notification via SendGrid HTTP API."""
+        if not self.sendgrid_api_key or not self.sendgrid_from_email:
+            print("SendGrid not configured (SENDGRID_API_KEY / SENDGRID_FROM_EMAIL unset), skipping email")
+            return
+
+        payload = {
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": self.sendgrid_from_email},
+            "subject": subject,
+            "content": [{"type": "text/plain", "value": message}],
+        }
+        headers = {
+            "Authorization": f"Bearer {self.sendgrid_api_key}",
+            "Content-Type": "application/json",
+        }
         try:
-            msg = MIMEMultipart()
-            msg["From"] = self.smtp_username
-            msg["To"] = to_email
-            msg["Subject"] = subject
-            msg.attach(MIMEText(message, "plain"))
-
-            context = ssl.create_default_context(cafile=certifi.where())
-
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls(context=context)
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
-
-            print(f"Email sent to {to_email}")
-        except (smtplib.SMTPException, ssl.SSLError, ConnectionError) as e:
+            response = requests.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                json=payload,
+                headers=headers,
+                timeout=10,
+            )
+            if response.status_code in (200, 202):
+                print(f"Email sent to {to_email}")
+            else:
+                print(f"Failed to send email to {to_email}: {response.status_code} {response.text}")
+        except requests.RequestException as e:
             print(f"Failed to send email to {to_email}: {str(e)}")
 
     async def _send_whatsapp(self, phone_number: str, message: str) -> None:
