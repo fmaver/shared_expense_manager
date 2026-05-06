@@ -184,6 +184,17 @@ def list_reply_message(number: str, options: List[str], body: str, footer: str, 
     return data
 
 
+def member_select_message(number: str, options: List[str], body: str, footer: str, sedd: str) -> str:
+    """Pick the right interactive payload based on option count.
+
+    Meta caps interactive button replies at 3 options; for more, fall back to
+    a list reply (capped at 10 rows).
+    """
+    if len(options) <= 3:
+        return button_reply_message(number, options, body, footer, sedd)
+    return list_reply_message(number, options, body, footer, sedd)
+
+
 def document_message(number: str, media_id: str, caption: str, filename: str) -> str:
     """document message"""
     data = json.dumps(
@@ -348,6 +359,12 @@ def administrar_chatbot(
         )
         user_responses.extend(responses)
 
+    elif estado_actual_usuario["estado"] == "esperando_destinatario_prestamo":
+        responses, estado_actual_usuario = handle_waiting_for_loan_recipient(
+            number, estado_actual_usuario, text, member_service
+        )
+        user_responses.extend(responses)
+
     elif estado_actual_usuario["estado"] == "esperando_categoria":
         responses, estado_actual_usuario = handle_waiting_for_category(number, estado_actual_usuario, text, message_id)
         user_responses.extend(responses)
@@ -371,6 +388,12 @@ def administrar_chatbot(
     elif estado_actual_usuario["estado"] == "esperando_porcentaje" and text.replace(".", "", 1).isdigit():
         responses, estado_actual_usuario = handle_waiting_for_percentage(
             number, estado_actual_usuario, text, member_service
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_porcentaje_para_miembro" and text.replace(".", "", 1).isdigit():
+        responses, estado_actual_usuario = handle_waiting_for_percentage_for_member(
+            number, estado_actual_usuario, text, message_id, member_service
         )
         user_responses.extend(responses)
 
@@ -521,7 +544,8 @@ def handle_document_request(  # pylint: disable=too-many-locals
 
     media_id = wpp_client.upload_media(file_path)[0]
 
-    caption = f"📑 Balance de Fran Y Guadi para {month_year.month}/{month_year.year}"
+    member_names = ", ".join(member_names_dict.values()) or "todos los miembros"
+    caption = f"📑 Balance de {member_names} para {month_year.month}/{month_year.year}"
 
     document_data = document_message(number, media_id, caption, filename)
     user_responses.append(document_data)
@@ -731,12 +755,11 @@ def handle_waiting_for_description(
         body = "👤 ¿Quién realizó el préstamo?\n\nSelecciona la persona que prestó el dinero ⬇️"
 
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
-    # TODO: in future: remember if there are more then 3 members, cant show options like this
     members_dict = expense_service.get_member_names()
     options = list(members_dict.values())
 
     estado_actual_usuario["estado"] = "esperando_pagador"
-    reply_button_data = button_reply_message(number, options, body, footer, "sed1")
+    reply_button_data = member_select_message(number, options, body, footer, "sed1")
     user_responses.append(reply_button_data)
 
     return user_responses, estado_actual_usuario
@@ -770,7 +793,7 @@ Por favor, ingresa la fecha en el formato: DD-MM-AAAA\n
     return user_responses, estado_actual_usuario
 
 
-def handle_waiting_for_payment_date(
+def handle_waiting_for_payment_date(  # pylint: disable=too-many-locals
     number: str, estado_actual_usuario: Dict[str, Any], text: str, member_service: MemberService, message_id: str
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for payment date"""
@@ -781,28 +804,41 @@ def handle_waiting_for_payment_date(
         # SI ES UN PRESTAMO, LUEGO DE LA FECHA YA PODEMOS CARGARLO ##
         if estado_actual_usuario["expense_data"]["service"] == "prestar plata":
             print("cargando el prestamo...")
-            # TODO: not sure if this is the best way to do it
-            id_of_not_payer = 1 if estado_actual_usuario["expense_data"]["payer_id"] == 2 else 2
+            payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+            all_members = member_service.list_members()
+            non_payer_ids = [m.id for m in all_members if m.id != payer_id]
 
-            split_strategy_dict = {
-                "type": "percentage",
-                "percentages": {estado_actual_usuario["expense_data"]["payer_id"]: 0, id_of_not_payer: 100},
-            }
-            estado_actual_usuario["expense_data"]["payment_type"] = "debito"
-            estado_actual_usuario["expense_data"]["category"] = "prestamo"
-            estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
+            if len(non_payer_ids) == 1:
+                # 2-member fast-path: auto-assign the only non-payer as recipient
+                id_of_not_payer = non_payer_ids[0]
+                split_strategy_dict = {
+                    "type": "percentage",
+                    "percentages": {payer_id: 0, id_of_not_payer: 100},
+                }
+                estado_actual_usuario["expense_data"]["payment_type"] = "debito"
+                estado_actual_usuario["expense_data"]["category"] = "prestamo"
+                estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
 
-            # Instead of creating the expense immediately, show summary and ask for confirmation
-            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-            summary += """\n¿Confirmas que los datos son correctos?"""
+                summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
+                summary += "\n¿Confirmas que los datos son correctos?"
 
-            reply_button_data = button_reply_message(
-                number, ["✅ Sí, crear préstamo", "❌ No, cancelar"], summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1"
-            )
-
-            user_responses.append(reply_button_data)
-
-            estado_actual_usuario["estado"] = "esperando_confirmacion"
+                reply_button_data = button_reply_message(
+                    number,
+                    ["✅ Sí, crear préstamo", "❌ No, cancelar"],
+                    summary,
+                    "⚙️ Admin Gastos Compartidos ⚙️",
+                    "sed1",
+                )
+                user_responses.append(reply_button_data)
+                estado_actual_usuario["estado"] = "esperando_confirmacion"
+            else:
+                # N-member path: ask who receives the loan
+                non_payer_names = [member_service.get_member_name_by_id(mid) for mid in non_payer_ids]
+                body = "👤 ¿A quién le estás prestando el dinero?\n\nSelecciona el destinatario ⬇️"
+                footer = "⚙️ Admin Gastos Compartidos ⚙️"
+                reply_data = member_select_message(number, non_payer_names, body, footer, "sed1")
+                user_responses.append(reply_data)
+                estado_actual_usuario["estado"] = "esperando_destinatario_prestamo"
 
         else:
             numbered_categories = Category.get_numbered_categories_with_emoji()
@@ -819,6 +855,43 @@ def handle_waiting_for_payment_date(
             text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con\nDD-MM-AAAA.")
         )
         return user_responses, estado_actual_usuario
+    return user_responses, estado_actual_usuario
+
+
+def handle_waiting_for_loan_recipient(
+    number: str, estado_actual_usuario: Dict[str, Any], text: str, member_service: MemberService
+) -> Tuple[List[str], Dict[str, Any]]:
+    """handle N-member loan: resolve recipient by name and build the split strategy."""
+    user_responses = []
+    payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+    recipient_id = member_service.get_member_id_by_name(text.lower())
+
+    if recipient_id is None or recipient_id == payer_id:
+        error_message = text_message(number, "❌ No se encontró al destinatario. Por favor, intenta de nuevo.")
+        user_responses.append(error_message)
+        return user_responses, estado_actual_usuario
+
+    split_strategy_dict = {
+        "type": "percentage",
+        "percentages": {payer_id: 0, recipient_id: 100},
+    }
+    estado_actual_usuario["expense_data"]["payment_type"] = "debito"
+    estado_actual_usuario["expense_data"]["category"] = "prestamo"
+    estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
+
+    summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
+    summary += "\n¿Confirmas que los datos son correctos?"
+
+    reply_button_data = button_reply_message(
+        number,
+        ["✅ Sí, crear préstamo", "❌ No, cancelar"],
+        summary,
+        "⚙️ Admin Gastos Compartidos ⚙️",
+        "sed1",
+    )
+    user_responses.append(reply_button_data)
+    estado_actual_usuario["estado"] = "esperando_confirmacion"
+
     return user_responses, estado_actual_usuario
 
 
@@ -950,7 +1023,7 @@ def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberServ
     return "\n".join(summary)
 
 
-def handle_waiting_for_split_strategy(
+def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals
     number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, member_service: MemberService
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for split"""
@@ -959,11 +1032,31 @@ def handle_waiting_for_split_strategy(
     print("esperando_estrategia")
 
     if "porcentaje" in text.lower():
-        body = """📊 ¿Qué porcentaje corresponde al pagador?\n\nPor favor, ingresa solo el número sin símbolos\n
-✨ Ejemplo: 65.4"""
-        reply_text = reply_text_message(number, message_id, body)
-        user_responses.append(reply_text)
-        estado_actual_usuario["estado"] = "esperando_porcentaje"
+        payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+        all_members = member_service.list_members()
+        non_payer_ids = [m.id for m in all_members if m.id != payer_id]
+
+        if len(non_payer_ids) == 1:
+            body = (
+                "📊 ¿Qué porcentaje corresponde al pagador?\n\n"
+                "Por favor, ingresa solo el número sin símbolos\n\n"
+                "✨ Ejemplo: 65.4"
+            )
+            reply_text = reply_text_message(number, message_id, body)
+            user_responses.append(reply_text)
+            estado_actual_usuario["estado"] = "esperando_porcentaje"
+        else:
+            estado_actual_usuario["expense_data"]["remaining_member_ids"] = non_payer_ids
+            estado_actual_usuario["expense_data"]["pending_percentages"] = {}
+            first_name = member_service.get_member_name_by_id(non_payer_ids[0])
+            body = (
+                f"📊 ¿Qué porcentaje le corresponde a {first_name}?\n\n"
+                "Por favor, ingresa solo el número sin símbolos\n\n"
+                "✨ Ejemplo: 35.0"
+            )
+            reply_text = reply_text_message(number, message_id, body)
+            user_responses.append(reply_text)
+            estado_actual_usuario["estado"] = "esperando_porcentaje_para_miembro"
 
     else:
         strategy_dict: Dict[str, Optional[Collection[Any]]] = {
@@ -995,15 +1088,16 @@ def handle_waiting_for_percentage(
     print("esperando_porcentaje")
     try:
         payer_percentage = float(text)
-        # TODO: in future avoid harcoded values
-        id_of_not_payer = 1 if estado_actual_usuario["expense_data"]["payer_id"] == 2 else 2
+        payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+        all_members = member_service.list_members()
+        id_of_not_payer = next(m.id for m in all_members if m.id != payer_id)
 
         if not 0 <= payer_percentage <= 100:
             raise ValueError("El porcentaje debe estar entre 0 y 100")
         strategy_dict = {
             "type": "percentage",
             "percentages": {
-                estado_actual_usuario["expense_data"]["payer_id"]: payer_percentage,
+                payer_id: payer_percentage,
                 id_of_not_payer: round(100 - payer_percentage, 2),
             },
         }
@@ -1018,6 +1112,72 @@ def handle_waiting_for_percentage(
         user_responses.append(reply_button_data)
 
         estado_actual_usuario["estado"] = "esperando_confirmacion"
+
+    except ValueError as e:
+        error_message = text_message(number, f"Error: {str(e)}. Por favor, ingresa un número entre 0 y 100.")
+        user_responses.append(error_message)
+
+    return user_responses, estado_actual_usuario
+
+
+def handle_waiting_for_percentage_for_member(  # pylint: disable=too-many-locals
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    message_id: str,
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """N-member percentage: collect one non-payer percentage per turn, then finalise."""
+    user_responses = []
+    try:
+        percentage = float(text)
+        if not 0 <= percentage <= 100:
+            raise ValueError("El porcentaje debe estar entre 0 y 100")
+
+        remaining: List[int] = estado_actual_usuario["expense_data"]["remaining_member_ids"]
+        pending: Dict[int, float] = estado_actual_usuario["expense_data"]["pending_percentages"]
+
+        current_id = remaining[0]
+        pending[current_id] = percentage
+        remaining = remaining[1:]
+        total_assigned = sum(pending.values())
+
+        estado_actual_usuario["expense_data"]["remaining_member_ids"] = remaining
+        estado_actual_usuario["expense_data"]["pending_percentages"] = pending
+
+        if remaining:
+            next_name = member_service.get_member_name_by_id(remaining[0])
+            remaining_pct = round(100 - total_assigned, 2)
+            body = (
+                f"📊 ¿Qué porcentaje le corresponde a {next_name}?\n\n"
+                f"Porcentaje restante disponible: {remaining_pct}%\n\n"
+                "Por favor, ingresa solo el número sin símbolos\n\n"
+                "✨ Ejemplo: 35.0"
+            )
+            user_responses.append(reply_text_message(number, message_id, body))
+        else:
+            payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+            payer_pct = round(100 - total_assigned, 2)
+            if payer_pct < -0.01:
+                raise ValueError("Los porcentajes suman más del 100%")
+            payer_pct = max(payer_pct, 0.0)
+
+            percentages: Dict[int, float] = {payer_id: payer_pct}
+            percentages.update({int(mid): pct for mid, pct in pending.items()})
+
+            estado_actual_usuario["expense_data"]["split_strategy"] = {
+                "type": "percentage",
+                "percentages": percentages,
+            }
+            del estado_actual_usuario["expense_data"]["remaining_member_ids"]
+            del estado_actual_usuario["expense_data"]["pending_percentages"]
+
+            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
+            summary += "\n¿Confirmas que los datos son correctos?"
+            options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
+            reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
+            user_responses.append(reply_button_data)
+            estado_actual_usuario["estado"] = "esperando_confirmacion"
 
     except ValueError as e:
         error_message = text_message(number, f"Error: {str(e)}. Por favor, ingresa un número entre 0 y 100.")

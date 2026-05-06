@@ -8,6 +8,7 @@ from template.adapters.database import SessionLocal, engine
 from template.adapters.orm import Base, MemberModel
 from template.adapters.repositories import SQLAlchemyExpenseRepository
 from template.domain.models.expense_manager import ExpenseManager
+from template.settings.bootstrap_settings import BootstrapSettings
 
 log = logging.getLogger(__name__)
 
@@ -18,48 +19,45 @@ class InitializationService:
         """Initialize application services and dependencies"""
         log.info("Initializing application services and dependencies")
         try:
-            # Create all database tables
             Base.metadata.create_all(bind=engine)
 
-            # Initialize default data
             with SessionLocal() as db:
-                cls._initialize_default_members(db)
+                cls._upsert_bootstrap_members(db)
 
         except Exception as e:
             log.error("Failed to initialize services: %s", str(e))
             raise
 
     @staticmethod
-    def _initialize_default_members(db: Session) -> None:
-        """Initialize default members if they don't exist."""
+    def _upsert_bootstrap_members(db: Session) -> None:
+        """Idempotently insert any members listed in MEMBERS_BOOTSTRAP_JSON.
 
-        default_members = [
-            {"id": 1, "name": "Fran", "telephone": "5491138718498", "email": "franciscomaver.fm@gmail.com"},
-            {"id": 2, "name": "Guadi", "telephone": "5491122766501", "email": "g.rodriguezmazza@gmail.com"},
-        ]
+        Members are matched by email; existing rows are never modified. When
+        the env var is unset, this is a no-op so production data remains
+        untouched on every restart.
+        """
+        bootstrap_members = BootstrapSettings().parse_members()
+        if not bootstrap_members:
+            return
 
-        for member_data in default_members:
-            # First try to find by ID
-            existing = db.query(MemberModel).filter(MemberModel.id == member_data["id"]).first()
-
+        inserted = 0
+        for entry in bootstrap_members:
+            existing = db.query(MemberModel).filter(MemberModel.email == entry.email).first()
             if existing:
-                # Member exists, check if it needs email update
-                if not hasattr(existing, "email") or not existing.email:
-                    log.info("Updating existing member %s with email information", existing.name)
-                    existing.email = member_data["email"]
-                    db.add(existing)
-            else:
-                # Member doesn't exist, create new
-                member = MemberModel(**member_data)
-                db.add(member)
-                log.info("Added default member: %s (ID: %d)", member.name, member.id)
+                continue
+            db.add(MemberModel(name=entry.name, email=entry.email, telephone=entry.telephone))
+            log.info("Bootstrapped member %s <%s>", entry.name, entry.email)
+            inserted += 1
+
+        if inserted == 0:
+            return
 
         try:
             db.commit()
-            log.info("Successfully initialized/updated default members")
+            log.info("Bootstrap inserted %d new member(s)", inserted)
         except Exception as e:
             db.rollback()
-            log.error("Error initializing/updating default members: %s", str(e))
+            log.error("Error inserting bootstrap members: %s", str(e))
             raise
 
     @staticmethod
