@@ -31,6 +31,7 @@ class BootstrapSettings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=False)
 
     def parse_members(self) -> List[BootstrapMember]:
+        """Parse MEMBERS_BOOTSTRAP_JSON into a list of BootstrapMember objects."""
         if not self.members_bootstrap_json:
             return []
         try:
