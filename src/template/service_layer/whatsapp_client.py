@@ -1,9 +1,12 @@
 """WhatsApp Cloud API client abstraction."""
 
+import logging
 import os
 from typing import Any, Dict, Protocol, Tuple
 
 import requests
+
+log = logging.getLogger(__name__)
 
 
 class WhatsAppClient(Protocol):
@@ -33,6 +36,7 @@ class MetaWhatsAppClient:
             response = requests.post(url, headers=headers, data=data, timeout=5)
             if response.status_code == 200:
                 return {"detail": "mensaje enviado", "status_code": 200}
+            log.error("Meta API error %s: %s", response.status_code, response.text)
             return {"detail": "error al enviar mensaje", "status_code": response.status_code}
         except ValueError as e:
             return {"detail": "no enviado, value error: " + str(e)}

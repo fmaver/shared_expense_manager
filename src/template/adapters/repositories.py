@@ -71,11 +71,6 @@ class MemberRepository:
 
     def get_member_by_phone(self, phone: str) -> Optional[Member]:
         """Get a member by their phone number."""
-        # Meta sends Argentine numbers as 549XXXXXXXX; strip the 9 to match DB storage (54XXXXXXXX)
-        if phone.startswith("549"):
-            phone = "54" + phone[3:]
-        elif phone.startswith("521"):
-            phone = "52" + phone[3:]
         db_member = self.session.query(MemberModel).filter(MemberModel.telephone == phone).first()
         if db_member:
             return Member(

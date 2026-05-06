@@ -22,6 +22,7 @@ from template.service_layer.whatsapp_client import WhatsAppClient
 from template.service_layer.whatsapp_service import (
     administrar_chatbot,
     obtener_mensaje_whatsapp,
+    replace_start,
 )
 
 load_dotenv()
@@ -86,7 +87,7 @@ async def recibir_mensajes(
         changes = entry["changes"][0]
         value = changes["value"]
         message = value["messages"][0]
-        number = message["from"]
+        number = replace_start(message["from"])
         message_id = message["id"]
         text = obtener_mensaje_whatsapp(message)
     except (KeyError, IndexError, ValueError):
