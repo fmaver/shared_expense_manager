@@ -288,3 +288,100 @@ class TestExpenseManager:
         assert balancing_expense.description == "Balancing Expense"
         assert balancing_expense.amount == 50.0  # Should match the balance
         assert balancing_expense.payer_id == 2  # The one who owes should be the payer
+
+    def test_settle_monthly_share_with_three_members_creates_one_balancing_expense_per_debtor(
+        self, manager: ExpenseManager
+    ):
+        """
+        GIVEN an ExpenseManager with three members where one paid for everyone
+        WHEN settling the monthly share
+        THEN one balancing expense per debtor should be created, all owed to the single creditor
+        """
+        manager.add_member(Member(id=3, name="Bob", telephone="+1234567892", email="bob@example.com"))
+
+        category = Category()
+        category.name = "food"
+        expense = Expense(
+            description="Dinner for three",
+            amount=300,
+            date="2024-03-15",
+            category=category,
+            payer_id=1,
+            payment_type=PaymentType.DEBIT,
+            split_strategy=EqualSplit(),
+        )
+        manager.create_and_add_expense(expense)
+
+        # Pre-settle balance: 1=+200, 2=-100, 3=-100
+        manager.settle_monthly_share(2024, 3)
+
+        monthly_share = manager.get_monthly_balance(2024, 3)
+        assert monthly_share is not None
+        assert monthly_share.is_settled
+
+        balancing_expenses = [e for e in monthly_share.expenses if e.description == "Balancing Expense"]
+        assert len(balancing_expenses) == 2
+
+        # Each debtor should appear exactly once as payer of a balancing expense; creditor is member 1
+        payer_ids = sorted(e.payer_id for e in balancing_expenses)
+        assert payer_ids == [2, 3]
+        assert all(e.amount == 100.0 for e in balancing_expenses)
+        # All balancing expenses settle to member 1
+        for expense in balancing_expenses:
+            percentages = expense.split_strategy.percentages
+            assert percentages[1] == 100.0
+            assert percentages[expense.payer_id] == 0.0
+
+        # Total transferred equals the creditor's positive balance
+        assert sum(e.amount for e in balancing_expenses) == 200.0
+
+    def test_settle_monthly_share_with_multiple_creditors_and_debtors(self, manager: ExpenseManager):
+        """
+        GIVEN an ExpenseManager with two creditors and two debtors of equal magnitude
+        WHEN settling the monthly share
+        THEN one balancing expense per matched pair should be created
+        """
+        manager.add_member(Member(id=3, name="Bob", telephone="+1234567892", email="bob@example.com"))
+        manager.add_member(Member(id=4, name="Alice", telephone="+1234567893", email="alice@example.com"))
+
+        category = Category()
+        category.name = "food"
+        expense1 = Expense(
+            description="Lunch",
+            amount=100,
+            date="2024-03-15",
+            category=category,
+            payer_id=1,
+            payment_type=PaymentType.DEBIT,
+            split_strategy=EqualSplit(),
+        )
+        expense2 = Expense(
+            description="Coffee",
+            amount=100,
+            date="2024-03-15",
+            category=category,
+            payer_id=3,
+            payment_type=PaymentType.DEBIT,
+            split_strategy=EqualSplit(),
+        )
+        manager.create_and_add_expense(expense1)
+        manager.create_and_add_expense(expense2)
+
+        # Pre-settle: 1=+50, 2=-50, 3=+50, 4=-50
+        manager.settle_monthly_share(2024, 3)
+
+        monthly_share = manager.get_monthly_balance(2024, 3)
+        assert monthly_share is not None
+
+        balancing_expenses = [e for e in monthly_share.expenses if e.description == "Balancing Expense"]
+        assert len(balancing_expenses) == 2
+
+        # Total balancing amount equals total positive balance
+        assert sum(e.amount for e in balancing_expenses) == 100.0
+
+        # Each balancing expense pairs one debtor with one creditor (no self-pairing)
+        for be in balancing_expenses:
+            percentages = be.split_strategy.percentages
+            recipient_ids = [mid for mid, pct in percentages.items() if pct == 100.0]
+            assert len(recipient_ids) == 1
+            assert recipient_ids[0] != be.payer_id

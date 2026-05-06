@@ -12,31 +12,20 @@ from tests.fakes.fake_whatsapp_client import FakeWhatsAppClient
 
 @pytest.fixture(scope="session", autouse=True)
 def _create_schema():
-    """Bootstrap schema and seed default members (Fran/Guadi) once for the session.
+    """Bootstrap schema once per session via the app lifespan.
 
-    Running lifespan here ensures members exist before clean_tables' setval
-    logic runs, so MAX(id)=2 and the sequence is safely advanced to 3.
+    With MEMBERS_BOOTSTRAP_JSON unset (the default in tests) the lifespan
+    creates tables but seeds no members; each test registers the members it
+    needs via the API.
     """
     app = get_application()
-    with TestClient(app):  # lifespan: create_all + seed Fran (id=1) / Guadi (id=2)
+    with TestClient(app):  # lifespan: create_all only
         pass
 
 
 @pytest.fixture(autouse=True)
 def clean_tables(_create_schema):  # pylint: disable=redefined-outer-name
-    """Reset sequences and wipe transient rows around each test."""
-    # Setup: advance sequences past the manually-seeded member IDs so that
-    # new inserts don't collide with Fran (id=1) and Guadi (id=2).
-    with SessionLocal() as session:
-        for table, col in [("members", "id"), ("expenses", "id"), ("monthly_shares", "id")]:
-            session.execute(
-                text(
-                    f"SELECT setval(pg_get_serial_sequence('{table}', '{col}'), "
-                    f"COALESCE((SELECT MAX({col}) FROM {table}), 0) + 1, false)"
-                )
-            )
-        session.commit()
-
+    """Wipe all transient rows after each test."""
     yield
 
     with SessionLocal() as session:
@@ -44,7 +33,7 @@ def clean_tables(_create_schema):  # pylint: disable=redefined-outer-name
         session.execute(text("DELETE FROM chat_sessions"))
         session.execute(text("DELETE FROM expenses"))
         session.execute(text("DELETE FROM monthly_shares"))
-        session.execute(text("DELETE FROM members WHERE id NOT IN (1, 2)"))
+        session.execute(text("DELETE FROM members"))
         session.commit()
 
 
@@ -85,3 +74,27 @@ def auth_headers(client: TestClient) -> dict:  # pylint: disable=redefined-outer
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def primary_member_id(client: TestClient, auth_headers: dict) -> int:  # pylint: disable=redefined-outer-name
+    """ID of the primary test member registered by auth_headers."""
+    r = client.get("/api/v1/members/me", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["id"]
+
+
+@pytest.fixture
+def secondary_member_id(client: TestClient) -> int:  # pylint: disable=redefined-outer-name
+    """Register a second member via the API; return its id."""
+    r = client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Counterparty",
+            "telephone": "5499966665555",
+            "email": "counterparty@example.com",
+            "password": "secret123",
+        },
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
