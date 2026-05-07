@@ -8,13 +8,15 @@ class Category:
         "auto",
         "casa",
         "salidas",
-        "compras",
+        "supermercado",
         "mascota",
         "entretenimiento",
-        "prestamo",
         "shopping",
-        "balance",
+        "viajes",
+        "salud",
         "otros",
+        "prestamo",
+        "balance",
     ]
 
     _internal_categories: Set[str] = {"balance", "prestamo"}
@@ -24,13 +26,15 @@ class Category:
         "auto": "🚙",
         "casa": "🏠",
         "salidas": "🍽️",
-        "compras": "🛒",
+        "supermercado": "🛒",
         "mascota": "🐾",
         "entretenimiento": "🎮",
-        "prestamo": "💰",
         "shopping": "🛍️",
-        "balance": "💵",
+        "viajes": "✈️",
+        "salud": "💊",
         "otros": "📦",
+        "prestamo": "💰",
+        "balance": "💵",
     }
 
     @classmethod
@@ -118,6 +122,11 @@ class Category:
             str: The emoji for the category, or empty string if not found
         """
         return cls._category_emojis.get(category.lower(), "")
+
+    @classmethod
+    def is_internal_category(cls, category: str) -> bool:
+        """Return True if the category is internal (not shown to users)."""
+        return category.lower() in cls._internal_categories
 
     @classmethod
     def is_valid_category(cls, category: str) -> bool:

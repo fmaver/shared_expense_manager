@@ -4,9 +4,8 @@
 import asyncio
 import json
 import os
-import re
 import time
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Collection, Dict, List, Optional, Tuple
 
 import requests
@@ -43,6 +42,17 @@ def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
     else:
         text = "mensaje no procesado"
     return text
+
+
+def obtener_interactive_id_whatsapp(message: Dict[str, Any]) -> Optional[str]:
+    """Return the interactive button/list reply ID, or None for plain text messages."""
+    if message.get("type") == "interactive":
+        interactive = message["interactive"]
+        if interactive.get("type") == "button_reply":
+            return interactive["button_reply"].get("id")
+        if interactive.get("type") == "list_reply":
+            return interactive["list_reply"].get("id")
+    return None
 
 
 def obtener_media_id(file_path: str) -> Tuple[str, int]:
@@ -195,6 +205,30 @@ def member_select_message(number: str, options: List[str], body: str, footer: st
     return list_reply_message(number, options, body, footer, sedd)
 
 
+def category_select_message(number: str) -> str:
+    """Build a list_reply with cat_<name> IDs for category selection."""
+    categories = Category.get_numbered_categories_with_emoji()
+    rows = [
+        {"id": f"cat_{name}", "title": f"{name.capitalize()} {emoji}", "description": ""}
+        for _, name, emoji in categories
+    ]
+    data = json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": "🏷️ ¿Cuál es la categoría del gasto?\n\n_También podés escribir el nombre o número._"},
+                "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
+                "action": {"button": "Ver Categorías", "sections": [{"title": "Categorías", "rows": rows}]},
+            },
+        }
+    )
+    return data
+
+
 def document_message(number: str, media_id: str, caption: str, filename: str) -> str:
     """document message"""
     data = json.dumps(
@@ -275,6 +309,17 @@ def update_member_last_chat(number: str, member_service: MemberService) -> None:
         print(f"Member with phone {number} not found")
 
 
+def handle_cancel(
+    number: str, estado_actual_usuario: Dict[str, Any], member_service: MemberService
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Abort any in-progress flow and return user to the main menu."""
+    estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
+    responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service)
+    # Prepend a cancellation notice as a plain text message
+    cancel_notice = text_message(number, "❌ Operación cancelada.")
+    return [cancel_notice] + responses, estado_actual_usuario
+
+
 # pylint: disable=too-many-branches, too-many-statements
 # flake8: noqa: C901
 # pylint: disable=too-many-arguments
@@ -287,6 +332,7 @@ def administrar_chatbot(
     service: ExpenseService,
     member_service: MemberService,
     wpp_client: "WhatsAppClient",
+    interactive_id: Optional[str] = None,
 ) -> Dict[str, Any]:  # noqa: C901
     """logica del bot"""
     user_responses = []
@@ -297,7 +343,12 @@ def administrar_chatbot(
     user_responses.append(mark_read)
     time.sleep(1)
 
-    if "hola" in text.lower() or "inicio" in text.lower() or "entendido" in text.lower():
+    if "cancelar" in text.lower():
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_cancel(number, estado_actual_usuario, member_service)
+        user_responses.extend(responses)
+
+    elif "hola" in text.lower() or "inicio" in text.lower() or "entendido" in text.lower():
         # Update last WhatsApp chat datetime at the start of any interaction
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service)
@@ -353,7 +404,7 @@ def administrar_chatbot(
         )
         user_responses.extend(responses)
 
-    elif estado_actual_usuario["estado"] == "esperando_fecha_pago" and re.match(r"^\d{2}-\d{2}-\d{4}$", text):
+    elif estado_actual_usuario["estado"] == "esperando_fecha_pago":
         responses, estado_actual_usuario = handle_waiting_for_payment_date(
             number, estado_actual_usuario, text, member_service, message_id
         )
@@ -366,7 +417,9 @@ def administrar_chatbot(
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_categoria":
-        responses, estado_actual_usuario = handle_waiting_for_category(number, estado_actual_usuario, text, message_id)
+        responses, estado_actual_usuario = handle_waiting_for_category(
+            number, estado_actual_usuario, text, message_id, interactive_id
+        )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_tipo_pago":
@@ -385,13 +438,13 @@ def administrar_chatbot(
         )
         user_responses.extend(responses)
 
-    elif estado_actual_usuario["estado"] == "esperando_porcentaje" and text.replace(".", "", 1).isdigit():
+    elif estado_actual_usuario["estado"] == "esperando_porcentaje":
         responses, estado_actual_usuario = handle_waiting_for_percentage(
             number, estado_actual_usuario, text, member_service
         )
         user_responses.extend(responses)
 
-    elif estado_actual_usuario["estado"] == "esperando_porcentaje_para_miembro" and text.replace(".", "", 1).isdigit():
+    elif estado_actual_usuario["estado"] == "esperando_porcentaje_para_miembro":
         responses, estado_actual_usuario = handle_waiting_for_percentage_for_member(
             number, estado_actual_usuario, text, message_id, member_service
         )
@@ -425,7 +478,9 @@ def create_expense(
 ):
     """create expense"""
     payment_type = (
-        PaymentType.CREDIT if estado_actual_usuario["expense_data"]["payment_type"] == "crédito" else PaymentType.DEBIT
+        PaymentType.CREDIT
+        if estado_actual_usuario["expense_data"]["payment_type"] in ("credito", "crédito")
+        else PaymentType.DEBIT
     )
     expense_data = ExpenseCreate(
         description=estado_actual_usuario["expense_data"]["description"],
@@ -500,7 +555,11 @@ def handle_greetings(
         user_responses.append(response)
         return user_responses, estado_actual_usuario
 
-    body = f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨\n¿Cómo podemos ayudarte hoy?"
+    body = (
+        f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨\n"
+        "¿Cómo podemos ayudarte hoy?\n\n"
+        "💡 Podés escribir _cancelar_ en cualquier momento para volver al inicio."
+    )
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
 
@@ -690,7 +749,7 @@ def handle_lending_money(
     estado_actual_usuario["expense_data"]["service"] = "prestar plata"
 
     body = """💸 ¿Cuánto dinero deseas prestar?\n\nPor favor, ingresa el monto sin símbolos\n
-✨ Ejemplo: 1234.56"""
+✨ Ejemplo: 1234,56"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
@@ -708,7 +767,7 @@ def handle_loading_expense(
     estado_actual_usuario["expense_data"]["service"] = "cargar gasto"
 
     body = """💰 ¿Cuál es el monto del gasto?\n\nPor favor, ingresa el valor sin símbolos\n
-✨ Ejemplo: 1234.56"""
+✨ Ejemplo: 1234,56"""
     reply_text = reply_text_message(number, message_id, body)
     user_responses.append(reply_text)
 
@@ -724,7 +783,7 @@ def handle_waiting_for_amount(
     user_responses = []
     print("esperando_monto")
     try:
-        amount = float(text)
+        amount = float(text.strip().replace(",", "."))
         estado_actual_usuario["expense_data"]["amount"] = amount
 
         body = "🖊️ ¿Cuál es el motivo del gasto?\n\nPor favor, escribe una breve descripción 📝"
@@ -734,7 +793,11 @@ def handle_waiting_for_amount(
         estado_actual_usuario["estado"] = "esperando_descripcion"
 
     except ValueError:
-        error_message = text_message(number, "❌ El monto ingresado no es válido. Por favor, intenta de nuevo.")
+        error_message = text_message(
+            number,
+            "❌ El monto ingresado no es válido. Por favor, intenta de nuevo.\n"
+            "(podés usar punto o coma para los decimales, ej: 1234,56)",
+        )
         user_responses.append(error_message)
 
     return user_responses, estado_actual_usuario
@@ -780,11 +843,11 @@ def handle_waiting_for_payer(
 
     estado_actual_usuario["expense_data"]["payer_id"] = payer_id
 
-    body = """📅 ¿Cuándo se realizó el gasto?\n
-Por favor, ingresa la fecha en el formato: DD-MM-AAAA\n
-✨ Ejemplo: 01-01-2025"""
-    reply_text = reply_text_message(number, message_id, body)
-    user_responses.append(reply_text)
+    body = "📅 ¿Cuándo se realizó el gasto?\n\n_o escribí la fecha:_\n_DD/MM/AAAA, DD-MM-AAAA o DD-MM (año actual)_"
+    footer = "⚙️ Admin Gastos Compartidos ⚙️"
+    options = ["📅 Hoy", "📅 Ayer"]
+    reply_button_data = button_reply_message(number, options, body, footer, "sed_fecha")
+    user_responses.append(reply_button_data)
 
     estado_actual_usuario["estado"] = "esperando_fecha_pago"
 
@@ -797,7 +860,7 @@ def handle_waiting_for_payment_date(  # pylint: disable=too-many-locals
     """handle waiting for payment date"""
     user_responses = []
     try:
-        estado_actual_usuario["expense_data"]["date"] = datetime.strptime(text, "%d-%m-%Y").date().isoformat()
+        estado_actual_usuario["expense_data"]["date"] = parse_user_date(text).isoformat()
 
         # SI ES UN PRESTAMO, LUEGO DE LA FECHA YA PODEMOS CARGARLO ##
         if estado_actual_usuario["expense_data"]["service"] == "prestar plata":
@@ -839,18 +902,16 @@ def handle_waiting_for_payment_date(  # pylint: disable=too-many-locals
                 estado_actual_usuario["estado"] = "esperando_destinatario_prestamo"
 
         else:
-            numbered_categories = Category.get_numbered_categories_with_emoji()
-            categories_text = "\n".join(
-                [f"{num}: {cat.capitalize()} {emoji}" for num, cat, emoji in numbered_categories]
-            )
-
-            body = f"🏷️ Por favor, selecciona la categoría del gasto:\n{categories_text}\n"
-            user_responses.append(reply_text_message(number, message_id, body))
-
+            user_responses.append(category_select_message(number))
             estado_actual_usuario["estado"] = "esperando_categoria"
+
     except ValueError:
         user_responses.append(
-            text_message(number, "El formato ingresado no es válido. Por favor, intenta de nuevo con\nDD-MM-AAAA.")
+            text_message(
+                number,
+                "❌ No pude entender la fecha. Podés escribir _hoy_, _ayer_, "
+                "o una fecha como _15/03/2025_, _15-03-2025_ o _15-03_.",
+            )
         )
         return user_responses, estado_actual_usuario
     return user_responses, estado_actual_usuario
@@ -894,36 +955,51 @@ def handle_waiting_for_loan_recipient(
 
 
 def handle_waiting_for_category(
-    number: str, estado_actual_usuario: Dict[str, Any], text: str, message_id: str
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    message_id: str,
+    interactive_id: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for category"""
     user_responses = []
     print("esperando_categoria")
 
-    try:  # Try to get category by number first
-        category_number = int(text)
-        category = Category.get_category_by_number(category_number)
-        if category:
-            estado_actual_usuario["expense_data"]["category"] = category
-        else:
-            raise ValueError
-    except ValueError:
-        text = text.lower()
-        if Category.is_valid_category(text):
-            estado_actual_usuario["expense_data"]["category"] = text
-        else:
-            numbered_categories = Category.get_numbered_categories_with_emoji()
-            categories_text = "\n".join(
-                [f"{num}: {cat.capitalize()} {emoji}" for num, cat, emoji in numbered_categories]
-            )
-            body = f"❌ Categoría no válida. Por favor elige una de las siguientes:\n{categories_text}"
-            reply_text = reply_text_message(number, message_id, body)
-            user_responses.append(reply_text)
-            return user_responses, estado_actual_usuario
+    resolved_category: Optional[str] = None
+
+    # Priority 1: interactive list reply with cat_<name> ID
+    if interactive_id and interactive_id.startswith("cat_"):
+        cat_name = interactive_id[len("cat_") :]
+        if Category.is_valid_category(cat_name) and not Category.is_internal_category(cat_name):
+            resolved_category = cat_name
+
+    # Priority 2: typed number
+    if resolved_category is None:
+        try:
+            category_number = int(text)
+            resolved_category = Category.get_category_by_number(category_number)
+        except ValueError:
+            pass
+
+    # Priority 3: typed name
+    if resolved_category is None:
+        normalized = text.lower().strip()
+        if Category.is_valid_category(normalized) and not Category.is_internal_category(normalized):
+            resolved_category = normalized
+
+    if resolved_category is None:
+        user_responses.append(category_select_message(number))
+        error_prefix = text_message(
+            number, "❌ Categoría no válida. Tocá una opción de la lista o escribí su nombre o número."
+        )
+        user_responses.insert(0, error_prefix)
+        return user_responses, estado_actual_usuario
+
+    estado_actual_usuario["expense_data"]["category"] = resolved_category
 
     body = "💳 ¿Qué método de pago se utilizó?\n\nSelecciona una opción ⬇️"
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
-    options = ["💳 Crédito", "💰 Débito"]
+    options = ["💰 Débito", "💳 Crédito 1 cuota", "💳 Crédito en cuotas"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
     user_responses.append(reply_button_data)
@@ -936,26 +1012,37 @@ def handle_waiting_for_category(
 def handle_waiting_for_payment_type(
     number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """handle waiting for payment"""
+    """handle waiting for payment — 3 options: Débito / Crédito 1 cuota / Crédito en cuotas"""
     user_responses = []
 
     print("esperando_tipo_pago")
 
-    if "crédito" in text.lower():
-        estado_actual_usuario["expense_data"]["payment_type"] = "crédito"
-        body = "📅 Por favor, indica el número de cuotas (1-12)"
+    text_lower = text.lower()
+    if "1 cuota" in text_lower:
+        # Crédito, single installment — skip cuotas question
+        estado_actual_usuario["expense_data"]["payment_type"] = "credito"
+        estado_actual_usuario["expense_data"]["installments"] = 1
+        body = "📊 ¿Cómo deseas dividir el gasto?"
+        footer = "⚙️ Admin Gastos Compartidos ⚙️"
+        options = ["🔄 Partes Iguales", "📊 Porcentajes"]
+        reply_button_data = button_reply_message(number, options, body, footer, "sed1")
+        user_responses.append(reply_button_data)
+        estado_actual_usuario["estado"] = "esperando_estrategia"
+    elif "cuotas" in text_lower or "crédito" in text_lower or "credito" in text_lower:
+        # Crédito en cuotas — ask how many
+        estado_actual_usuario["expense_data"]["payment_type"] = "credito"
+        body = "🔢 ¿En cuántas cuotas?"
         reply_text = reply_text_message(number, message_id, body)
         user_responses.append(reply_text)
         estado_actual_usuario["estado"] = "esperando_cuotas"
     else:
+        # Débito (default)
         estado_actual_usuario["expense_data"]["payment_type"] = "debito"
         body = "📊 ¿Cómo deseas dividir el gasto?"
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
         options = ["🔄 Partes Iguales", "📊 Porcentajes"]
-
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
-
         estado_actual_usuario["estado"] = "esperando_estrategia"
 
     return user_responses, estado_actual_usuario
@@ -968,7 +1055,10 @@ def handle_waiting_for_installments(
     user_responses = []
     print("esperando_cuotas")
     try:
-        estado_actual_usuario["expense_data"]["installments"] = int(text)
+        cuotas = int(text)
+        if cuotas < 2:
+            raise ValueError("Número de cuotas inválido")
+        estado_actual_usuario["expense_data"]["installments"] = cuotas
 
         body = "📊 ¿Cómo deseas dividir el gasto?"
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
@@ -980,43 +1070,101 @@ def handle_waiting_for_installments(
         estado_actual_usuario["estado"] = "esperando_estrategia"
 
     except ValueError:
-        error_message = text_message(
-            number, "La cantidad de cuotas ingresada no es válida. Por favor, intenta de nuevo."
-        )
+        error_message = text_message(number, "Ingresá un número entero de cuotas (2 o más).")
         user_responses.append(error_message)
 
     return user_responses, estado_actual_usuario
 
 
+def parse_user_date(text: str) -> date:
+    """Parse flexible date input: 'hoy', 'ayer', DD-MM, DD/MM, DD-MM-YYYY, DD/MM/YYYY.
+
+    Raises ValueError if none of the patterns match.
+    """
+    normalized = text.strip().lower()
+    today = datetime.now().date()
+    if normalized == "hoy":
+        return today
+    if normalized == "ayer":
+        from datetime import timedelta  # pylint: disable=C0415
+
+        return today - timedelta(days=1)
+    patterns = ["%d-%m-%Y", "%d/%m/%Y", "%d-%m", "%d/%m"]
+    for fmt in patterns:
+        try:
+            parsed = datetime.strptime(normalized, fmt)
+            if fmt in ("%d-%m", "%d/%m"):
+                return parsed.replace(year=today.year).date()
+            return parsed.date()
+        except ValueError:
+            continue
+    raise ValueError(f"No se pudo interpretar la fecha: {text!r}")
+
+
+def format_date_es(iso: str) -> str:
+    """Convert YYYY-MM-DD ISO string to DD/MM/AAAA for display."""
+    try:
+        d = datetime.strptime(iso, "%Y-%m-%d").date()
+        return d.strftime("%d/%m/%Y")
+    except ValueError:
+        return iso
+
+
+def format_payment_type_es(payment_type: str, installments: int) -> str:
+    """Render payment type in Spanish for the summary."""
+    if payment_type in ("credito", "crédito"):
+        if installments <= 1:
+            return "Crédito (1 cuota)"
+        return f"Crédito ({installments} cuotas)"
+    return "Débito"
+
+
+def format_category_es(name: str) -> str:
+    """Render category name with its emoji for the summary."""
+    if name == "prestamo":
+        return "Préstamo 💰"
+    emoji = Category.get_category_emoji(name)
+    label = name.capitalize()
+    return f"{label} {emoji}" if emoji else label
+
+
+def format_member_name_es(member_id: Any, member_service: MemberService) -> str:
+    """Return member name; falls back to 'Desconocido' on missing records."""
+    name = member_service.get_member_name_by_id(member_id)
+    return name if name else "Desconocido"
+
+
 def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberService) -> str:
-    """Generate a summary of the expense for confirmation"""
-    category = expense_data.get("category", "")
-    category_emoji = Category.get_category_emoji(category)
-    category_display = f"{category.capitalize()} {category_emoji}" if category_emoji else category.capitalize()
-    payer_name = member_service.get_member_name_by_id(expense_data.get("payer_id", ""))
+    """Generate a summary of the expense for confirmation."""
+    is_loan = expense_data.get("service") == "prestar plata"
+    header = "📝 *Resumen del préstamo:*" if is_loan else "📝 *Resumen del gasto:*"
+
+    installments = expense_data.get("installments", 1) or 1
+    payment_type_raw = expense_data.get("payment_type", "")
+    payer_id = expense_data.get("payer_id")
+    category_name = expense_data.get("category", "")
 
     summary = [
-        "📝 *Resumen del gasto:*",
+        header,
         f"💬 Descripción: {expense_data.get('description', '')}",
         f"💰 Monto: ${expense_data.get('amount', 0):.2f}",
-        f"📅 Fecha: {expense_data.get('date', '')}",
-        f"📂 Categoría: {category_display}",
-        f"👤 Pagador: {payer_name}",
-        f"💳 Método de pago: {expense_data.get('payment_type', '')}",
+        f"📅 Fecha: {format_date_es(expense_data.get('date', ''))}",
+        f"📂 Categoría: {format_category_es(category_name)}",
+        f"👤 Pagador: {format_member_name_es(payer_id, member_service)}",
+        f"💳 Método de pago: {format_payment_type_es(payment_type_raw, installments)}",
     ]
-
-    installments = expense_data.get("installments")
-    if installments and installments > 1:
-        summary.append(f"📅 Cuotas: {installments}")
 
     split_strategy = expense_data.get("split_strategy", {})
     if split_strategy:
         strategy_type = split_strategy.get("type", "")
-        if strategy_type == "percentage":
+        if strategy_type == "equal":
+            summary.append("💡 División: Partes iguales")
+        elif strategy_type == "percentage":
             percentages = split_strategy.get("percentages", {})
             summary.append("\n💹 *Porcentajes de división:*")
             for member_id, percentage in percentages.items():
-                summary.append(f"- {member_service.get_member_name_by_id(int(member_id))}: {percentage}%")
+                name = format_member_name_es(int(member_id), member_service)
+                summary.append(f"- {name}: {percentage}%")
 
     return "\n".join(summary)
 
@@ -1065,7 +1213,6 @@ def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals
 
         # Instead of creating the expense, show summary and ask for confirmation
         summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-        summary += "\n\n💡 División: Equitativa"
 
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
@@ -1085,7 +1232,7 @@ def handle_waiting_for_percentage(
     user_responses = []
     print("esperando_porcentaje")
     try:
-        payer_percentage = float(text)
+        payer_percentage = float(text.strip().replace(",", "."))
         payer_id = estado_actual_usuario["expense_data"]["payer_id"]
         all_members = member_service.list_members()
         id_of_not_payer = next(m.id for m in all_members if m.id != payer_id)
@@ -1128,7 +1275,7 @@ def handle_waiting_for_percentage_for_member(  # pylint: disable=too-many-locals
     """N-member percentage: collect one non-payer percentage per turn, then finalise."""
     user_responses = []
     try:
-        percentage = float(text)
+        percentage = float(text.strip().replace(",", "."))
         if not 0 <= percentage <= 100:
             raise ValueError("El porcentaje debe estar entre 0 y 100")
 
@@ -1199,6 +1346,7 @@ def handle_waiting_for_confirmation(
         create_expense(
             number, estado_actual_usuario, service, split_strategy_dict=split_strategy, member_service=member_service
         )
+        clean_estado_usuario(estado_actual_usuario)
 
         body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
         options = ["🏠 Ir al Inicio", "👋 No gracias"]

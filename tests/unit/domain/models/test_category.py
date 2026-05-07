@@ -15,7 +15,9 @@ class TestCategory:
         assert "auto" in categories
         assert "casa" in categories
         assert "entretenimiento" in categories
-        assert "compras" in categories
+        assert "supermercado" in categories
+        assert "viajes" in categories
+        assert "salud" in categories
         assert "otros" in categories
 
     def test_add_new_category(self):
