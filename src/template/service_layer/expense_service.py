@@ -112,17 +112,16 @@ class ExpenseService:
 
     def update_expense(self, expense_id: int, expense_data: ExpenseCreate) -> Expense:
         """Update an existing expense."""
-        # Fetch the existing expense from the repository
         existing_expense = self._manager.get_expense(expense_id)
         if not existing_expense:
             raise ValueError(f"Expense with ID {expense_id} not found.")
 
-        # For credit expenses with installments, only allow updating the first installment
-        if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installments > 1:
-            if existing_expense.installment_no > 1:
-                raise ValueError("Cannot update credit expense installments after the first one")
+        # Guard: child installments cannot be edited directly
+        if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installment_no > 1:
+            raise ValueError("Cannot update credit expense installments after the first one")
 
-            # Create a new expense object with updated data
+        # Case 1: existing is already multi-installment credit → update in place (handles N→M installments)
+        if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installments > 1:
             category = Category()
             category.name = expense_data.category.name
 
@@ -139,21 +138,40 @@ class ExpenseService:
                 split_strategy=_build_split_strategy(expense_data.split_strategy),
                 parent_expense_id=existing_expense.parent_expense_id,
             )
-
-            # Update the expense and its related installments
             return self._manager.update_credit_expense(updated_expense)
 
+        # Case 2: converting to multi-installment credit (debit→credit-N or credit-1→credit-N)
+        # Delete the old single-row expense and recreate using the full credit creation path
+        if expense_data.payment_type == PaymentType.CREDIT and expense_data.installments > 1:
+            self._manager.delete_expense(expense_id)
+
+            category = Category()
+            category.name = expense_data.category.name
+
+            new_expense = Expense(
+                description=expense_data.description,
+                amount=expense_data.amount,
+                date=expense_data.date,
+                category=category,
+                payer_id=expense_data.payer_id,
+                payment_type=expense_data.payment_type,
+                installments=expense_data.installments,
+                split_strategy=_build_split_strategy(expense_data.split_strategy),
+            )
+            return self._manager.create_and_add_expense(new_expense)
+
+        # Case 3: simple update — debit↔debit, debit↔credit-1, credit-1↔credit-1, credit-1→debit
         # Capture old location before mutating so update_expense can move between shares
         old_payment_type = existing_expense.payment_type
         old_date = existing_expense.date
 
-        # For non-credit or single installment expenses, proceed with normal update
         existing_expense.description = expense_data.description
         existing_expense.amount = expense_data.amount
         existing_expense.date = expense_data.date
         existing_expense.category.name = expense_data.category.name
         existing_expense.payer_id = expense_data.payer_id
         existing_expense.payment_type = expense_data.payment_type
+        existing_expense.installments = expense_data.installments
         existing_expense.split_strategy = _build_split_strategy(expense_data.split_strategy)
 
         return self._manager.update_expense(existing_expense, old_payment_type, old_date)
