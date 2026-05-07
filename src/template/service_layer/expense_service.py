@@ -120,8 +120,28 @@ class ExpenseService:
         if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installment_no > 1:
             raise ValueError("Cannot update credit expense installments after the first one")
 
-        # Case 1: existing is already multi-installment credit → update in place (handles N→M installments)
+        # Case 1: existing is already multi-installment credit
         if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installments > 1:
+            # Case 1a: converting to debit — delete all installments, recreate as a single debit row
+            if expense_data.payment_type == PaymentType.DEBIT:
+                self._manager.delete_expense(expense_id)
+
+                category = Category()
+                category.name = expense_data.category.name
+
+                new_expense = Expense(
+                    description=expense_data.description,
+                    amount=expense_data.amount,
+                    date=expense_data.date,
+                    category=category,
+                    payer_id=expense_data.payer_id,
+                    payment_type=PaymentType.DEBIT,
+                    installments=1,
+                    split_strategy=_build_split_strategy(expense_data.split_strategy),
+                )
+                return self._manager.create_and_add_expense(new_expense)
+
+            # Case 1b: credit → credit (any number of installments) — update in place
             category = Category()
             category.name = expense_data.category.name
 
