@@ -21,6 +21,7 @@ from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_client import WhatsAppClient
 from template.service_layer.whatsapp_service import (
     administrar_chatbot,
+    obtener_interactive_id_whatsapp,
     obtener_mensaje_whatsapp,
     replace_start,
 )
@@ -38,6 +39,7 @@ def _process_message(
     number: str,
     message_id: str,
     wpp_client: WhatsAppClient,
+    interactive_id: str | None = None,
 ) -> None:
     """Run chatbot logic in a background task with its own DB session."""
     with SessionLocal() as db:
@@ -47,7 +49,7 @@ def _process_message(
 
         estado = session_repo.get_or_create(number)
         nuevo_estado = administrar_chatbot(
-            text, number, message_id, estado, expense_service, member_service, wpp_client
+            text, number, message_id, estado, expense_service, member_service, wpp_client, interactive_id
         )
         session_repo.save(number, nuevo_estado)
 
@@ -90,6 +92,7 @@ async def recibir_mensajes(
         number = replace_start(message["from"])
         message_id = message["id"]
         text = obtener_mensaje_whatsapp(message)
+        interactive_id = obtener_interactive_id_whatsapp(message)
     except (KeyError, IndexError, ValueError):
         return "ok"
 
@@ -97,5 +100,5 @@ async def recibir_mensajes(
         logger.info("Duplicate message_id %s ignored", message_id)
         return "ok"
 
-    background_tasks.add_task(_process_message, text, number, message_id, wpp_client)
+    background_tasks.add_task(_process_message, text, number, message_id, wpp_client, interactive_id)
     return "ok"
