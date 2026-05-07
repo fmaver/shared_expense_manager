@@ -7,12 +7,43 @@ from template.domain.models.expense_manager import ExpenseManager
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare, PaymentType
 from template.domain.models.repository import ExpenseRepository
-from template.domain.models.split import EqualSplit, PercentageSplit
+from template.domain.models.split import (
+    EqualSplit,
+    ExactAmountsSplit,
+    PercentageSplit,
+    SplitStrategy,
+)
 from template.domain.schemas.expense import (
     ExpenseCreate,
     ExpenseResponse,
     SplitStrategySchema,
 )
+
+
+def _build_split_strategy(schema: SplitStrategySchema) -> SplitStrategy:
+    """Construct the appropriate SplitStrategy from a schema."""
+    if schema.type == "percentage":
+        if not schema.percentages:
+            raise ValueError("Percentages required for percentage split strategy")
+        return PercentageSplit(schema.percentages)
+    if schema.type == "exact":
+        if not schema.amounts:
+            raise ValueError("Amounts required for exact split strategy")
+        return ExactAmountsSplit(schema.amounts)
+    return EqualSplit(participant_ids=schema.participant_ids)
+
+
+def _strategy_to_schema(strategy: SplitStrategy) -> SplitStrategySchema:
+    """Convert a domain SplitStrategy back to its schema representation."""
+    if isinstance(strategy, PercentageSplit):
+        return SplitStrategySchema(type="percentage", percentages=strategy.percentages)
+    if isinstance(strategy, ExactAmountsSplit):
+        return SplitStrategySchema(type="exact", amounts=strategy.amounts)
+    # EqualSplit — with or without participant_ids
+    return SplitStrategySchema(
+        type="equal",
+        participant_ids=getattr(strategy, "participant_ids", None),
+    )
 
 
 class ExpenseService:
@@ -27,14 +58,6 @@ class ExpenseService:
         category = Category()
         category.name = expense_data.category.name
 
-        # Create appropriate split strategy based on type
-        if expense_data.split_strategy.type == "percentage":
-            if not expense_data.split_strategy.percentages:
-                raise ValueError("Percentages required for percentage split strategy")
-            split_strategy = PercentageSplit(expense_data.split_strategy.percentages)
-        else:
-            split_strategy = EqualSplit()
-
         expense = Expense(
             description=expense_data.description,
             amount=expense_data.amount,
@@ -43,7 +66,7 @@ class ExpenseService:
             payer_id=expense_data.payer_id,
             payment_type=expense_data.payment_type,
             installments=expense_data.installments,
-            split_strategy=split_strategy,
+            split_strategy=_build_split_strategy(expense_data.split_strategy),
         )
 
         return self._manager.create_and_add_expense(expense)
@@ -73,10 +96,7 @@ class ExpenseService:
                 installments=expense.installments,
                 installment_no=expense.installment_no,
                 payment_type=expense.payment_type,
-                split_strategy=SplitStrategySchema(
-                    type="equal" if isinstance(expense.split_strategy, EqualSplit) else "percentage",
-                    percentages=getattr(expense.split_strategy, "percentages", None),
-                ),
+                split_strategy=_strategy_to_schema(expense.split_strategy),
                 parent_expense_id=expense.parent_expense_id,
             )
             for expense in monthly_share.expenses
@@ -106,14 +126,6 @@ class ExpenseService:
             category = Category()
             category.name = expense_data.category.name
 
-            # Create appropriate split strategy based on type
-            if expense_data.split_strategy.type == "percentage":
-                if not expense_data.split_strategy.percentages:
-                    raise ValueError("Percentages required for percentage split strategy")
-                split_strategy = PercentageSplit(expense_data.split_strategy.percentages)
-            else:
-                split_strategy = EqualSplit()
-
             updated_expense = Expense(
                 id=existing_expense.id,
                 description=expense_data.description,
@@ -124,7 +136,7 @@ class ExpenseService:
                 payment_type=expense_data.payment_type,
                 installments=expense_data.installments,
                 installment_no=existing_expense.installment_no,
-                split_strategy=split_strategy,
+                split_strategy=_build_split_strategy(expense_data.split_strategy),
                 parent_expense_id=existing_expense.parent_expense_id,
             )
 
@@ -138,14 +150,7 @@ class ExpenseService:
         existing_expense.category.name = expense_data.category.name
         existing_expense.payer_id = expense_data.payer_id
         existing_expense.payment_type = expense_data.payment_type
-
-        # Update split strategy
-        if expense_data.split_strategy.type == "percentage":
-            if not expense_data.split_strategy.percentages:
-                raise ValueError("Percentages required for percentage split strategy")
-            existing_expense.split_strategy = PercentageSplit(expense_data.split_strategy.percentages)
-        else:
-            existing_expense.split_strategy = EqualSplit()
+        existing_expense.split_strategy = _build_split_strategy(expense_data.split_strategy)
 
         return self._manager.update_expense(existing_expense)
 

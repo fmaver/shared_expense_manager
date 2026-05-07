@@ -6,7 +6,7 @@ import json
 import os
 import time
 from datetime import date, datetime
-from typing import Any, Collection, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -434,7 +434,25 @@ def administrar_chatbot(
 
     elif estado_actual_usuario["estado"] == "esperando_estrategia":
         responses, estado_actual_usuario = handle_waiting_for_split_strategy(
-            number, estado_actual_usuario, message_id, text, member_service
+            number, estado_actual_usuario, message_id, text, member_service, interactive_id
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_definicion_participantes":
+        responses, estado_actual_usuario = handle_waiting_for_participants_definition(
+            number, estado_actual_usuario, text, member_service, interactive_id
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_excluidos":
+        responses, estado_actual_usuario = handle_waiting_for_excluded_members(
+            number, estado_actual_usuario, member_service, interactive_id
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_monto_para_miembro":
+        responses, estado_actual_usuario = handle_waiting_for_amount_for_member(
+            number, estado_actual_usuario, text, message_id, member_service
         )
         user_responses.extend(responses)
 
@@ -536,6 +554,15 @@ def clean_estado_usuario(estado_actual_usuario: Dict[str, Any]) -> Dict[str, Any
         "installments": 1,
         "split_strategy": None,
     }
+    # Defensively clear any in-progress queue state
+    for key in (
+        "remaining_member_ids",
+        "pending_percentages",
+        "pending_amounts",
+        "excluded_member_ids",
+        "all_member_ids",
+    ):
+        estado_actual_usuario["expense_data"].pop(key, None)
     return estado_actual_usuario
 
 
@@ -1012,7 +1039,7 @@ def handle_waiting_for_payment_type(
         estado_actual_usuario["expense_data"]["installments"] = 1
         body = "📊 ¿Cómo deseas dividir el gasto?"
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
-        options = ["🔄 Partes Iguales", "📊 Porcentajes"]
+        options = ["⚖️ Partes iguales", "📊 Por porcentajes", "💵 Montos exactos"]
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
         estado_actual_usuario["estado"] = "esperando_estrategia"
@@ -1028,7 +1055,7 @@ def handle_waiting_for_payment_type(
         estado_actual_usuario["expense_data"]["payment_type"] = "debito"
         body = "📊 ¿Cómo deseas dividir el gasto?"
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
-        options = ["🔄 Partes Iguales", "📊 Porcentajes"]
+        options = ["⚖️ Partes iguales", "📊 Por porcentajes", "💵 Montos exactos"]
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
         estado_actual_usuario["estado"] = "esperando_estrategia"
@@ -1050,7 +1077,7 @@ def handle_waiting_for_installments(
 
         body = "📊 ¿Cómo deseas dividir el gasto?"
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
-        options = ["🔄 Partes Iguales", "📊 Porcentajes"]
+        options = ["⚖️ Partes iguales", "📊 Por porcentajes", "💵 Montos exactos"]
 
         reply_button_data = button_reply_message(number, options, body, footer, "sed1")
         user_responses.append(reply_button_data)
@@ -1122,7 +1149,9 @@ def format_member_name_es(member_id: Any, member_service: MemberService) -> str:
     return name if name else "Desconocido"
 
 
-def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberService) -> str:
+def get_expense_summary(  # pylint: disable=too-many-locals
+    expense_data: Dict[str, Any], member_service: MemberService
+) -> str:
     """Generate a summary of the expense for confirmation."""
     is_loan = expense_data.get("service") == "prestar plata"
     header = "📝 *Resumen del préstamo:*" if is_loan else "📝 *Resumen del gasto:*"
@@ -1145,7 +1174,10 @@ def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberServ
     split_strategy = expense_data.get("split_strategy", {})
     if split_strategy:
         strategy_type = split_strategy.get("type", "")
-        if strategy_type == "equal":
+        if strategy_type == "equal" and split_strategy.get("participant_ids"):
+            names = [format_member_name_es(int(mid), member_service) for mid in split_strategy["participant_ids"]]
+            summary.append("💡 División: Partes iguales entre " + ", ".join(names))
+        elif strategy_type == "equal":
             summary.append("💡 División: Partes iguales")
         elif strategy_type == "percentage":
             percentages = split_strategy.get("percentages", {})
@@ -1153,19 +1185,38 @@ def get_expense_summary(expense_data: Dict[str, Any], member_service: MemberServ
             for member_id, percentage in percentages.items():
                 name = format_member_name_es(int(member_id), member_service)
                 summary.append(f"- {name}: {percentage}%")
+        elif strategy_type == "exact":
+            amounts = split_strategy.get("amounts", {})
+            summary.append("\n💵 *Montos asignados:*")
+            for member_id, amount_val in amounts.items():
+                name = format_member_name_es(int(member_id), member_service)
+                summary.append(f"- {name}: ${amount_val:.2f}")
 
     return "\n".join(summary)
 
 
-def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals
-    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str, member_service: MemberService
+def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals,too-many-branches
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    message_id: str,
+    text: str,
+    member_service: MemberService,
+    interactive_id: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """handle waiting for split"""
+    """handle waiting for split — 3 options: Partes iguales / Porcentajes / Montos exactos"""
     user_responses = []
 
     print("esperando_estrategia")
 
-    if "porcentaje" in text.lower():
+    text_lower = text.lower()
+    is_percentage = interactive_id == "sed_split_btn_2" or "porcentaje" in text_lower
+    is_exact = (
+        interactive_id == "sed_split_btn_3"
+        or "exacto" in text_lower
+        or ("monto" in text_lower and "porcentaje" not in text_lower)
+    )
+
+    if is_percentage:
         payer_id = estado_actual_usuario["expense_data"]["payer_id"]
         all_members = member_service.list_members()
         non_payer_ids = [m.id for m in all_members if m.id != payer_id]
@@ -1192,23 +1243,251 @@ def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals
             user_responses.append(reply_text)
             estado_actual_usuario["estado"] = "esperando_porcentaje_para_miembro"
 
+    elif is_exact:
+        payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+        all_members = member_service.list_members()
+        non_payer_ids = [m.id for m in all_members if m.id != payer_id]
+        total = estado_actual_usuario["expense_data"]["amount"]
+
+        estado_actual_usuario["expense_data"]["remaining_member_ids"] = non_payer_ids
+        estado_actual_usuario["expense_data"]["pending_amounts"] = {}
+        first_name = member_service.get_member_name_by_id(non_payer_ids[0])
+        body = (
+            f"💵 ¿Cuánto le corresponde a {first_name}?\n\n"
+            f"Total del gasto: ${total:.2f}\n"
+            "Asignado hasta ahora: $0.00\n"
+            f"Restante por asignar: ${total:.2f}\n\n"
+            "_Podés escribir el monto con punto o coma (ej: 250 o 250,50)._"
+        )
+        user_responses.append(reply_text_message(number, message_id, body))
+        estado_actual_usuario["estado"] = "esperando_monto_para_miembro"
+
     else:
-        strategy_dict: Dict[str, Optional[Collection[Any]]] = {
-            "type": "equal",
-            "percentages": None,
-        }
-        estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
+        # Partes iguales
+        all_members = member_service.list_members()
+        if len(all_members) >= 3:
+            body = "👥 ¿Quiénes participan en este gasto?"
+            footer = "⚙️ Admin Gastos Compartidos ⚙️"
+            options = ["👥 Todos participan", "✂️ Excluir a alguien"]
+            reply_button_data = button_reply_message(number, options, body, footer, "sed_part")
+            user_responses.append(reply_button_data)
+            estado_actual_usuario["estado"] = "esperando_definicion_participantes"
+        else:
+            strategy_dict: Dict[str, Any] = {"type": "equal"}
+            estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
+            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
+            body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
+            options_conf = ["✅ Sí, crear gasto", "❌ No, cancelar"]
+            header = "⚙️ Admin Gastos Compartidos ⚙️"
+            reply_button_data = button_reply_message(number, options_conf, body, header, "sed1")
+            user_responses.append(reply_button_data)
+            estado_actual_usuario["estado"] = "esperando_confirmacion"
 
-        # Instead of creating the expense, show summary and ask for confirmation
+    return user_responses, estado_actual_usuario
+
+
+def handle_waiting_for_participants_definition(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    member_service: MemberService,
+    interactive_id: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Two-button branch: 'Todos participan' vs 'Excluir a alguien'."""
+    user_responses = []
+
+    text_lower = text.lower()
+    wants_exclude = interactive_id == "sed_part_btn_2" or "excluir" in text_lower or "alguien" in text_lower
+
+    if wants_exclude:
+        all_members = member_service.list_members()
+        estado_actual_usuario["expense_data"]["excluded_member_ids"] = []
+        estado_actual_usuario["expense_data"]["all_member_ids"] = [m.id for m in all_members]
+        user_responses.append(_exclusion_list_message(number, all_members, []))
+        estado_actual_usuario["estado"] = "esperando_excluidos"
+    else:
+        # Todos participan
+        estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
         summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-
         reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
         user_responses.append(reply_button_data)
-
         estado_actual_usuario["estado"] = "esperando_confirmacion"
+
+    return user_responses, estado_actual_usuario
+
+
+def _exclusion_list_message(number: str, all_members: list, excluded_ids: List[int]) -> str:
+    """Build a list_reply showing remaining members to exclude plus a 'Listo' sentinel."""
+    rows = []
+    for m in all_members:
+        if m.id not in excluded_ids:
+            rows.append({"id": f"exc_{m.id}", "title": m.name, "description": ""})
+    rows.append({"id": "exc_done", "title": "✅ Listo", "description": "Terminar selección"})
+
+    excluded_names = [m.name for m in all_members if m.id in excluded_ids]
+    excluded_str = ", ".join(excluded_names) if excluded_names else "nadie aún"
+    body = f"✂️ Tocá los miembros que NO participan.\nExcluidos: {excluded_str}"
+
+    return json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": body},
+                "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
+                "action": {
+                    "button": "Ver Miembros",
+                    "sections": [{"title": "Miembros", "rows": rows}],
+                },
+            },
+        }
+    )
+
+
+def handle_waiting_for_excluded_members(  # pylint: disable=too-many-locals
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    member_service: MemberService,
+    interactive_id: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Toggle-list: accumulate excluded members, finalise on 'Listo'."""
+    user_responses = []
+    all_members = member_service.list_members()
+    excluded_ids: List[int] = estado_actual_usuario["expense_data"].get("excluded_member_ids", [])
+    all_ids = [m.id for m in all_members]
+
+    if interactive_id == "exc_done" or not interactive_id:
+        # Finalise
+        if not excluded_ids:
+            participant_ids = None  # all members
+        else:
+            participant_ids = [mid for mid in all_ids if mid not in excluded_ids]
+            if not participant_ids:
+                # Everyone excluded — re-prompt
+                user_responses.append(
+                    _exclusion_list_message(
+                        number,
+                        all_members,
+                        excluded_ids,
+                    )
+                )
+                error = json.dumps(
+                    {
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": number,
+                        "type": "text",
+                        "text": {"body": "❌ Debe participar al menos una persona. Seleccioná quién excluir."},
+                    }
+                )
+                user_responses.insert(0, error)
+                return user_responses, estado_actual_usuario
+
+        strategy_dict: Dict[str, Any] = {"type": "equal"}
+        if participant_ids is not None:
+            strategy_dict["participant_ids"] = participant_ids
+
+        estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
+        estado_actual_usuario["expense_data"].pop("excluded_member_ids", None)
+        estado_actual_usuario["expense_data"].pop("all_member_ids", None)
+
+        summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
+        body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
+        options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
+        reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
+        user_responses.append(reply_button_data)
+        estado_actual_usuario["estado"] = "esperando_confirmacion"
+
+    elif interactive_id.startswith("exc_"):
+        member_id = int(interactive_id[len("exc_") :])
+        if member_id not in excluded_ids:
+            excluded_ids.append(member_id)
+        estado_actual_usuario["expense_data"]["excluded_member_ids"] = excluded_ids
+        user_responses.append(_exclusion_list_message(number, all_members, excluded_ids))
+
+    else:
+        user_responses.append(_exclusion_list_message(number, all_members, excluded_ids))
+
+    return user_responses, estado_actual_usuario
+
+
+def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    message_id: str,
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Queue-based exact amounts: collect one dollar amount per non-payer, then finalise."""
+    user_responses = []
+    total: float = estado_actual_usuario["expense_data"]["amount"]
+
+    try:
+        value = float(text.strip().replace(",", "."))
+        if value < 0:
+            raise ValueError("El monto no puede ser negativo")
+
+        remaining: List[int] = estado_actual_usuario["expense_data"]["remaining_member_ids"]
+        pending: Dict[int, float] = estado_actual_usuario["expense_data"]["pending_amounts"]
+        current_id = remaining[0]
+
+        assigned_so_far = sum(pending.values())
+        if assigned_so_far + value > total + 0.01:
+            raise ValueError(
+                f"El total asignado (${assigned_so_far + value:.2f}) supera el gasto (${total:.2f}). "
+                f"Te quedan ${total - assigned_so_far:.2f}."
+            )
+
+        pending[current_id] = value
+        remaining = remaining[1:]
+        assigned_so_far = sum(pending.values())
+
+        estado_actual_usuario["expense_data"]["remaining_member_ids"] = remaining
+        estado_actual_usuario["expense_data"]["pending_amounts"] = pending
+
+        if remaining:
+            next_name = member_service.get_member_name_by_id(remaining[0])
+            remaining_amt = round(total - assigned_so_far, 2)
+            body = (
+                f"💵 ¿Cuánto le corresponde a {next_name}?\n\n"
+                f"Total del gasto: ${total:.2f}\n"
+                f"Asignado hasta ahora: ${assigned_so_far:.2f}\n"
+                f"Restante por asignar: ${remaining_amt:.2f}\n\n"
+                "_Podés escribir el monto con punto o coma (ej: 250 o 250,50)._"
+            )
+            user_responses.append(reply_text_message(number, message_id, body))
+        else:
+            payer_id = estado_actual_usuario["expense_data"]["payer_id"]
+            payer_share = round(total - assigned_so_far, 2)
+            if payer_share < -0.01:
+                raise ValueError(f"Los montos asignados superan el total del gasto (${total:.2f})")
+            payer_share = max(payer_share, 0.0)
+
+            amounts: Dict[int, float] = {payer_id: payer_share}
+            amounts.update({int(mid): amt for mid, amt in pending.items()})
+
+            estado_actual_usuario["expense_data"]["split_strategy"] = {
+                "type": "exact",
+                "amounts": amounts,
+            }
+            del estado_actual_usuario["expense_data"]["remaining_member_ids"]
+            del estado_actual_usuario["expense_data"]["pending_amounts"]
+
+            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
+            summary += "\n¿Confirmas que los datos son correctos?"
+            options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
+            reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
+            user_responses.append(reply_button_data)
+            estado_actual_usuario["estado"] = "esperando_confirmacion"
+
+    except ValueError as e:
+        error_message = text_message(number, f"❌ {str(e)}")
+        user_responses.append(error_message)
 
     return user_responses, estado_actual_usuario
 
