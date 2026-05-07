@@ -1116,6 +1116,11 @@ def parse_user_date(text: str) -> date:
     raise ValueError(f"No se pudo interpretar la fecha: {text!r}")
 
 
+def format_amount_es(amount: float) -> str:
+    """Format a monetary amount in Argentine style (comma as decimal separator)."""
+    return f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def format_date_es(iso: str) -> str:
     """Convert YYYY-MM-DD ISO string to DD/MM/AAAA for display."""
     try:
@@ -1164,7 +1169,7 @@ def get_expense_summary(  # pylint: disable=too-many-locals
     summary = [
         header,
         f"💬 Descripción: {expense_data.get('description', '')}",
-        f"💰 Monto: ${expense_data.get('amount', 0):.2f}",
+        f"💰 Monto: ${format_amount_es(expense_data.get('amount', 0))}",
         f"📅 Fecha: {format_date_es(expense_data.get('date', ''))}",
         f"📂 Categoría: {format_category_es(category_name)}",
         f"👤 Pagador: {format_member_name_es(payer_id, member_service)}",
@@ -1190,7 +1195,7 @@ def get_expense_summary(  # pylint: disable=too-many-locals
             summary.append("\n💵 *Montos asignados:*")
             for member_id, amount_val in amounts.items():
                 name = format_member_name_es(int(member_id), member_service)
-                summary.append(f"- {name}: ${amount_val:.2f}")
+                summary.append(f"- {name}: ${format_amount_es(amount_val)}")
 
     return "\n".join(summary)
 
@@ -1254,9 +1259,9 @@ def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals,too-ma
         first_name = member_service.get_member_name_by_id(non_payer_ids[0])
         body = (
             f"💵 ¿Cuánto le corresponde a {first_name}?\n\n"
-            f"Total del gasto: ${total:.2f}\n"
-            "Asignado hasta ahora: $0.00\n"
-            f"Restante por asignar: ${total:.2f}\n\n"
+            f"Total del gasto: ${format_amount_es(total)}\n"
+            f"Asignado hasta ahora: $0,00\n"
+            f"Restante por asignar: ${format_amount_es(total)}\n\n"
             "_Podés escribir el monto con punto o coma (ej: 250 o 250,50)._"
         )
         user_responses.append(reply_text_message(number, message_id, body))
@@ -1439,8 +1444,8 @@ def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
         assigned_so_far = sum(pending.values())
         if assigned_so_far + value > total + 0.01:
             raise ValueError(
-                f"El total asignado (${assigned_so_far + value:.2f}) supera el gasto (${total:.2f}). "
-                f"Te quedan ${total - assigned_so_far:.2f}."
+                f"El total asignado (${format_amount_es(assigned_so_far + value)}) supera el gasto "
+                f"(${format_amount_es(total)}). Te quedan ${format_amount_es(total - assigned_so_far)}."
             )
 
         pending[current_id] = value
@@ -1455,9 +1460,9 @@ def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
             remaining_amt = round(total - assigned_so_far, 2)
             body = (
                 f"💵 ¿Cuánto le corresponde a {next_name}?\n\n"
-                f"Total del gasto: ${total:.2f}\n"
-                f"Asignado hasta ahora: ${assigned_so_far:.2f}\n"
-                f"Restante por asignar: ${remaining_amt:.2f}\n\n"
+                f"Total del gasto: ${format_amount_es(total)}\n"
+                f"Asignado hasta ahora: ${format_amount_es(assigned_so_far)}\n"
+                f"Restante por asignar: ${format_amount_es(remaining_amt)}\n\n"
                 "_Podés escribir el monto con punto o coma (ej: 250 o 250,50)._"
             )
             user_responses.append(reply_text_message(number, message_id, body))
@@ -1465,7 +1470,7 @@ def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
             payer_id = estado_actual_usuario["expense_data"]["payer_id"]
             payer_share = round(total - assigned_so_far, 2)
             if payer_share < -0.01:
-                raise ValueError(f"Los montos asignados superan el total del gasto (${total:.2f})")
+                raise ValueError(f"Los montos asignados superan el total del gasto (${format_amount_es(total)})")
             payer_share = max(payer_share, 0.0)
 
             amounts: Dict[int, float] = {payer_id: payer_share}

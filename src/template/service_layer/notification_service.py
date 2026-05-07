@@ -36,6 +36,9 @@ class NotificationService:
             if member.id == creator.id:
                 continue  # Skip the creator
 
+            if not self._is_involved_in_expense(expense, member.id):
+                continue  # Skip members excluded from this expense
+
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
                 await self._send_email(member.email, "Notificación de Gasto 🗂️", message)
@@ -135,6 +138,19 @@ class NotificationService:
 
         except (requests.RequestException, ValueError, ConnectionError) as e:
             print(f"Failed to send WhatsApp template message to {phone_number}: {str(e)}")
+
+    def _is_involved_in_expense(self, expense: Expense, member_id: int) -> bool:
+        """Return True if a member has a non-zero share in this expense."""
+        strategy = expense.split_strategy
+        if isinstance(strategy, EqualSplit):
+            if strategy.participant_ids is None:
+                return True
+            return member_id in strategy.participant_ids
+        if isinstance(strategy, ExactAmountsSplit):
+            return strategy.amounts.get(member_id, 0.0) > 0
+        if isinstance(strategy, PercentageSplit):
+            return strategy.percentages.get(member_id, 0.0) > 0
+        return True
 
     def _create_expense_message(self, expense: Expense, creator: Member, member_service: MemberService) -> str:
         """Create a message summarizing the expense."""
