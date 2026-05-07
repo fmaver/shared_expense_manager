@@ -93,6 +93,33 @@ async def settle_monthly_share(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/unsettle/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
+async def unsettle_monthly_share(
+    year: int = Path(..., ge=1900, le=9999),
+    month: int = Path(..., ge=1, le=12),
+    service: ExpenseService = Depends(get_expense_service),
+) -> ResponseModel[MonthlyBalanceResponse]:
+    """Reverse the settlement of a month: removes auto-generated balancing expenses and reopens it."""
+    try:
+        service.unsettle_monthly_share(year, month)
+
+        monthly_share = service.get_monthly_balance(year, month)
+        expenses = service.get_monthly_expenses(year, month)
+
+        return ResponseModel(
+            data=MonthlyBalanceResponse(
+                year=year,
+                month=month,
+                expenses=expenses or [],
+                balances=monthly_share.balances if monthly_share else {},
+                is_settled=False,
+            )
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/recalculate/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
 async def recalculate_monthly_share(
     year: int = Path(..., ge=1900, le=9999),

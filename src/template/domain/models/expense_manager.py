@@ -131,6 +131,19 @@ class ExpenseManager:
 
         return monthly_share
 
+    def unsettle_monthly_share(self, year: int, month: int) -> MonthlyShare | None:
+        """Reverse a settlement: remove auto-generated balancing expenses and reopen the month."""
+        monthly_share = self.repository.get_monthly_share(year, month)
+        if not monthly_share:
+            return None
+
+        self.repository.unsettle_monthly_share(year, month)
+        monthly_share = self.repository.get_monthly_share(year, month)
+        if monthly_share:
+            self.recalculate_monthly_share(monthly_share)
+
+        return self.repository.get_monthly_share(year, month)
+
     def _generate_balancing_expenses(self, monthly_share: MonthlyShare, year: int, month: int) -> None:
         """Greedy debt reduction: emit one Expense per (debtor -> creditor) pair."""
         epsilon = 0.01
