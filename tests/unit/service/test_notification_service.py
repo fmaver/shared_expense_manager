@@ -1,11 +1,63 @@
 """Tests for NotificationService email sending via SendGrid."""
 
 import asyncio
+from datetime import date
 from unittest.mock import MagicMock, patch
 
+from template.domain.models.category import Category
+from template.domain.models.enums import PaymentType
+from template.domain.models.models import Expense
+from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.service_layer.notification_service import NotificationService
 
 SENDGRID_URL = "https://api.sendgrid.com/v3/mail/send"
+
+
+def _make_expense(split_strategy):
+    cat = Category()
+    cat.name = "comida"
+    return Expense(
+        description="test",
+        amount=300.0,
+        date=date(2025, 5, 1),
+        category=cat,
+        payer_id=1,
+        payment_type=PaymentType.DEBIT,
+        split_strategy=split_strategy,
+    )
+
+
+class TestIsInvolvedInExpense:
+    """_is_involved_in_expense filters excluded members from notifications."""
+
+    def setup_method(self):
+        self.service = NotificationService()
+
+    def test_equal_split_no_participant_ids_includes_all(self):
+        expense = _make_expense(EqualSplit())
+        assert self.service._is_involved_in_expense(expense, 1) is True
+        assert self.service._is_involved_in_expense(expense, 3) is True
+
+    def test_equal_split_with_participant_ids_excludes_absent_member(self):
+        expense = _make_expense(EqualSplit(participant_ids=[1, 2]))
+        assert self.service._is_involved_in_expense(expense, 1) is True
+        assert self.service._is_involved_in_expense(expense, 2) is True
+        assert self.service._is_involved_in_expense(expense, 3) is False
+
+    def test_exact_split_excludes_zero_and_absent_members(self):
+        expense = _make_expense(ExactAmountsSplit({1: 200.0, 2: 100.0}))
+        assert self.service._is_involved_in_expense(expense, 1) is True
+        assert self.service._is_involved_in_expense(expense, 2) is True
+        assert self.service._is_involved_in_expense(expense, 3) is False
+
+    def test_exact_split_zero_amount_excluded(self):
+        expense = _make_expense(ExactAmountsSplit({1: 300.0, 2: 0.0}))
+        assert self.service._is_involved_in_expense(expense, 2) is False
+
+    def test_percentage_split_excludes_zero_and_absent_members(self):
+        expense = _make_expense(PercentageSplit({1: 70.0, 2: 30.0}))
+        assert self.service._is_involved_in_expense(expense, 1) is True
+        assert self.service._is_involved_in_expense(expense, 3) is False
 
 
 class TestSendEmailSendGrid:
