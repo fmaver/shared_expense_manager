@@ -67,8 +67,18 @@ def mock_repository():  # noqa: C901
                 if existing.id == expense.id:
                     self.expenses[i] = expense
                     break
+            # Keep monthly_share expense lists in sync (real repo re-queries DB on get)
+            for ms in self.monthly_shares.values():
+                for i, e in enumerate(ms.expenses):
+                    if e.id == expense.id:
+                        ms.expenses[i] = expense
+                        break
 
         def delete_expense(self, expense_id: int) -> None:
+            # Cascade delete children (mirrors DB FK on parent_expense_id)
+            child_ids = [e.id for e in self.expenses if e.parent_expense_id == expense_id]
+            for child_id in child_ids:
+                self.delete_expense(child_id)
             self.expenses = [e for e in self.expenses if e.id != expense_id]
             for ms in self.monthly_shares.values():
                 ms.expenses = [e for e in ms.expenses if e.id != expense_id]
