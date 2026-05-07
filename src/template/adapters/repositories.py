@@ -243,6 +243,25 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Monthly share for {year}-{month} has been settled.")
 
+    def unsettle_monthly_share(self, year: int, month: int) -> None:
+        """Remove settlement: delete all 'balance' expenses and mark as unsettled."""
+        db_monthly_share = (
+            self.session.query(MonthlyShareModel)
+            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .first()
+        )
+
+        if not db_monthly_share:
+            raise ValueError(f"Monthly share for {year}-{month} not found.")
+
+        for expense in list(db_monthly_share.expenses):
+            if expense.category == "balance":
+                self.session.delete(expense)
+
+        db_monthly_share.is_settled = False
+        self.session.commit()
+        print(f"Monthly share for {year}-{month} has been unsettled.")
+
     def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
         """Get a monthly share by year and month from the database."""
         db_monthly_share = (

@@ -436,6 +436,38 @@ Two new first-class split options added to the WhatsApp chatbot and API:
 
 New unit tests in `tests/unit/domain/models/test_split.py` and `tests/unit/service/test_whatsapp_ux_enhancements.py` (35 new tests).
 
+### Notification filtering for excluded members (2026-05)
+`NotificationService.notify_expense_created` previously notified every member except the creator. It now also skips members who have no share in the expense:
+
+- **Subset-equal** (`EqualSplit` with `participant_ids`): only members in `participant_ids` are notified.
+- **Exact amounts** (`ExactAmountsSplit`): only members with a non-zero entry in `amounts` are notified.
+- **Percentage** (`PercentageSplit`): only members with a non-zero percentage are notified.
+- **Equal-all** (`EqualSplit` without `participant_ids`): unchanged — everyone is notified.
+
+Implemented via `_is_involved_in_expense(expense, member_id)` private helper. New tests in `tests/unit/service/test_notification_service.py` cover all four split types.
+
+### Argentine amount formatting in WhatsApp messages (2026-05)
+All monetary amounts displayed in WhatsApp bot messages now use the Argentine convention (comma as decimal separator, dot as thousands separator): `$1.234,56` instead of `$1234.56`.
+
+New helper `format_amount_es(amount: float) -> str` in `whatsapp_service.py` handles the conversion. Applied to:
+- Expense summary (`💰 Monto`) in `get_expense_summary`
+- Per-member amounts in the exact-split summary (`- {name}: $X,XX`)
+- The exact-amounts input prompt (`Total del gasto`, `Asignado hasta ahora`, `Restante por asignar`)
+- Overflow rejection message (`Te quedan $X,XX`)
+
+The input hint (`ej: 250 o 250,50`) already used commas and is now visually consistent with the displayed values.
+
+### Un-settle monthly share (2026-05)
+New `POST /api/v1/shares/unsettle/{year}/{month}` endpoint reverses a settlement:
+
+1. Deletes all `"balance"`-category expenses for that month (the auto-generated balancing expenses created by the settle flow). Manual `"prestamo"` lending expenses are **not** touched — they use a different category.
+2. Sets `is_settled = False` on the `MonthlyShare`.
+3. Recalculates balances from the remaining expenses.
+
+Implemented across all four layers: `ExpenseRepository.unsettle_monthly_share` (interface + `SqlAlchemyExpenseRepository` implementation), `ExpenseManager.unsettle_monthly_share`, `ExpenseService.unsettle_monthly_share`, and the new router endpoint in `src/template/entrypoint/monthly_share.py`.
+
+**Frontend impact**: add a "Reabrir mes" button on the monthly share view, visible only when `is_settled = true`. Should show a confirmation modal before calling the endpoint. Returns the standard `MonthlyBalanceResponse` with `is_settled: false` and recalculated balances.
+
 ### Alembic + `create_all` coexistence on Neon
 When deploying a new Alembic migration to prod Neon after `create_all` already created those tables, use `alembic stamp <revision>` to mark the migration as applied before running `alembic upgrade head`. This avoids `DuplicateTable` errors.
 

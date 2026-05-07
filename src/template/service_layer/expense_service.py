@@ -170,6 +170,13 @@ class ExpenseService:
         """Get the parent expense for a given expense ID."""
         return self._manager.get_parent_expense(expense_id)
 
+    def unsettle_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
+        """Reverse a settlement: delete balancing expenses and reopen the month."""
+        monthly_share = self._manager.unsettle_monthly_share(year, month)
+        if not monthly_share:
+            raise ValueError(f"No monthly share found for {year}-{month}.")
+        return monthly_share
+
     def settle_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
         """Settle a monthly share - resolve balances."""
         monthly_share = self._manager.settle_monthly_share(year, month)
