@@ -1,7 +1,7 @@
 """Module for managing expense splits between users."""
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, List, Optional
 
 from .member import Member
 
@@ -13,10 +13,33 @@ class SplitStrategy(ABC):
 
 
 class EqualSplit(SplitStrategy):
+    def __init__(self, participant_ids: Optional[List[int]] = None):
+        if participant_ids is not None and len(participant_ids) == 0:
+            raise ValueError("participant_ids must be non-empty when provided")
+        self.participant_ids = participant_ids
+
     def calculate_shares(self, amount: float, members: list["Member"]) -> Dict[int, float]:
-        """Calculate equal shares for all members."""
-        share = round(amount / len(members), 2)  # Round to 2 decimal places
-        return {member.id: share for member in members}
+        """Calculate equal shares, optionally restricted to a subset of members."""
+        if self.participant_ids is not None:
+            participants = [m for m in members if m.id in self.participant_ids]
+        else:
+            participants = list(members)
+
+        if not participants:
+            raise ValueError("No participants available for equal split")
+
+        share = round(amount / len(participants), 2)
+        shares = {m.id: 0.0 for m in members}
+        for m in participants:
+            shares[m.id] = share
+
+        # Assign rounding discrepancy to first participant
+        total_assigned = round(share * len(participants), 2)
+        discrepancy = round(amount - total_assigned, 2)
+        if discrepancy != 0:
+            shares[participants[0].id] = round(shares[participants[0].id] + discrepancy, 2)
+
+        return shares
 
 
 class PercentageSplit(SplitStrategy):
@@ -57,3 +80,24 @@ class PercentageSplit(SplitStrategy):
         total = sum(percentages.values())
         if abs(total - 100) > 0.01:  # Using small epsilon for float comparison
             raise ValueError(f"Percentages must sum to 100, got {total}")
+
+
+class ExactAmountsSplit(SplitStrategy):
+    def __init__(self, amounts: Dict[int, float]):
+        """Initialize an exact-amounts split strategy.
+
+        Args:
+            amounts: Dictionary mapping member IDs to their exact share in dollars
+        """
+        if not amounts:
+            raise ValueError("amounts must be non-empty")
+        if any(v < 0 for v in amounts.values()):
+            raise ValueError("amounts must be non-negative")
+        self.amounts = {int(k): float(v) for k, v in amounts.items()}
+
+    def calculate_shares(self, amount: float, members: list["Member"]) -> Dict[int, float]:
+        """Return the pre-specified amounts per member, validating they sum to total."""
+        total = sum(self.amounts.values())
+        if abs(total - amount) > 0.01:
+            raise ValueError(f"amounts must sum to {amount}, got {total}")
+        return {m.id: round(self.amounts.get(m.id, 0.0), 2) for m in members}

@@ -10,7 +10,7 @@ import requests
 from template.domain.models.enums import NotificationType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense
-from template.domain.models.split import EqualSplit, PercentageSplit
+from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
@@ -162,8 +162,20 @@ class NotificationService:
             for member_id, percentage in expense.split_strategy.percentages.items():
                 member_name = member_service.get_member_name_by_id(int(member_id))
                 summary.append(f"- {member_name}: {percentage}%")
+        elif isinstance(expense.split_strategy, ExactAmountsSplit):
+            summary.append("\n💵 Montos asignados:")
+            for member_id, amount_val in expense.split_strategy.amounts.items():
+                member_name = member_service.get_member_name_by_id(int(member_id))
+                summary.append(f"- {member_name}: ${amount_val:.2f}")
         elif isinstance(expense.split_strategy, EqualSplit):
-            summary.append("\n💡 División Equitativa")
+            if expense.split_strategy.participant_ids:
+                names = [
+                    member_service.get_member_name_by_id(mid) or str(mid)
+                    for mid in expense.split_strategy.participant_ids
+                ]
+                summary.append(f"\n💡 División equitativa entre: {', '.join(names)}")
+            else:
+                summary.append("\n💡 División Equitativa")
 
         return "\n".join(summary)
 
@@ -216,8 +228,21 @@ class NotificationService:
                 member_name = member_service.get_member_name_by_id(int(member_id))
                 division_parts.append(f"- {member_name}: {percentage}%")
             division_text = ", ".join(division_parts)
+        elif isinstance(expense.split_strategy, ExactAmountsSplit):
+            division_parts = []
+            for member_id, amount_val in expense.split_strategy.amounts.items():
+                member_name = member_service.get_member_name_by_id(int(member_id))
+                division_parts.append(f"- {member_name}: ${amount_val:.2f}")
+            division_text = ", ".join(division_parts)
         elif isinstance(expense.split_strategy, EqualSplit):
-            division_text = "División Equitativa"
+            if expense.split_strategy.participant_ids:
+                names = [
+                    member_service.get_member_name_by_id(mid) or str(mid)
+                    for mid in expense.split_strategy.participant_ids
+                ]
+                division_text = f"Equitativo entre: {', '.join(names)}"
+            else:
+                division_text = "División Equitativa"
 
         parameters.append(
             {"type": "text", "parameter_name": "division", "text": division_text if division_text else "-"}

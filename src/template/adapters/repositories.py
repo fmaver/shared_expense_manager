@@ -16,7 +16,7 @@ from template.domain.models.category import Category
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
-from template.domain.models.split import EqualSplit, PercentageSplit
+from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.domain.schemas.member import MemberUpdate
 
 
@@ -297,17 +297,24 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
     def _serialize_split_strategy(self, strategy) -> dict:
         """Convert split strategy to JSON-serializable format."""
         if isinstance(strategy, EqualSplit):
-            return {"type": "equal"}
+            payload: dict = {"type": "equal"}
+            if strategy.participant_ids is not None:
+                payload["participant_ids"] = strategy.participant_ids
+            return payload
         if isinstance(strategy, PercentageSplit):
             return {"type": "percentage", "percentages": strategy.percentages}
+        if isinstance(strategy, ExactAmountsSplit):
+            return {"type": "exact", "amounts": strategy.amounts}
         raise ValueError(f"Unknown split strategy type: {type(strategy)}")
 
     def _deserialize_split_strategy(self, data: dict):
         """Convert JSON data back to split strategy object."""
         if data["type"] == "equal":
-            return EqualSplit()
+            return EqualSplit(participant_ids=data.get("participant_ids"))
         if data["type"] == "percentage":
             return PercentageSplit(data["percentages"])
+        if data["type"] == "exact":
+            return ExactAmountsSplit(data["amounts"])
         raise ValueError(f"Unknown split strategy type: {data['type']}")
 
     def add(self, expense: Expense, monthly_share_id: int) -> None:
