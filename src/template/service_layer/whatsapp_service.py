@@ -1278,9 +1278,8 @@ def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals,too-ma
             summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
             body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
             options_conf = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-            reply_button_data = button_reply_message(
-                number, options_conf, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1"
-            )
+            header = "⚙️ Admin Gastos Compartidos ⚙️"
+            reply_button_data = button_reply_message(number, options_conf, body, header, "sed1")
             user_responses.append(reply_button_data)
             estado_actual_usuario["estado"] = "esperando_confirmacion"
 
