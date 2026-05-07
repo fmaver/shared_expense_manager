@@ -635,6 +635,12 @@ def handle_document_request(  # pylint: disable=too-many-locals
     user_responses.append(document_data)
     print("enviando documento...")
 
+    options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
+    footer = "⚙️ Admin Gastos Compartidos ⚙️"
+    follow_up = button_reply_message(number, options, "¿Querés hacer algo más?", footer, "sed1")
+    user_responses.append(follow_up)
+    estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
+
     return user_responses, estado_actual_usuario
 
 

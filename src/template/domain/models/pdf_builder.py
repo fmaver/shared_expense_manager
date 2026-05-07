@@ -7,6 +7,23 @@ from fpdf import FPDF
 
 from template.domain.schemas.expense import ExpenseResponse
 
+_UNICODE_REPLACEMENTS = {
+    "‘": "'",  # left single quotation mark
+    "’": "'",  # right single quotation mark
+    "“": '"',  # left double quotation mark
+    "”": '"',  # right double quotation mark
+    "–": "-",  # en dash
+    "—": "-",  # em dash
+    "…": "...",  # horizontal ellipsis
+}
+
+
+def _sanitize(text: str) -> str:
+    """Coerce user text to latin-1 so fpdf can encode it."""
+    for src, dst in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(src, dst)
+    return text.encode("latin-1", "replace").decode("latin-1")
+
 
 # Clase para manejar el PDF y generar el reporte
 class ExpensePDF(FPDF):
@@ -68,13 +85,13 @@ class ExpensePDF(FPDF):
 
             # Contenidos de las celdas
             row_data = [
-                expense.description,
+                _sanitize(expense.description),
                 f"${expense.amount:.2f}",
                 expense.date.strftime("%Y-%m-%d"),
-                expense.category,
-                member_name,
+                _sanitize(expense.category),
+                _sanitize(member_name),
                 expense.payment_type,
-                strategy,
+                _sanitize(strategy),
             ]
             # Calculate maximum row height
             line_heights = [self.get_string_width(row_data[i]) // col_widths[i] + 1 for i in range(len(row_data))]
@@ -102,7 +119,7 @@ class ExpensePDF(FPDF):
         self.ln(5)
         self.set_font("Arial", "", 12)
         for member, balance in monthly_balance_dict.items():
-            member_name = membars_names_dict[int(member)]
+            member_name = _sanitize(membars_names_dict[int(member)])
             self.cell(0, 10, f"{member_name}: ${balance:.2f}", ln=True)
 
         self.output(file_path)
