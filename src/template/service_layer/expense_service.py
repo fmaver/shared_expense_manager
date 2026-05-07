@@ -143,6 +143,10 @@ class ExpenseService:
             # Update the expense and its related installments
             return self._manager.update_credit_expense(updated_expense)
 
+        # Capture old location before mutating so update_expense can move between shares
+        old_payment_type = existing_expense.payment_type
+        old_date = existing_expense.date
+
         # For non-credit or single installment expenses, proceed with normal update
         existing_expense.description = expense_data.description
         existing_expense.amount = expense_data.amount
@@ -152,7 +156,7 @@ class ExpenseService:
         existing_expense.payment_type = expense_data.payment_type
         existing_expense.split_strategy = _build_split_strategy(expense_data.split_strategy)
 
-        return self._manager.update_expense(existing_expense)
+        return self._manager.update_expense(existing_expense, old_payment_type, old_date)
 
     def delete_expense(self, expense_id: int) -> None:
         """Delete an expense."""

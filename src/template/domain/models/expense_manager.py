@@ -196,28 +196,62 @@ class ExpenseManager:
             if not monthly_share.is_settled:
                 self.recalculate_monthly_share(monthly_share)
 
-    def update_expense(self, updated_expense: Expense) -> Expense:
+    def update_expense(
+        self,
+        updated_expense: Expense,
+        old_payment_type: Optional[PaymentType] = None,
+        old_date: Optional[date] = None,
+    ) -> Expense:
         """Update the expense and recalculate balances.
-        In this case the expense is either DEBIT or CREDIT with 1 installment"""
+        In this case the expense is either DEBIT or CREDIT with 1 installment.
+        old_payment_type / old_date describe where the expense lived before the edit
+        so we can move it between monthly shares when payment type or date changes."""
+
+        def _share_date(payment_type: PaymentType, d: date) -> date:
+            return d + relativedelta(months=1) if payment_type == PaymentType.CREDIT else d
+
+        prev_payment_type = old_payment_type if old_payment_type is not None else updated_expense.payment_type
+        prev_date = old_date if old_date is not None else updated_expense.date
+        old_share_date = _share_date(prev_payment_type, prev_date)
+        new_share_date = _share_date(updated_expense.payment_type, updated_expense.date)
+
         self.repository.update_expense(updated_expense)
 
-        if updated_expense.payment_type == PaymentType.DEBIT:
-            print("---- UPDATING DEBIT EXPENSE ----")
-            # Fetch the monthly share associated with the expense
-            monthly_share = self.get_monthly_balance(updated_expense.date.year, updated_expense.date.month)
-        else:
-            print("---- UPDATING CREDIT EXPENSE WITH 1 INSTALLMENT ----")
-            installment_date = updated_expense.date + relativedelta(months=1)
-            monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
-            print(f"The expense was created on: {updated_expense.date}")
+        if old_share_date != new_share_date:
+            # Expense moved to a different monthly share — clean up old share first
+            old_share = self.get_monthly_balance(old_share_date.year, old_share_date.month)
+            if old_share:
+                old_share.expenses = [e for e in old_share.expenses if e.id != updated_expense.id]
+                self.recalculate_monthly_share(old_share)
 
-        if monthly_share:  # Update the expense in the monthly share
-            print(f"We recalculate the monthly share for the date: {monthly_share.year}-{monthly_share.month}")
-            for i, expense in enumerate(monthly_share.expenses):
-                if expense.id == updated_expense.id:  # Assuming Expense has an 'id' attribute
-                    monthly_share.expenses[i] = updated_expense
-                break
-            self.recalculate_monthly_share(monthly_share)
+            # Get or create the new monthly share and assign the expense to it
+            new_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
+            if not new_share:
+                new_share = MonthlyShare(new_share_date.year, new_share_date.month)
+                self.repository.save_monthly_share(new_share)
+                new_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
+                if not new_share:
+                    raise ValueError("Failed to create monthly share")
+
+            # Update the FK on the expense row
+            if updated_expense.id is None:
+                raise ValueError("Cannot reassign an expense without an ID")
+            self.repository.reassign_expense_to_monthly_share(
+                updated_expense.id, new_share_date.year, new_share_date.month
+            )
+
+            # Add to in-memory list and recalculate
+            new_share.expenses.append(updated_expense)
+            self.recalculate_monthly_share(new_share)
+        else:
+            # Same monthly share — update in place and recalculate
+            monthly_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
+            if monthly_share:
+                for i, expense in enumerate(monthly_share.expenses):
+                    if expense.id == updated_expense.id:
+                        monthly_share.expenses[i] = updated_expense
+                        break
+                self.recalculate_monthly_share(monthly_share)
 
         return updated_expense
 

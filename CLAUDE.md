@@ -436,6 +436,14 @@ Two new first-class split options added to the WhatsApp chatbot and API:
 
 New unit tests in `tests/unit/domain/models/test_split.py` and `tests/unit/service/test_whatsapp_ux_enhancements.py` (35 new tests).
 
+### PDF generation crash on non-latin-1 characters (2026-05)
+`fpdf` encodes page content as latin-1, causing `UnicodeEncodeError` when an expense description contains characters outside that range — most commonly the iOS/Android curly apostrophe (`'`, U+2019) entered via phone autocorrect.
+
+Added `_sanitize(text: str) -> str` in `src/template/domain/models/pdf_builder.py`. It first replaces the most common typographic characters with ASCII equivalents (`'`/`'` → `'`, `"`/`"` → `"`, `–`/`—` → `-`, `…` → `...`), then falls back to `encode('latin-1', 'replace')` for anything else. Applied to `expense.description`, `expense.category`, member name, and strategy columns, as well as the balance section member names.
+
+### Post-PDF follow-up menu in WhatsApp (2026-05)
+After sending the monthly balance PDF the bot left the conversation at a dead end. It now appends a `button_reply_message` with the 3 main-menu options ("💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance") and resets state to `inicial`. Body: "¿Querés hacer algo más?". The PDF is visible above it so no redundant "document sent" confirmation is shown.
+
 ### Notification filtering for excluded members (2026-05)
 `NotificationService.notify_expense_created` previously notified every member except the creator. It now also skips members who have no share in the expense:
 
