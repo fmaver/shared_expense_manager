@@ -843,9 +843,13 @@ def handle_waiting_for_payer(
 
     estado_actual_usuario["expense_data"]["payer_id"] = payer_id
 
-    body = "📅 ¿Cuándo se realizó el gasto?\n\n_o escribí la fecha:_\n_DD/MM/AAAA, DD-MM-AAAA o DD-MM (año actual)_"
+    body = (
+        "📅 ¿Cuándo se realizó el gasto?\n\n"
+        "_o escribí la fecha:_\n"
+        "_DD/MM/AAAA, DD-MM-AAAA, DD-MM o DD/MM (año actual)_"
+    )
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
-    options = ["📅 Hoy", "📅 Ayer"]
+    options = ["Hoy", "Ayer"]
     reply_button_data = button_reply_message(number, options, body, footer, "sed_fecha")
     user_responses.append(reply_button_data)
 
@@ -967,32 +971,16 @@ def handle_waiting_for_category(
 
     resolved_category: Optional[str] = None
 
-    # Priority 1: interactive list reply with cat_<name> ID
+    # Only accept interactive list reply with cat_<name> ID — no typed number/name fallback
     if interactive_id and interactive_id.startswith("cat_"):
         cat_name = interactive_id[len("cat_") :]
         if Category.is_valid_category(cat_name) and not Category.is_internal_category(cat_name):
             resolved_category = cat_name
 
-    # Priority 2: typed number
     if resolved_category is None:
-        try:
-            category_number = int(text)
-            resolved_category = Category.get_category_by_number(category_number)
-        except ValueError:
-            pass
-
-    # Priority 3: typed name
-    if resolved_category is None:
-        normalized = text.lower().strip()
-        if Category.is_valid_category(normalized) and not Category.is_internal_category(normalized):
-            resolved_category = normalized
-
-    if resolved_category is None:
+        error_prefix = text_message(number, "❌ Por favor, seleccioná una categoría de la lista.")
+        user_responses.append(error_prefix)
         user_responses.append(category_select_message(number))
-        error_prefix = text_message(
-            number, "❌ Categoría no válida. Tocá una opción de la lista o escribí su nombre o número."
-        )
-        user_responses.insert(0, error_prefix)
         return user_responses, estado_actual_usuario
 
     estado_actual_usuario["expense_data"]["category"] = resolved_category

@@ -214,6 +214,13 @@ class TestHandleWaitingForPaymentDateNewFormats:
         assert new_estado["estado"] == "esperando_categoria"
         assert new_estado["expense_data"]["date"] == date.today().isoformat()
 
+    def test_dd_mm_slash_current_year_accepted(self):
+        ms = self._member_service()
+        _, new_estado = handle_waiting_for_payment_date("549123", self._estado(), "15/03", ms, "msg1")
+        assert new_estado["estado"] == "esperando_categoria"
+        expected = date(date.today().year, 3, 15).isoformat()
+        assert new_estado["expense_data"]["date"] == expected
+
     def test_slash_format_accepted(self):
         ms = self._member_service()
         _, new_estado = handle_waiting_for_payment_date("549123", self._estado(), "15/03/2025", ms, "msg1")
@@ -319,30 +326,28 @@ class TestHandleWaitingForCategory:
         assert new["expense_data"]["category"] == "salud"
         assert new["estado"] == "esperando_tipo_pago"
 
-    def test_typed_number_resolves_category(self):
-        _, new = handle_waiting_for_category("549123", self._estado(), "1", "msg1", None)
-        # Number 1 = auto
-        assert new["expense_data"]["category"] == "auto"
-        assert new["estado"] == "esperando_tipo_pago"
-
-    def test_typed_name_resolves_category(self):
-        _, new = handle_waiting_for_category("549123", self._estado(), "viajes", "msg1", None)
+    def test_cat_id_viajes_resolves(self):
+        _, new = handle_waiting_for_category("549123", self._estado(), "Viajes ✈️", "msg1", "cat_viajes")
         assert new["expense_data"]["category"] == "viajes"
         assert new["estado"] == "esperando_tipo_pago"
 
-    def test_invalid_category_returns_list_message(self):
-        responses, new = handle_waiting_for_category("549123", self._estado(), "garbage", "msg1", None)
+    def test_no_interactive_id_shows_error_and_list(self):
+        # Without an interactive_id the user typed something — re-show the list
+        responses, new = handle_waiting_for_category("549123", self._estado(), "1", "msg1", None)
         assert new["estado"] == "esperando_categoria"
-        # Should return an error + the list again
+        assert len(responses) == 2
+
+    def test_typed_name_without_id_shows_error(self):
+        responses, new = handle_waiting_for_category("549123", self._estado(), "viajes", "msg1", None)
+        assert new["estado"] == "esperando_categoria"
         assert len(responses) == 2
 
     def test_internal_category_rejected(self):
-        # Users should not be able to pick internal categories
         responses, new = handle_waiting_for_category("549123", self._estado(), "balance", "msg1", "cat_balance")
         assert new["estado"] == "esperando_categoria"
 
     def test_payment_type_prompt_has_3_buttons(self):
-        responses, _ = handle_waiting_for_category("549123", self._estado(), "1", "msg1", None)
+        responses, _ = handle_waiting_for_category("549123", self._estado(), "Salud 💊", "msg1", "cat_salud")
         data = _decode(responses[0])
         assert data["interactive"]["type"] == "button"
         buttons = data["interactive"]["action"]["buttons"]
