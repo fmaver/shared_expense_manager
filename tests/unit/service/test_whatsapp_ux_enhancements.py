@@ -768,7 +768,7 @@ class TestGetExpenseSummaryNewStrategies:
         data = self._expense_data({"type": "exact", "amounts": {1: 300.0, 2: 300.0, 3: 300.0}})
         summary = get_expense_summary(data, ms)
         assert "Montos asignados" in summary
-        assert "$300.00" in summary
+        assert "$300,00" in summary
 
     def test_equal_all_shows_partes_iguales(self):
         from template.service_layer.whatsapp_service import get_expense_summary
