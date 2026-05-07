@@ -87,4 +87,7 @@ def mock_repository():  # noqa: C901
             if ms:
                 ms.settle()
 
+        def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
+            pass
+
     return MockExpenseRepository()

@@ -48,5 +48,9 @@ class ExpenseRepository(ABC):
     def settle_monthly_share(self, year: int, month: int) -> None:
         """Settle a Monthly Share"""
 
+    @abstractmethod
+    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
+        """Move an expense to the monthly share identified by year/month."""
+
     def unsettle_monthly_share(self, year: int, month: int) -> None:
         """Reverse a settlement: delete balancing expenses and mark as unsettled."""

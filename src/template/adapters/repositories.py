@@ -434,6 +434,21 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Successfully updated expense with ID: {expense.id}")
 
+    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
+        """Move an expense to the monthly share identified by year/month."""
+        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
+        if not db_expense:
+            raise ValueError(f"Expense with ID {expense_id} not found.")
+        db_share = (
+            self.session.query(MonthlyShareModel)
+            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .first()
+        )
+        if not db_share:
+            raise ValueError(f"Monthly share for {year}-{month} not found.")
+        db_expense.monthly_share_id = db_share.id
+        self.session.commit()
+
     def _to_domain_expense(self, db_expense: ExpenseModel) -> Expense:
         """Convert database model to domain model."""
         category = Category()
