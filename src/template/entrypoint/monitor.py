@@ -12,8 +12,9 @@ from template.domain.schema_model import ResponseModel
 router = APIRouter()
 
 
-@router.get(
+@router.api_route(
     "/liveness",
+    methods=["GET", "HEAD"],
     tags=["Monitor"],
     name="Liveness",
     status_code=status.HTTP_200_OK,
