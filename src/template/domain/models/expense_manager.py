@@ -9,7 +9,6 @@ from dateutil.relativedelta import relativedelta
 from template.domain.models.category import Category
 from template.domain.models.split import PercentageSplit
 
-from ...adapters.repositories import MemberRepository, SQLAlchemyExpenseRepository
 from .enums import PaymentType
 from .models import Expense, Member, MonthlyShare
 from .repository import ExpenseRepository

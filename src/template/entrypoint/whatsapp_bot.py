@@ -62,6 +62,7 @@ def _send_group_selector(number: str, message_id: str, groups: List[Any], wpp_cl
     wpp_client.send_message(msg)
 
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-return-statements
 def _resolve_group_id(
     number: str,
     message_id: str,
@@ -129,9 +130,7 @@ def _process_message(
 
         estado = session_repo.get_or_create(number)
 
-        group_id = _resolve_group_id(
-            number, message_id, interactive_id, estado, member_repo, group_repo, wpp_client
-        )
+        group_id = _resolve_group_id(number, message_id, interactive_id, estado, member_repo, group_repo, wpp_client)
         if group_id is None:
             # Group selection prompt was sent; wait for user response
             session_repo.save(number, estado)

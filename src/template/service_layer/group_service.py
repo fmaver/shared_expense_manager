@@ -1,4 +1,5 @@
 """Service for managing groups and memberships."""
+
 from typing import Optional
 
 from template.adapters.repositories import GroupRepository
@@ -7,7 +8,10 @@ from template.domain.models.member import Member
 
 
 class GroupService:
+    """Application service for managing groups and memberships."""
+
     def __init__(self, repository: GroupRepository):
+        """Initialize group service."""
         self._repo = repository
 
     def create(self, name: str, creator_member_id: int) -> Group:
@@ -17,21 +21,27 @@ class GroupService:
         return group
 
     def get(self, group_id: int) -> Optional[Group]:
+        """Return a group by ID."""
         return self._repo.get(group_id)
 
     def list_for_member(self, member_id: int) -> list[Group]:
+        """Return all active groups the member belongs to."""
         return self._repo.list_for_member(member_id)
 
     def list_members(self, group_id: int) -> list[Member]:
+        """Return all members of a group."""
         return self._repo.list_members(group_id)
 
     def update_name(self, group_id: int, name: str) -> Group:
+        """Rename a group."""
         return self._repo.update_name(group_id, name)
 
     def close(self, group_id: int) -> Group:
+        """Close a group."""
         return self._repo.set_status(group_id, GroupStatus.CLOSED)
 
     def delete(self, group_id: int) -> Group:
+        """Soft-delete a group."""
         return self._repo.set_status(group_id, GroupStatus.DELETED)
 
     def invite_by_email(self, group_id: int, email: str, member_repo) -> None:
@@ -48,4 +58,5 @@ class GroupService:
         self._repo.remove_member(group_id, member_id)
 
     def is_member(self, group_id: int, member_id: int) -> bool:
+        """Return True if the member belongs to the group."""
         return self._repo.is_member(group_id, member_id)

@@ -8,11 +8,14 @@ from sqlalchemy.orm import Session
 from template.adapters.orm import (
     ChatSessionModel,
     ExpenseModel,
+    GroupMembershipModel,
+    GroupModel,
     MemberModel,
     MonthlyShareModel,
     ProcessedMessageModel,
 )
 from template.domain.models.category import Category
+from template.domain.models.group import Group, GroupStatus, GroupType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
@@ -286,11 +289,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
     def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
         """Get all monthly shares for a group from the database."""
-        db_monthly_shares = (
-            self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.group_id == group_id)
-            .all()
-        )
+        db_monthly_shares = self.session.query(MonthlyShareModel).filter(MonthlyShareModel.group_id == group_id).all()
 
         return {f"{share.year}-{share.month:02d}": self._to_domain_monthly_share(share) for share in db_monthly_shares}
 
@@ -555,31 +554,27 @@ class ProcessedMessageRepository:
         self.session.commit()
 
 
-from template.adapters.orm import GroupMembershipModel, GroupModel
-from template.domain.models.group import Group, GroupStatus, GroupType
-
-
 class GroupRepository:
     """Manages groups and group memberships."""
 
     def __init__(self, session: Session):
+        """Initialize group repository."""
         self.session = session
 
     def create(self, name: str) -> Group:
+        """Create a new active group."""
         model = GroupModel(name=name, status="active", group_type="regular")
         self.session.add(model)
         self.session.flush()
         return self._to_domain(model)
 
     def get(self, group_id: int) -> Optional[Group]:
-        model = (
-            self.session.query(GroupModel)
-            .filter(GroupModel.id == group_id, GroupModel.status != "deleted")
-            .first()
-        )
+        """Return a group by ID, or None if not found or deleted."""
+        model = self.session.query(GroupModel).filter(GroupModel.id == group_id, GroupModel.status != "deleted").first()
         return self._to_domain(model) if model else None
 
     def list_for_member(self, member_id: int) -> list[Group]:
+        """Return all active groups the member belongs to."""
         models = (
             self.session.query(GroupModel)
             .join(GroupMembershipModel, GroupModel.id == GroupMembershipModel.group_id)
@@ -592,6 +587,7 @@ class GroupRepository:
         return [self._to_domain(m) for m in models]
 
     def update_name(self, group_id: int, name: str) -> Group:
+        """Rename a group."""
         model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
         if not model:
             raise ValueError(f"Group {group_id} not found")
@@ -600,6 +596,7 @@ class GroupRepository:
         return self._to_domain(model)
 
     def set_status(self, group_id: int, status: GroupStatus) -> Group:
+        """Set the status of a group (active, closed, deleted)."""
         model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
         if not model:
             raise ValueError(f"Group {group_id} not found")
@@ -608,6 +605,7 @@ class GroupRepository:
         return self._to_domain(model)
 
     def add_member(self, group_id: int, member_id: int) -> None:
+        """Add a member to a group (idempotent)."""
         existing = (
             self.session.query(GroupMembershipModel)
             .filter(
@@ -621,6 +619,7 @@ class GroupRepository:
             self.session.flush()
 
     def remove_member(self, group_id: int, member_id: int) -> None:
+        """Remove a member from a group."""
         self.session.query(GroupMembershipModel).filter(
             GroupMembershipModel.group_id == group_id,
             GroupMembershipModel.member_id == member_id,
@@ -628,6 +627,7 @@ class GroupRepository:
         self.session.flush()
 
     def list_members(self, group_id: int) -> list[Member]:
+        """Return all members of a group as domain Member objects."""
         members = (
             self.session.query(MemberModel)
             .join(GroupMembershipModel, MemberModel.id == GroupMembershipModel.member_id)
@@ -647,6 +647,7 @@ class GroupRepository:
         ]
 
     def is_member(self, group_id: int, member_id: int) -> bool:
+        """Return True if member_id belongs to group_id."""
         return (
             self.session.query(GroupMembershipModel)
             .filter(
@@ -658,6 +659,7 @@ class GroupRepository:
         )
 
     def _to_domain(self, model: GroupModel) -> Group:
+        """Convert ORM GroupModel to domain Group."""
         return Group(
             id=model.id,
             name=model.name,

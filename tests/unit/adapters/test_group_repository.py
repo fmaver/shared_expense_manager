@@ -1,4 +1,5 @@
 """Unit tests for GroupRepository using in-memory SQLite."""
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -32,8 +33,9 @@ def test_add_and_check_membership(session):
     from template.adapters.orm import MemberModel
     from template.domain.models.enums import NotificationType
 
-    member = MemberModel(name="Fran", telephone="5491100000001", email="fran@test.com",
-                         notification_preference=NotificationType.NONE)
+    member = MemberModel(
+        name="Fran", telephone="5491100000001", email="fran@test.com", notification_preference=NotificationType.NONE
+    )
     session.add(member)
     session.flush()
 
@@ -52,14 +54,15 @@ def test_list_groups_for_member(session):
     from template.adapters.orm import MemberModel
     from template.domain.models.enums import NotificationType
 
-    member = MemberModel(name="Guada", telephone="5491100000002", email="guada@test.com",
-                         notification_preference=NotificationType.NONE)
+    member = MemberModel(
+        name="Guada", telephone="5491100000002", email="guada@test.com", notification_preference=NotificationType.NONE
+    )
     session.add(member)
     session.flush()
 
     repo = GroupRepository(session)
     g1 = repo.create("Group One")
-    g2 = repo.create("Group Two")
+    repo.create("Group Two")
     session.flush()
 
     repo.add_member(g1.id, member.id)
