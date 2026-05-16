@@ -536,3 +536,117 @@ class ProcessedMessageRepository:
         cutoff = datetime.utcnow() - timedelta(hours=24)
         self.session.query(ProcessedMessageModel).filter(ProcessedMessageModel.processed_at < cutoff).delete()
         self.session.commit()
+
+
+from template.adapters.orm import GroupMembershipModel, GroupModel
+from template.domain.models.group import Group, GroupStatus, GroupType
+
+
+class GroupRepository:
+    """Manages groups and group memberships."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, name: str) -> Group:
+        model = GroupModel(name=name, status="active", group_type="regular")
+        self.session.add(model)
+        self.session.flush()
+        return self._to_domain(model)
+
+    def get(self, group_id: int) -> Optional[Group]:
+        model = (
+            self.session.query(GroupModel)
+            .filter(GroupModel.id == group_id, GroupModel.status != "deleted")
+            .first()
+        )
+        return self._to_domain(model) if model else None
+
+    def list_for_member(self, member_id: int) -> list[Group]:
+        models = (
+            self.session.query(GroupModel)
+            .join(GroupMembershipModel, GroupModel.id == GroupMembershipModel.group_id)
+            .filter(
+                GroupMembershipModel.member_id == member_id,
+                GroupModel.status == "active",
+            )
+            .all()
+        )
+        return [self._to_domain(m) for m in models]
+
+    def update_name(self, group_id: int, name: str) -> Group:
+        model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
+        if not model:
+            raise ValueError(f"Group {group_id} not found")
+        model.name = name
+        self.session.flush()
+        return self._to_domain(model)
+
+    def set_status(self, group_id: int, status: GroupStatus) -> Group:
+        model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
+        if not model:
+            raise ValueError(f"Group {group_id} not found")
+        model.status = status.value
+        self.session.flush()
+        return self._to_domain(model)
+
+    def add_member(self, group_id: int, member_id: int) -> None:
+        existing = (
+            self.session.query(GroupMembershipModel)
+            .filter(
+                GroupMembershipModel.group_id == group_id,
+                GroupMembershipModel.member_id == member_id,
+            )
+            .first()
+        )
+        if not existing:
+            self.session.add(GroupMembershipModel(group_id=group_id, member_id=member_id))
+            self.session.flush()
+
+    def remove_member(self, group_id: int, member_id: int) -> None:
+        self.session.query(GroupMembershipModel).filter(
+            GroupMembershipModel.group_id == group_id,
+            GroupMembershipModel.member_id == member_id,
+        ).delete()
+        self.session.flush()
+
+    def list_members(self, group_id: int) -> list[Member]:
+        members = (
+            self.session.query(MemberModel)
+            .join(GroupMembershipModel, MemberModel.id == GroupMembershipModel.member_id)
+            .filter(GroupMembershipModel.group_id == group_id)
+            .all()
+        )
+        return [
+            Member(
+                id=m.id,
+                name=m.name,
+                telephone=m.telephone,
+                email=m.email,
+                notification_preference=m.notification_preference,
+                last_wpp_chat_datetime=m.last_wpp_chat_datetime,
+            )
+            for m in members
+        ]
+
+    def is_member(self, group_id: int, member_id: int) -> bool:
+        return (
+            self.session.query(GroupMembershipModel)
+            .filter(
+                GroupMembershipModel.group_id == group_id,
+                GroupMembershipModel.member_id == member_id,
+            )
+            .first()
+            is not None
+        )
+
+    def _to_domain(self, model: GroupModel) -> Group:
+        return Group(
+            id=model.id,
+            name=model.name,
+            status=GroupStatus(model.status),
+            group_type=GroupType(model.group_type),
+            owner_member_id=model.owner_member_id,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
