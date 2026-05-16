@@ -38,9 +38,10 @@ class Expense(CamelCaseModel):
 
 
 class MonthlyShare:
-    def __init__(self, year: int, month: int):
+    def __init__(self, year: int, month: int, group_id: int = 0):
         self.year = year
         self.month = month
+        self.group_id = group_id
         self.expenses: List[Expense] = []  # List of expenses for the month
         self.balances: Dict[str, float] = {}  # Member ID -> Balance
         self._is_settled = False
