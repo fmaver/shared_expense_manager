@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -38,15 +39,47 @@ class MemberModel(Base):
     expenses: Mapped[list["ExpenseModel"]] = relationship(back_populates="payer")
 
 
+class GroupModel(Base):
+    __tablename__ = "groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    group_type: Mapped[str] = mapped_column(String(20), default="regular")
+    owner_member_id: Mapped[Optional[int]] = mapped_column(ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    memberships: Mapped[list["GroupMembershipModel"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+
+
+class GroupMembershipModel(Base):
+    __tablename__ = "group_memberships"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("group_id", "member_id", name="uq_group_member"),)
+
+    group: Mapped["GroupModel"] = relationship(back_populates="memberships")
+    member: Mapped["MemberModel"] = relationship()
+
+
 class MonthlyShareModel(Base):
     __tablename__ = "monthly_shares"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), default=1)
     year: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)
     is_settled: Mapped[bool] = mapped_column(default=False)
     balances: Mapped[dict] = mapped_column(JSON)
     expenses: Mapped[list["ExpenseModel"]] = relationship(back_populates="monthly_share")
+    group: Mapped["GroupModel"] = relationship()
 
 
 class ExpenseModel(Base):
@@ -63,6 +96,8 @@ class ExpenseModel(Base):
     installment_no: Mapped[int] = mapped_column(Integer, default=1)
     split_strategy: Mapped[dict] = mapped_column(JSON)
     monthly_share_id: Mapped[int] = mapped_column(ForeignKey("monthly_shares.id"))
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), default=1)
+    group: Mapped["GroupModel"] = relationship()
     parent_expense_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("expenses.id", ondelete="CASCADE"), nullable=True
     )
