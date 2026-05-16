@@ -8,7 +8,7 @@ Create Date: 2026-05-16
 
 from alembic import op
 
-revision = "m8_drop_old_monthly_shares_unique"
+revision = "m8_drop_shares_constraint"
 down_revision = "m7_migrate_to_default_group"
 branch_labels = None
 depends_on = None
