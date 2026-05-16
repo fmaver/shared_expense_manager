@@ -20,7 +20,10 @@ from template.service_layer.expense_service import ExpenseService
 class TestExpenseService:
     @pytest.fixture
     def service(self, mock_repository):
-        return ExpenseService(mock_repository)
+        from unittest.mock import MagicMock
+        group_repo = MagicMock()
+        group_repo.list_members.return_value = []
+        return ExpenseService(mock_repository, group_id=1, group_repo=group_repo)
 
     @pytest.fixture
     def debit_expense(self):
@@ -111,10 +114,13 @@ class TestUpdateExpenseRouting:
 
     @pytest.fixture
     def service(self, mock_repository):
-        svc = ExpenseService(mock_repository)
-        svc._manager.add_member(Member(id=1, name="Alice", telephone="+1234567890", email="a@a.com"))
-        svc._manager.add_member(Member(id=2, name="Bob", telephone="+1234567891", email="b@b.com"))
-        return svc
+        from unittest.mock import MagicMock
+        group_repo = MagicMock()
+        group_repo.list_members.return_value = [
+            Member(id=1, name="Alice", telephone="+1234567890", email="a@a.com"),
+            Member(id=2, name="Bob", telephone="+1234567891", email="b@b.com"),
+        ]
+        return ExpenseService(mock_repository, group_id=1, group_repo=group_repo)
 
     def _data(self, payment_type, installments, amount=300.0):
         return ExpenseCreate(
