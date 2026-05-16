@@ -68,25 +68,16 @@ def _resolve_group_id(
     message_id: str,
     interactive_id: Optional[str],
     estado: Dict[str, Any],
-    member_repo: MemberRepository,
-    group_repo: GroupRepository,
+    groups: List[Any],
     wpp_client: WhatsAppClient,
 ) -> Optional[int]:
-    """Return the group_id for this session, or None if user must still select a group.
+    """Return the group_id for this session, or None if the user must still pick a group.
 
+    Precondition: caller has already verified the member exists and belongs to at least one group.
     Side effect: may send group-selector message via wpp_client and mutate estado.
     """
     if estado.get("group_id"):
         return int(estado["group_id"])
-
-    member = member_repo.get_member_by_phone(number)
-    if not member:
-        return 1  # fallback: unknown member → default group
-
-    groups = group_repo.list_for_member(member.id)
-
-    if not groups:
-        return 1  # fallback: member not yet in any group
 
     if len(groups) == 1:
         estado["group_id"] = groups[0].id
@@ -108,7 +99,7 @@ def _resolve_group_id(
         _send_group_selector(number, message_id, groups, wpp_client)
         return None
 
-    # First time user with multiple groups — prompt to select
+    # First message with multiple groups — prompt to select
     estado["estado"] = "esperando_seleccion_grupo"
     _send_group_selector(number, message_id, groups, wpp_client)
     return None
@@ -125,12 +116,37 @@ def _process_message(
     with SessionLocal() as db:
         session_repo = ChatSessionRepository(db)
         member_repo = MemberRepository(db)
-        group_repo = GroupRepository(db)
         member_service = MemberService(member_repo)
 
         estado = session_repo.get_or_create(number)
 
-        group_id = _resolve_group_id(number, message_id, interactive_id, estado, member_repo, group_repo, wpp_client)
+        member = member_repo.get_member_by_phone(number)
+        if not member:
+            # Unknown phone: let administrar_chatbot send the registration prompt
+            nuevo_estado = administrar_chatbot(
+                text, number, message_id, estado, None, member_service, wpp_client, interactive_id
+            )
+            session_repo.save(number, nuevo_estado)
+            return
+
+        groups = GroupRepository(db).list_for_member(member.id)
+        if not groups:
+            # Registered member not yet assigned to any group
+            wpp_client.send_message(
+                json.dumps(
+                    {
+                        "messaging_product": "whatsapp",
+                        "to": number,
+                        "type": "text",
+                        "text": {
+                            "body": "⚠️ Tu cuenta aún no está en ningún grupo. " "Pedile a un admin que te agregue."
+                        },
+                    }
+                )
+            )
+            return
+
+        group_id = _resolve_group_id(number, message_id, interactive_id, estado, groups, wpp_client)
         if group_id is None:
             # Group selection prompt was sent; wait for user response
             session_repo.save(number, estado)
@@ -139,7 +155,7 @@ def _process_message(
         expense_service = ExpenseService(
             SQLAlchemyExpenseRepository(db),
             group_id=group_id,
-            group_repo=group_repo,
+            group_repo=GroupRepository(db),
         )
 
         nuevo_estado = administrar_chatbot(
