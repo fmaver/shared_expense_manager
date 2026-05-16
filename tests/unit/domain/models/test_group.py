@@ -1,5 +1,7 @@
 """Unit tests for Group domain model."""
+
 import pytest
+
 from template.domain.models.group import Group, GroupStatus, GroupType
 
 

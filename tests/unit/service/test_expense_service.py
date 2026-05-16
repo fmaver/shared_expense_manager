@@ -21,6 +21,7 @@ class TestExpenseService:
     @pytest.fixture
     def service(self, mock_repository):
         from unittest.mock import MagicMock
+
         group_repo = MagicMock()
         group_repo.list_members.return_value = []
         return ExpenseService(mock_repository, group_id=1, group_repo=group_repo)
@@ -115,6 +116,7 @@ class TestUpdateExpenseRouting:
     @pytest.fixture
     def service(self, mock_repository):
         from unittest.mock import MagicMock
+
         group_repo = MagicMock()
         group_repo.list_members.return_value = [
             Member(id=1, name="Alice", telephone="+1234567890", email="a@a.com"),

@@ -16,6 +16,7 @@ class TestExpenseManager:
     @pytest.fixture
     def manager(self, mock_repository):
         from unittest.mock import MagicMock
+
         group_repo = MagicMock()
         group_repo.list_members.return_value = [
             Member(id=1, name="John", telephone="+1234567890", email="john@example.com"),

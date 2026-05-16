@@ -1,6 +1,9 @@
 """Unit tests for GroupService."""
-import pytest
+
 from unittest.mock import MagicMock
+
+import pytest
+
 from template.domain.models.group import Group, GroupStatus
 from template.service_layer.group_service import GroupService
 

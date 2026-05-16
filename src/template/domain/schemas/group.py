@@ -1,11 +1,12 @@
 """Group request/response schemas."""
+
 from datetime import datetime
 from typing import Optional
 
 from pydantic import Field
 
-from template.domain.schema_model import CamelCaseModel
 from template.domain.models.group import GroupStatus, GroupType
+from template.domain.schema_model import CamelCaseModel
 
 
 class GroupMemberResponse(CamelCaseModel):

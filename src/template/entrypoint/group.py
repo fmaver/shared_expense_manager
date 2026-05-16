@@ -90,9 +90,7 @@ async def list_group_members(
 ) -> ResponseModel[list[GroupMemberResponse]]:
     """List all members of a group."""
     members = group_service.list_members(group_id)
-    return ResponseModel(
-        data=[GroupMemberResponse(member_id=m.id, name=m.name, email=m.email) for m in members]
-    )
+    return ResponseModel(data=[GroupMemberResponse(member_id=m.id, name=m.name, email=m.email) for m in members])
 
 
 @router.post("/{group_id}/members/invite", status_code=status.HTTP_204_NO_CONTENT)
