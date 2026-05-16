@@ -18,7 +18,7 @@ from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 
-router = APIRouter(prefix="/expenses", tags=["Expenses"])
+router = APIRouter(prefix="/groups/{group_id}/expenses", tags=["Expenses"])
 
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
