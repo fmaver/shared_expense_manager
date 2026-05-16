@@ -196,7 +196,11 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         # Find existing or create new monthly share
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == monthly_share.year, MonthlyShareModel.month == monthly_share.month)
+            .filter(
+                MonthlyShareModel.year == monthly_share.year,
+                MonthlyShareModel.month == monthly_share.month,
+                MonthlyShareModel.group_id == monthly_share.group_id,
+            )
             .first()
         )
 
@@ -204,6 +208,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             db_monthly_share = MonthlyShareModel(
                 year=monthly_share.year,
                 month=monthly_share.month,
+                group_id=monthly_share.group_id,
                 balances=monthly_share.balances,
                 is_settled=monthly_share.is_settled,
             )
@@ -222,37 +227,38 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Saved monthly share with balances: {db_monthly_share.balances}")
 
-    def settle_monthly_share(self, year: int, month: int) -> None:
-        """Settle a monthly share by year and month."""
-        print(f"Settling monthly share for {year}-{month}")
-
-        # Fetch the existing monthly share
+    def settle_monthly_share(self, year: int, month: int, group_id: int) -> None:
+        """Settle a monthly share by year, month and group."""
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
 
         if not db_monthly_share:
-            raise ValueError(f"Monthly share for {year}-{month} not found.")
+            raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
 
-        # Update the is_settled status
         db_monthly_share.is_settled = True
-
-        # Commit the changes to the database
         self.session.commit()
-        print(f"Monthly share for {year}-{month} has been settled.")
 
-    def unsettle_monthly_share(self, year: int, month: int) -> None:
+    def unsettle_monthly_share(self, year: int, month: int, group_id: int) -> None:
         """Remove settlement: delete all 'balance' expenses and mark as unsettled."""
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
 
         if not db_monthly_share:
-            raise ValueError(f"Monthly share for {year}-{month} not found.")
+            raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
 
         for expense in list(db_monthly_share.expenses):
             if expense.category == "balance":
@@ -260,13 +266,16 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
         db_monthly_share.is_settled = False
         self.session.commit()
-        print(f"Monthly share for {year}-{month} has been unsettled.")
 
-    def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
-        """Get a monthly share by year and month from the database."""
+    def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
+        """Get a monthly share by year, month and group from the database."""
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
 
@@ -275,15 +284,19 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
         return self._to_domain_monthly_share(db_monthly_share)
 
-    def get_all_monthly_shares(self) -> Dict[str, MonthlyShare]:
-        """Get all monthly shares from the database."""
-        db_monthly_shares = self.session.query(MonthlyShareModel).all()
+    def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
+        """Get all monthly shares for a group from the database."""
+        db_monthly_shares = (
+            self.session.query(MonthlyShareModel)
+            .filter(MonthlyShareModel.group_id == group_id)
+            .all()
+        )
 
         return {f"{share.year}-{share.month:02d}": self._to_domain_monthly_share(share) for share in db_monthly_shares}
 
     def _to_domain_monthly_share(self, db_share: MonthlyShareModel) -> MonthlyShare:
         """Convert database model to domain model."""
-        monthly_share = MonthlyShare(db_share.year, db_share.month)
+        monthly_share = MonthlyShare(db_share.year, db_share.month, db_share.group_id)
         if db_share.is_settled:
             monthly_share.settle()
         else:
@@ -434,18 +447,22 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Successfully updated expense with ID: {expense.id}")
 
-    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
-        """Move an expense to the monthly share identified by year/month."""
+    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int, group_id: int) -> None:
+        """Move an expense to the monthly share identified by group/year/month."""
         db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
         if not db_expense:
             raise ValueError(f"Expense with ID {expense_id} not found.")
         db_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
         if not db_share:
-            raise ValueError(f"Monthly share for {year}-{month} not found.")
+            raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
         db_expense.monthly_share_id = db_share.id
         self.session.commit()
 
