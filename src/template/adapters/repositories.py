@@ -225,7 +225,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         # Save expenses
         for expense in monthly_share.expenses:
             if not expense.id:  # New expense
-                self.add(expense, db_monthly_share.id)
+                self.add(expense, db_monthly_share.id, db_monthly_share.group_id)
 
         self.session.commit()
         print(f"Saved monthly share with balances: {db_monthly_share.balances}")
@@ -348,7 +348,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             return ExactAmountsSplit(data["amounts"])
         raise ValueError(f"Unknown split strategy type: {data['type']}")
 
-    def add(self, expense: Expense, monthly_share_id: int) -> None:
+    def add(self, expense: Expense, monthly_share_id: int, group_id: int) -> None:
         """Save an expense to the database."""
         print(f"Saving expense: {expense.description} (Amount: {expense.amount}) to monthly share {monthly_share_id}")
         db_expense = ExpenseModel(
@@ -362,6 +362,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             installment_no=expense.installment_no,
             split_strategy=self._serialize_split_strategy(expense.split_strategy),
             monthly_share_id=monthly_share_id,
+            group_id=group_id,
             parent_expense_id=expense.parent_expense_id,
         )
         self.session.add(db_expense)
@@ -566,6 +567,7 @@ class GroupRepository:
         model = GroupModel(name=name, status="active", group_type="regular")
         self.session.add(model)
         self.session.flush()
+        self.session.commit()
         return self._to_domain(model)
 
     def get(self, group_id: int) -> Optional[Group]:
@@ -593,6 +595,7 @@ class GroupRepository:
             raise ValueError(f"Group {group_id} not found")
         model.name = name
         self.session.flush()
+        self.session.commit()
         return self._to_domain(model)
 
     def set_status(self, group_id: int, status: GroupStatus) -> Group:
@@ -602,6 +605,7 @@ class GroupRepository:
             raise ValueError(f"Group {group_id} not found")
         model.status = status.value
         self.session.flush()
+        self.session.commit()
         return self._to_domain(model)
 
     def add_member(self, group_id: int, member_id: int) -> None:
@@ -617,6 +621,7 @@ class GroupRepository:
         if not existing:
             self.session.add(GroupMembershipModel(group_id=group_id, member_id=member_id))
             self.session.flush()
+            self.session.commit()
 
     def remove_member(self, group_id: int, member_id: int) -> None:
         """Remove a member from a group."""
@@ -625,6 +630,7 @@ class GroupRepository:
             GroupMembershipModel.member_id == member_id,
         ).delete()
         self.session.flush()
+        self.session.commit()
 
     def list_members(self, group_id: int) -> list[Member]:
         """Return all members of a group as domain Member objects."""

@@ -23,18 +23,25 @@ def _create_schema():
         pass
 
 
+def _wipe_tables(session) -> None:
+    session.execute(text("DELETE FROM processed_wpp_messages"))
+    session.execute(text("DELETE FROM chat_sessions"))
+    session.execute(text("DELETE FROM expenses"))
+    session.execute(text("DELETE FROM monthly_shares"))
+    session.execute(text("DELETE FROM group_memberships"))
+    session.execute(text("DELETE FROM groups"))
+    session.execute(text("DELETE FROM members"))
+    session.commit()
+
+
 @pytest.fixture(autouse=True)
 def clean_tables(_create_schema):  # pylint: disable=redefined-outer-name
-    """Wipe all transient rows after each test."""
-    yield
-
+    """Wipe all transient rows before and after each test."""
     with SessionLocal() as session:
-        session.execute(text("DELETE FROM processed_wpp_messages"))
-        session.execute(text("DELETE FROM chat_sessions"))
-        session.execute(text("DELETE FROM expenses"))
-        session.execute(text("DELETE FROM monthly_shares"))
-        session.execute(text("DELETE FROM members"))
-        session.commit()
+        _wipe_tables(session)
+    yield
+    with SessionLocal() as session:
+        _wipe_tables(session)
 
 
 @pytest.fixture
@@ -74,6 +81,14 @@ def auth_headers(client: TestClient) -> dict:  # pylint: disable=redefined-outer
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def primary_group_id(client: TestClient, auth_headers: dict) -> int:  # pylint: disable=redefined-outer-name
+    """Create a group owned by the primary test member; return its id."""
+    r = client.post("/api/v1/groups/", json={"name": "Test Group"}, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    return r.json()["data"]["id"]
 
 
 @pytest.fixture

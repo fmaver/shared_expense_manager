@@ -9,7 +9,7 @@ from .models import Expense, MonthlyShare
 
 class ExpenseRepository(ABC):
     @abstractmethod
-    def add(self, expense: Expense, monthly_share_id: int) -> None:
+    def add(self, expense: Expense, monthly_share_id: int, group_id: int) -> None:
         """Save an expense"""
 
     @abstractmethod

@@ -44,7 +44,7 @@ def mock_repository():  # noqa: C901
             self.session = None
             self.next_id = 1
 
-        def add(self, expense: Expense, monthly_share_id: int) -> None:
+        def add(self, expense: Expense, monthly_share_id: int, group_id: int) -> None:
             expense.id = self.next_id
             self.next_id += 1
             self.expenses.append(expense)
@@ -53,7 +53,7 @@ def mock_repository():  # noqa: C901
             self.monthly_shares[monthly_share.period_key] = monthly_share
             for expense in monthly_share.expenses:
                 if not expense.id:
-                    self.add(expense, 1)
+                    self.add(expense, 1, monthly_share.group_id)
 
         def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
             key = f"{year}-{month:02d}"
