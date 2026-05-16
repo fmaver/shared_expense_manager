@@ -1,7 +1,9 @@
 """Whatsapp Bot"""
 
+import json
 import logging
 import os
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 from template.adapters.database import SessionLocal, get_db
 from template.adapters.repositories import (
     ChatSessionRepository,
+    GroupRepository,
     MemberRepository,
     ProcessedMessageRepository,
     SQLAlchemyExpenseRepository,
@@ -21,6 +24,7 @@ from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_client import WhatsAppClient
 from template.service_layer.whatsapp_service import (
     administrar_chatbot,
+    mark_read_message,
     obtener_interactive_id_whatsapp,
     obtener_mensaje_whatsapp,
     replace_start,
@@ -34,6 +38,81 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _send_group_selector(number: str, message_id: str, groups: List[Any], wpp_client: WhatsAppClient) -> None:
+    """Send an interactive group-selection message and mark the incoming message as read."""
+    wpp_client.send_message(mark_read_message(message_id))
+    rows = [{"id": f"grp_{g.id}", "title": g.name, "description": ""} for g in groups]
+    msg = json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": "¿A qué grupo pertenece este gasto?"},
+                "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
+                "action": {
+                    "button": "Ver Grupos",
+                    "sections": [{"title": "Mis Grupos", "rows": rows}],
+                },
+            },
+        }
+    )
+    wpp_client.send_message(msg)
+
+
+def _resolve_group_id(
+    number: str,
+    message_id: str,
+    interactive_id: Optional[str],
+    estado: Dict[str, Any],
+    member_repo: MemberRepository,
+    group_repo: GroupRepository,
+    wpp_client: WhatsAppClient,
+) -> Optional[int]:
+    """Return the group_id for this session, or None if user must still select a group.
+
+    Side effect: may send group-selector message via wpp_client and mutate estado.
+    """
+    if estado.get("group_id"):
+        return int(estado["group_id"])
+
+    member = member_repo.get_member_by_phone(number)
+    if not member:
+        return 1  # fallback: unknown member → default group
+
+    groups = group_repo.list_for_member(member.id)
+
+    if not groups:
+        return 1  # fallback: member not yet in any group
+
+    if len(groups) == 1:
+        estado["group_id"] = groups[0].id
+        return groups[0].id
+
+    # Multiple groups — selection required
+    if estado.get("estado") == "esperando_seleccion_grupo":
+        if interactive_id and interactive_id.startswith("grp_"):
+            try:
+                selected_id = int(interactive_id.split("_")[1])
+                group = next((g for g in groups if g.id == selected_id), None)
+                if group:
+                    estado["group_id"] = group.id
+                    estado["estado"] = "inicial"
+                    return group.id
+            except (ValueError, IndexError):
+                pass
+        # Invalid reply — re-prompt
+        _send_group_selector(number, message_id, groups, wpp_client)
+        return None
+
+    # First time user with multiple groups — prompt to select
+    estado["estado"] = "esperando_seleccion_grupo"
+    _send_group_selector(number, message_id, groups, wpp_client)
+    return None
+
+
 def _process_message(
     text: str,
     number: str,
@@ -44,10 +123,26 @@ def _process_message(
     """Run chatbot logic in a background task with its own DB session."""
     with SessionLocal() as db:
         session_repo = ChatSessionRepository(db)
-        expense_service = ExpenseService(SQLAlchemyExpenseRepository(db))
-        member_service = MemberService(MemberRepository(db))
+        member_repo = MemberRepository(db)
+        group_repo = GroupRepository(db)
+        member_service = MemberService(member_repo)
 
         estado = session_repo.get_or_create(number)
+
+        group_id = _resolve_group_id(
+            number, message_id, interactive_id, estado, member_repo, group_repo, wpp_client
+        )
+        if group_id is None:
+            # Group selection prompt was sent; wait for user response
+            session_repo.save(number, estado)
+            return
+
+        expense_service = ExpenseService(
+            SQLAlchemyExpenseRepository(db),
+            group_id=group_id,
+            group_repo=group_repo,
+        )
+
         nuevo_estado = administrar_chatbot(
             text, number, message_id, estado, expense_service, member_service, wpp_client, interactive_id
         )
