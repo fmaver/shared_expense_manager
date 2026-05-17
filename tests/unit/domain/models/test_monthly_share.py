@@ -80,3 +80,10 @@ class TestMonthlyShare:
         print(share.balances)
         assert share.balances[str(1)] == 50.0
         assert share.balances[str(2)] == -50.0
+
+
+def test_monthly_share_stores_group_id():
+    ms = MonthlyShare(year=2026, month=5, group_id=1)
+    assert ms.group_id == 1
+    assert ms.year == 2026
+    assert ms.month == 5

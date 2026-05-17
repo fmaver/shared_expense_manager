@@ -329,7 +329,7 @@ def administrar_chatbot(
     number: str,
     message_id: str,
     estado_actual_usuario: Dict[str, Any],
-    service: ExpenseService,
+    service: Optional[ExpenseService],
     member_service: MemberService,
     wpp_client: "WhatsAppClient",
     interactive_id: Optional[str] = None,

@@ -49,9 +49,9 @@ def _strategy_to_schema(strategy: SplitStrategy) -> SplitStrategySchema:
 class ExpenseService:
     """Service class for managing expenses."""
 
-    def __init__(self, repository: ExpenseRepository):
+    def __init__(self, repository: ExpenseRepository, group_id: int, group_repo):
         """Initialize the expense service."""
-        self._manager = ExpenseManager(repository)
+        self._manager = ExpenseManager(repository, group_id, group_repo)
 
     def create_expense(self, expense_data: ExpenseCreate) -> Expense:
         """Create a new expense."""

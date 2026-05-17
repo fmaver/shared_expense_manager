@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from template.adapters.database import SessionLocal
 from template.router import api_router_v1, root_router
 from template.service_layer.initialization import InitializationService
 from template.settings.api_settings import ApplicationSettings
@@ -25,10 +24,6 @@ async def on_startup(app: FastAPI):
 
     # Initialize database and default data
     await InitializationService.initialize()
-
-    # Initialize the expense manager with default members
-    with SessionLocal() as db:
-        app.state.expense_manager = InitializationService.initialize_expense_manager(db)
 
 
 async def on_shutdown():

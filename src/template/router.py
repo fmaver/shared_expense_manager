@@ -12,6 +12,7 @@ from template.entrypoint import (
     auth,
     category,
     expense,
+    group,
     member,
     monitor,
     monthly_share,
@@ -25,9 +26,10 @@ api_router_v1: APIRouter = APIRouter(prefix=api_v1_prefix)
 
 # API routers
 root_router.include_router(monitor.router)
+api_router_v1.include_router(group.router)
 api_router_v1.include_router(expense.router)
 api_router_v1.include_router(member.router)
 api_router_v1.include_router(monthly_share.router)
 api_router_v1.include_router(category.router)
-api_router_v1.include_router(auth.router)  # Add auth router
+api_router_v1.include_router(auth.router)
 root_router.include_router(whatsapp_bot.router)

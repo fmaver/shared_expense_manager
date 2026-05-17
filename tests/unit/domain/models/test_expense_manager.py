@@ -15,10 +15,14 @@ from template.domain.models.split import EqualSplit
 class TestExpenseManager:
     @pytest.fixture
     def manager(self, mock_repository):
-        manager = ExpenseManager(mock_repository)
-        manager.add_member(Member(id=1, name="John", telephone="+1234567890", email="john@example.com"))
-        manager.add_member(Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"))
-        return manager
+        from unittest.mock import MagicMock
+
+        group_repo = MagicMock()
+        group_repo.list_members.return_value = [
+            Member(id=1, name="John", telephone="+1234567890", email="john@example.com"),
+            Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"),
+        ]
+        return ExpenseManager(mock_repository, group_id=1, group_repo=group_repo)
 
     @pytest.fixture
     def debit_expense(self):

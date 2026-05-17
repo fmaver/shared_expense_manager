@@ -8,11 +8,14 @@ from sqlalchemy.orm import Session
 from template.adapters.orm import (
     ChatSessionModel,
     ExpenseModel,
+    GroupMembershipModel,
+    GroupModel,
     MemberModel,
     MonthlyShareModel,
     ProcessedMessageModel,
 )
 from template.domain.models.category import Category
+from template.domain.models.group import Group, GroupStatus, GroupType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
@@ -196,7 +199,11 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         # Find existing or create new monthly share
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == monthly_share.year, MonthlyShareModel.month == monthly_share.month)
+            .filter(
+                MonthlyShareModel.year == monthly_share.year,
+                MonthlyShareModel.month == monthly_share.month,
+                MonthlyShareModel.group_id == monthly_share.group_id,
+            )
             .first()
         )
 
@@ -204,6 +211,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             db_monthly_share = MonthlyShareModel(
                 year=monthly_share.year,
                 month=monthly_share.month,
+                group_id=monthly_share.group_id,
                 balances=monthly_share.balances,
                 is_settled=monthly_share.is_settled,
             )
@@ -217,42 +225,43 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         # Save expenses
         for expense in monthly_share.expenses:
             if not expense.id:  # New expense
-                self.add(expense, db_monthly_share.id)
+                self.add(expense, db_monthly_share.id, db_monthly_share.group_id)
 
         self.session.commit()
         print(f"Saved monthly share with balances: {db_monthly_share.balances}")
 
-    def settle_monthly_share(self, year: int, month: int) -> None:
-        """Settle a monthly share by year and month."""
-        print(f"Settling monthly share for {year}-{month}")
-
-        # Fetch the existing monthly share
+    def settle_monthly_share(self, year: int, month: int, group_id: int) -> None:
+        """Settle a monthly share by year, month and group."""
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
 
         if not db_monthly_share:
-            raise ValueError(f"Monthly share for {year}-{month} not found.")
+            raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
 
-        # Update the is_settled status
         db_monthly_share.is_settled = True
-
-        # Commit the changes to the database
         self.session.commit()
-        print(f"Monthly share for {year}-{month} has been settled.")
 
-    def unsettle_monthly_share(self, year: int, month: int) -> None:
+    def unsettle_monthly_share(self, year: int, month: int, group_id: int) -> None:
         """Remove settlement: delete all 'balance' expenses and mark as unsettled."""
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
 
         if not db_monthly_share:
-            raise ValueError(f"Monthly share for {year}-{month} not found.")
+            raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
 
         for expense in list(db_monthly_share.expenses):
             if expense.category == "balance":
@@ -260,13 +269,16 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
         db_monthly_share.is_settled = False
         self.session.commit()
-        print(f"Monthly share for {year}-{month} has been unsettled.")
 
-    def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
-        """Get a monthly share by year and month from the database."""
+    def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
+        """Get a monthly share by year, month and group from the database."""
         db_monthly_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
 
@@ -275,15 +287,15 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
 
         return self._to_domain_monthly_share(db_monthly_share)
 
-    def get_all_monthly_shares(self) -> Dict[str, MonthlyShare]:
-        """Get all monthly shares from the database."""
-        db_monthly_shares = self.session.query(MonthlyShareModel).all()
+    def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
+        """Get all monthly shares for a group from the database."""
+        db_monthly_shares = self.session.query(MonthlyShareModel).filter(MonthlyShareModel.group_id == group_id).all()
 
         return {f"{share.year}-{share.month:02d}": self._to_domain_monthly_share(share) for share in db_monthly_shares}
 
     def _to_domain_monthly_share(self, db_share: MonthlyShareModel) -> MonthlyShare:
         """Convert database model to domain model."""
-        monthly_share = MonthlyShare(db_share.year, db_share.month)
+        monthly_share = MonthlyShare(db_share.year, db_share.month, db_share.group_id)
         if db_share.is_settled:
             monthly_share.settle()
         else:
@@ -336,7 +348,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             return ExactAmountsSplit(data["amounts"])
         raise ValueError(f"Unknown split strategy type: {data['type']}")
 
-    def add(self, expense: Expense, monthly_share_id: int) -> None:
+    def add(self, expense: Expense, monthly_share_id: int, group_id: int) -> None:
         """Save an expense to the database."""
         print(f"Saving expense: {expense.description} (Amount: {expense.amount}) to monthly share {monthly_share_id}")
         db_expense = ExpenseModel(
@@ -350,6 +362,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             installment_no=expense.installment_no,
             split_strategy=self._serialize_split_strategy(expense.split_strategy),
             monthly_share_id=monthly_share_id,
+            group_id=group_id,
             parent_expense_id=expense.parent_expense_id,
         )
         self.session.add(db_expense)
@@ -434,18 +447,22 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Successfully updated expense with ID: {expense.id}")
 
-    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
-        """Move an expense to the monthly share identified by year/month."""
+    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int, group_id: int) -> None:
+        """Move an expense to the monthly share identified by group/year/month."""
         db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
         if not db_expense:
             raise ValueError(f"Expense with ID {expense_id} not found.")
         db_share = (
             self.session.query(MonthlyShareModel)
-            .filter(MonthlyShareModel.year == year, MonthlyShareModel.month == month)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
             .first()
         )
         if not db_share:
-            raise ValueError(f"Monthly share for {year}-{month} not found.")
+            raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
         db_expense.monthly_share_id = db_share.id
         self.session.commit()
 
@@ -536,3 +553,125 @@ class ProcessedMessageRepository:
         cutoff = datetime.utcnow() - timedelta(hours=24)
         self.session.query(ProcessedMessageModel).filter(ProcessedMessageModel.processed_at < cutoff).delete()
         self.session.commit()
+
+
+class GroupRepository:
+    """Manages groups and group memberships."""
+
+    def __init__(self, session: Session):
+        """Initialize group repository."""
+        self.session = session
+
+    def create(self, name: str) -> Group:
+        """Create a new active group."""
+        model = GroupModel(name=name, status="active", group_type="regular")
+        self.session.add(model)
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(model)
+
+    def get(self, group_id: int) -> Optional[Group]:
+        """Return a group by ID, or None if not found or deleted."""
+        model = self.session.query(GroupModel).filter(GroupModel.id == group_id, GroupModel.status != "deleted").first()
+        return self._to_domain(model) if model else None
+
+    def list_for_member(self, member_id: int) -> list[Group]:
+        """Return all active groups the member belongs to."""
+        models = (
+            self.session.query(GroupModel)
+            .join(GroupMembershipModel, GroupModel.id == GroupMembershipModel.group_id)
+            .filter(
+                GroupMembershipModel.member_id == member_id,
+                GroupModel.status == "active",
+            )
+            .all()
+        )
+        return [self._to_domain(m) for m in models]
+
+    def update_name(self, group_id: int, name: str) -> Group:
+        """Rename a group."""
+        model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
+        if not model:
+            raise ValueError(f"Group {group_id} not found")
+        model.name = name
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(model)
+
+    def set_status(self, group_id: int, status: GroupStatus) -> Group:
+        """Set the status of a group (active, closed, deleted)."""
+        model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
+        if not model:
+            raise ValueError(f"Group {group_id} not found")
+        model.status = status.value
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(model)
+
+    def add_member(self, group_id: int, member_id: int) -> None:
+        """Add a member to a group (idempotent)."""
+        existing = (
+            self.session.query(GroupMembershipModel)
+            .filter(
+                GroupMembershipModel.group_id == group_id,
+                GroupMembershipModel.member_id == member_id,
+            )
+            .first()
+        )
+        if not existing:
+            self.session.add(GroupMembershipModel(group_id=group_id, member_id=member_id))
+            self.session.flush()
+            self.session.commit()
+
+    def remove_member(self, group_id: int, member_id: int) -> None:
+        """Remove a member from a group."""
+        self.session.query(GroupMembershipModel).filter(
+            GroupMembershipModel.group_id == group_id,
+            GroupMembershipModel.member_id == member_id,
+        ).delete()
+        self.session.flush()
+        self.session.commit()
+
+    def list_members(self, group_id: int) -> list[Member]:
+        """Return all members of a group as domain Member objects."""
+        members = (
+            self.session.query(MemberModel)
+            .join(GroupMembershipModel, MemberModel.id == GroupMembershipModel.member_id)
+            .filter(GroupMembershipModel.group_id == group_id)
+            .all()
+        )
+        return [
+            Member(
+                id=m.id,
+                name=m.name,
+                telephone=m.telephone,
+                email=m.email,
+                notification_preference=m.notification_preference,
+                last_wpp_chat_datetime=m.last_wpp_chat_datetime,
+            )
+            for m in members
+        ]
+
+    def is_member(self, group_id: int, member_id: int) -> bool:
+        """Return True if member_id belongs to group_id."""
+        return (
+            self.session.query(GroupMembershipModel)
+            .filter(
+                GroupMembershipModel.group_id == group_id,
+                GroupMembershipModel.member_id == member_id,
+            )
+            .first()
+            is not None
+        )
+
+    def _to_domain(self, model: GroupModel) -> Group:
+        """Convert ORM GroupModel to domain Group."""
+        return Group(
+            id=model.id,
+            name=model.name,
+            status=GroupStatus(model.status),
+            group_type=GroupType(model.group_type),
+            owner_member_id=model.owner_member_id,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )

@@ -9,7 +9,7 @@ from .models import Expense, MonthlyShare
 
 class ExpenseRepository(ABC):
     @abstractmethod
-    def add(self, expense: Expense, monthly_share_id: int) -> None:
+    def add(self, expense: Expense, monthly_share_id: int, group_id: int) -> None:
         """Save an expense"""
 
     @abstractmethod
@@ -17,12 +17,12 @@ class ExpenseRepository(ABC):
         """Save a monthly share and its expenses"""
 
     @abstractmethod
-    def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
-        """Get a monthly share by year and month"""
+    def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
+        """Get a monthly share by year, month and group"""
 
     @abstractmethod
-    def get_all_monthly_shares(self) -> Dict[str, MonthlyShare]:
-        """Get all monthly shares"""
+    def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
+        """Get all monthly shares for a group"""
 
     @abstractmethod
     def get_expense(self, expense_id: int) -> Optional[Expense]:
@@ -45,12 +45,12 @@ class ExpenseRepository(ABC):
         """Update an expense"""
 
     @abstractmethod
-    def settle_monthly_share(self, year: int, month: int) -> None:
+    def settle_monthly_share(self, year: int, month: int, group_id: int) -> None:
         """Settle a Monthly Share"""
 
     @abstractmethod
-    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
-        """Move an expense to the monthly share identified by year/month."""
+    def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int, group_id: int) -> None:
+        """Move an expense to the monthly share identified by group/year/month."""
 
-    def unsettle_monthly_share(self, year: int, month: int) -> None:
+    def unsettle_monthly_share(self, year: int, month: int, group_id: int) -> None:
         """Reverse a settlement: delete balancing expenses and mark as unsettled."""

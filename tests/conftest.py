@@ -44,7 +44,7 @@ def mock_repository():  # noqa: C901
             self.session = None
             self.next_id = 1
 
-        def add(self, expense: Expense, monthly_share_id: int) -> None:
+        def add(self, expense: Expense, monthly_share_id: int, group_id: int) -> None:
             expense.id = self.next_id
             self.next_id += 1
             self.expenses.append(expense)
@@ -53,13 +53,13 @@ def mock_repository():  # noqa: C901
             self.monthly_shares[monthly_share.period_key] = monthly_share
             for expense in monthly_share.expenses:
                 if not expense.id:
-                    self.add(expense, 1)
+                    self.add(expense, 1, monthly_share.group_id)
 
-        def get_monthly_share(self, year: int, month: int) -> Optional[MonthlyShare]:
+        def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
             key = f"{year}-{month:02d}"
             return self.monthly_shares.get(key)
 
-        def get_all_monthly_shares(self) -> Dict[str, MonthlyShare]:
+        def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
             return self.monthly_shares
 
         def update_expense(self, expense: Expense) -> None:
@@ -92,12 +92,12 @@ def mock_repository():  # noqa: C901
         def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
             return [e for e in self.expenses if e.date == specific_date]
 
-        def settle_monthly_share(self, year: int, month: int) -> None:
-            ms = self.get_monthly_share(year, month)
+        def settle_monthly_share(self, year: int, month: int, group_id: int) -> None:
+            ms = self.get_monthly_share(year, month, group_id)
             if ms:
                 ms.settle()
 
-        def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int) -> None:
+        def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int, group_id: int) -> None:
             pass
 
     return MockExpenseRepository()

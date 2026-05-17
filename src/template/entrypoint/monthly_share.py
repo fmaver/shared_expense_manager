@@ -9,7 +9,7 @@ from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import MonthlyBalanceResponse
 from template.service_layer.expense_service import ExpenseService
 
-router = APIRouter(prefix="/shares", tags=["MonthlyShares"])
+router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
 
 
 @router.get("/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])

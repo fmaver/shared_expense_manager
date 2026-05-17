@@ -6,8 +6,6 @@ from sqlalchemy.orm import Session
 
 from template.adapters.database import SessionLocal, engine
 from template.adapters.orm import Base, MemberModel
-from template.adapters.repositories import SQLAlchemyExpenseRepository
-from template.domain.models.expense_manager import ExpenseManager
 from template.settings.bootstrap_settings import BootstrapSettings
 
 log = logging.getLogger(__name__)
@@ -58,19 +56,4 @@ class InitializationService:
         except Exception as e:
             db.rollback()
             log.error("Error inserting bootstrap members: %s", str(e))
-            raise
-
-    @staticmethod
-    def initialize_expense_manager(db: Session) -> ExpenseManager:
-        """Initialize the expense manager with repository."""
-        log.info("Initializing expense manager")
-        try:
-            repository = SQLAlchemyExpenseRepository(db)
-            manager = ExpenseManager(repository)
-
-            log.info("Successfully initialized expense manager")
-            return manager
-
-        except Exception as e:
-            log.error("Failed to initialize expense manager: %s", str(e))
             raise

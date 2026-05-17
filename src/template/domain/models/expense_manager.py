@@ -9,23 +9,23 @@ from dateutil.relativedelta import relativedelta
 from template.domain.models.category import Category
 from template.domain.models.split import PercentageSplit
 
-from ...adapters.repositories import MemberRepository, SQLAlchemyExpenseRepository
 from .enums import PaymentType
 from .models import Expense, Member, MonthlyShare
 from .repository import ExpenseRepository
 
 
 class ExpenseManager:
-    def __init__(self, repository: ExpenseRepository):
+    def __init__(self, repository: ExpenseRepository, group_id: int, group_repo):
         self.repository = repository
+        self.group_id = group_id
+        self._group_repo = group_repo
         self.members: Dict[int, Member] = {}
         self._load_members()
 
     def _load_members(self) -> None:
-        """Load members from repository."""
-        if isinstance(self.repository, SQLAlchemyExpenseRepository):
-            member_repository = MemberRepository(self.repository.session)
-            self.members = {member.id: member for member in member_repository.list()}
+        """Load group members from the group repository."""
+        members = self._group_repo.list_members(self.group_id)
+        self.members = {m.id: m for m in members}
 
     def create_and_add_expense(self, expense: Expense) -> Expense:
         """
@@ -94,7 +94,7 @@ class ExpenseManager:
         monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
         if not monthly_share:
             print("Creating new monthly share: ", share_date.year, share_date.month)
-            monthly_share = MonthlyShare(share_date.year, share_date.month)
+            monthly_share = MonthlyShare(share_date.year, share_date.month, self.group_id)
             # Save to get an ID
             self.repository.save_monthly_share(monthly_share)
             # Fetch again to get the ID
@@ -109,7 +109,7 @@ class ExpenseManager:
 
     def get_monthly_balance(self, year: int, month: int) -> Optional[MonthlyShare]:
         """Gets the monthly share for a specific period"""
-        return self.repository.get_monthly_share(year, month)
+        return self.repository.get_monthly_share(year, month, self.group_id)
 
     def settle_monthly_share(self, year: int, month: int) -> MonthlyShare | None:
         """Marks a monthly share as settled.
@@ -119,7 +119,7 @@ class ExpenseManager:
         balances net to zero. With two members this yields a single transfer; with N
         members it yields up to N-1 balancing expenses.
         """
-        monthly_share = self.repository.get_monthly_share(year, month)
+        monthly_share = self.repository.get_monthly_share(year, month, self.group_id)
         if not monthly_share:
             return None
 
@@ -127,22 +127,22 @@ class ExpenseManager:
             self._generate_balancing_expenses(monthly_share, year, month)
 
         monthly_share.settle()
-        self.repository.settle_monthly_share(monthly_share.year, monthly_share.month)
+        self.repository.settle_monthly_share(monthly_share.year, monthly_share.month, self.group_id)
 
         return monthly_share
 
     def unsettle_monthly_share(self, year: int, month: int) -> MonthlyShare | None:
         """Reverse a settlement: remove auto-generated balancing expenses and reopen the month."""
-        monthly_share = self.repository.get_monthly_share(year, month)
+        monthly_share = self.repository.get_monthly_share(year, month, self.group_id)
         if not monthly_share:
             return None
 
-        self.repository.unsettle_monthly_share(year, month)
-        monthly_share = self.repository.get_monthly_share(year, month)
+        self.repository.unsettle_monthly_share(year, month, self.group_id)
+        monthly_share = self.repository.get_monthly_share(year, month, self.group_id)
         if monthly_share:
             self.recalculate_monthly_share(monthly_share)
 
-        return self.repository.get_monthly_share(year, month)
+        return self.repository.get_monthly_share(year, month, self.group_id)
 
     def _generate_balancing_expenses(self, monthly_share: MonthlyShare, year: int, month: int) -> None:
         """Greedy debt reduction: emit one Expense per (debtor -> creditor) pair."""
@@ -191,7 +191,7 @@ class ExpenseManager:
         self.members[member.id] = member
 
         # Recalculate balances for all active monthly shares
-        monthly_shares = self.repository.get_all_monthly_shares()
+        monthly_shares = self.repository.get_all_monthly_shares(self.group_id)
         for monthly_share in monthly_shares.values():
             if not monthly_share.is_settled:
                 self.recalculate_monthly_share(monthly_share)
@@ -227,7 +227,7 @@ class ExpenseManager:
             # Get or create the new monthly share and assign the expense to it
             new_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
             if not new_share:
-                new_share = MonthlyShare(new_share_date.year, new_share_date.month)
+                new_share = MonthlyShare(new_share_date.year, new_share_date.month, self.group_id)
                 self.repository.save_monthly_share(new_share)
                 new_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
                 if not new_share:
@@ -237,7 +237,7 @@ class ExpenseManager:
             if updated_expense.id is None:
                 raise ValueError("Cannot reassign an expense without an ID")
             self.repository.reassign_expense_to_monthly_share(
-                updated_expense.id, new_share_date.year, new_share_date.month
+                updated_expense.id, new_share_date.year, new_share_date.month, self.group_id
             )
 
             # Add to in-memory list and recalculate
@@ -440,7 +440,7 @@ class ExpenseManager:
 
     def _get_monthly_share_for_date(self, expense_date: date) -> Optional[MonthlyShare]:
         """Get monthly share for a given date."""
-        return self.repository.get_monthly_share(expense_date.year, expense_date.month)
+        return self.repository.get_monthly_share(expense_date.year, expense_date.month, self.group_id)
 
     def recalculate_monthly_share(self, monthly_share: MonthlyShare) -> MonthlyShare:
         """Recalculate a monthly share - resolve balances."""
