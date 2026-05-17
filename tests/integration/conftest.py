@@ -1,5 +1,8 @@
 """Integration test fixtures — requires a live PostgreSQL instance."""
 
+import os
+import sys
+
 import pytest
 from sqlalchemy import text
 from starlette.testclient import TestClient
@@ -8,6 +11,28 @@ from template.adapters.database import SessionLocal
 from template.asgi import get_application
 from template.dependencies import get_whatsapp_client
 from tests.fakes.fake_whatsapp_client import FakeWhatsAppClient
+
+_BLOCKED_HOSTS = ("neon.tech", "render.com", "supabase.com", "supabase.io", "amazonaws.com")
+
+_test_db_url = os.environ.get("TEST_DATABASE_URL", "")
+if not _test_db_url:
+    print(
+        "\n[integration] TEST_DATABASE_URL is not set. "
+        "Point it at a local throwaway database, e.g.:\n"
+        "  TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_expense_manager\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+for _host in _BLOCKED_HOSTS:
+    if _host in _test_db_url:
+        print(
+            f"\n[integration] TEST_DATABASE_URL points at a cloud host ({_host}).\n"
+            "Integration tests wipe all tables — never run them against staging or production.\n"
+            "Use a local or dedicated throwaway database.\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 @pytest.fixture(scope="session", autouse=True)
