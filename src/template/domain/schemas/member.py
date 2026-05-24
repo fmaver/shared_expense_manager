@@ -11,7 +11,7 @@ from template.domain.schema_model import CamelCaseModel
 
 class MemberBase(CamelCaseModel):
     name: str
-    telephone: str
+    telephone: Optional[str] = None
     email: EmailStr
     notification_preference: NotificationType = NotificationType.NONE
 
