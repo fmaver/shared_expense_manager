@@ -205,6 +205,25 @@ def member_select_message(number: str, options: List[str], body: str, footer: st
     return list_reply_message(number, options, body, footer, sedd)
 
 
+def group_selector_message(number: str, groups: List[Any]) -> str:
+    """Build an interactive list for group selection (grp_<id> row IDs)."""
+    rows = [{"id": f"grp_{g.id}", "title": g.name, "description": ""} for g in groups]
+    return json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": "¿A qué grupo querés cambiar?"},
+                "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
+                "action": {"button": "Ver Grupos", "sections": [{"title": "Mis Grupos", "rows": rows}]},
+            },
+        }
+    )
+
+
 def category_select_message(number: str) -> str:
     """Build a list_reply with cat_<name> IDs for category selection."""
     categories = Category.get_numbered_categories_with_emoji()
@@ -310,12 +329,14 @@ def update_member_last_chat(number: str, member_service: MemberService) -> None:
 
 
 def handle_cancel(
-    number: str, estado_actual_usuario: Dict[str, Any], member_service: MemberService
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    member_service: MemberService,
+    groups: Optional[List[Any]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Abort any in-progress flow and return user to the main menu."""
     estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
-    responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service)
-    # Prepend a cancellation notice as a plain text message
+    responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service, groups)
     cancel_notice = text_message(number, "❌ Operación cancelada.")
     return [cancel_notice] + responses, estado_actual_usuario
 
@@ -333,8 +354,10 @@ def administrar_chatbot(
     member_service: MemberService,
     wpp_client: "WhatsAppClient",
     interactive_id: Optional[str] = None,
+    groups: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:  # noqa: C901
     """logica del bot"""
+    groups = groups or []
     user_responses = []
     print("mensaje del usuario: ", text)
     print("estado actual del usuario: ", estado_actual_usuario["estado"])
@@ -345,13 +368,17 @@ def administrar_chatbot(
 
     if "cancelar" in text.lower():
         update_member_last_chat(number, member_service)
-        responses, estado_actual_usuario = handle_cancel(number, estado_actual_usuario, member_service)
+        responses, estado_actual_usuario = handle_cancel(number, estado_actual_usuario, member_service, groups)
+        user_responses.extend(responses)
+
+    elif "cambiar grupo" in text.lower():
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_cambiar_grupo(number, estado_actual_usuario, groups)
         user_responses.extend(responses)
 
     elif "hola" in text.lower() or "inicio" in text.lower() or "entendido" in text.lower():
-        # Update last WhatsApp chat datetime at the start of any interaction
         update_member_last_chat(number, member_service)
-        responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service)
+        responses, estado_actual_usuario = handle_greetings(number, estado_actual_usuario, member_service, groups)
         user_responses.extend(responses)
 
     elif "no gracias" in text.lower():
@@ -566,8 +593,11 @@ def clean_estado_usuario(estado_actual_usuario: Dict[str, Any]) -> Dict[str, Any
     return estado_actual_usuario
 
 
-def handle_greetings(
-    number: str, estado_actual_usuario: Dict[str, Any], member_service: MemberService
+def handle_greetings(  # pylint: disable=too-many-locals
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    member_service: MemberService,
+    groups: Optional[List[Any]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle greetings"""
     user_responses = []
@@ -582,22 +612,54 @@ def handle_greetings(
         user_responses.append(response)
         return user_responses, estado_actual_usuario
 
+    # Resolve active group name for the greeting line
+    groups = groups or []
+    active_group_id = estado_actual_usuario.get("group_id")
+    active_group_name: Optional[str] = None
+    if active_group_id:
+        active_group_name = next((g.name for g in groups if g.id == int(active_group_id)), None)
+    if active_group_name is None and len(groups) == 1:
+        active_group_name = groups[0].name
+
+    group_line = f"\n📋 Grupo activo: *{active_group_name}*" if active_group_name else ""
     body = (
-        f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨\n"
+        f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨{group_line}\n"
         "¿Cómo podemos ayudarte hoy?\n\n"
         "💡 Podés escribir _cancelar_ en cualquier momento para volver al inicio."
     )
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
+    if len(groups) > 1:
+        options.append("🔄 Cambiar Grupo")
 
-    reply_button_data = button_reply_message(number, options, body, footer, "sed1")
+    # member_select_message auto-picks button (≤3) or list (>3)
+    user_responses.append(member_select_message(number, options, body, footer, "sed1"))
 
-    user_responses.append(reply_button_data)
+    # Detect groups the user joined since their last greeting
+    known_ids: set = set(estado_actual_usuario.get("known_group_ids", []))
+    current_ids = {g.id for g in groups}
+    new_groups = [g for g in groups if g.id not in known_ids and known_ids]
+    if new_groups:
+        new_names = ", ".join(f"*{g.name}*" for g in new_groups)
+        user_responses.append(
+            text_message(number, f"💡 Te uniste a un nuevo grupo: {new_names}. Decí _cambiar grupo_ para cambiarte.")
+        )
 
-    # Siempre que volvemos al estado inicial, reseteamos el estado del usuario
     estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
+    estado_actual_usuario["known_group_ids"] = list(current_ids)
 
     return user_responses, estado_actual_usuario
+
+
+def handle_cambiar_grupo(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    groups: List[Any],
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Clear the active group and prompt the user to pick a new one."""
+    estado_actual_usuario.pop("group_id", None)
+    estado_actual_usuario["estado"] = "esperando_seleccion_grupo"
+    return [group_selector_message(number, groups)], estado_actual_usuario
 
 
 def handle_document_request(  # pylint: disable=too-many-locals

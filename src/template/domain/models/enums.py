@@ -17,3 +17,16 @@ class NotificationType(str, Enum):
     WHATSAPP = "WHATSAPP"
     EMAIL = "EMAIL"
     NONE = "NONE"
+
+
+class InvitationChannel(str, Enum):
+    EMAIL = "email"
+    PHONE = "phone"
+    LINK = "link"
+
+
+class InvitationStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"

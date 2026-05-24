@@ -1,5 +1,6 @@
 """Notification service for sending notifications to members."""
 
+import asyncio
 import os
 import re
 from datetime import datetime, timezone
@@ -73,6 +74,17 @@ class NotificationService:
 
             else:
                 print("No notification sent (preference is NONE)")
+
+    def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
+        """Send a group invitation email synchronously via SendGrid."""
+        subject = f"Invitación al grupo '{group_name}'"
+        body = (
+            f"Hola!\n\n"
+            f"{inviter_name} te invitó al grupo '{group_name}'.\n\n"
+            f"Aceptá la invitación haciendo clic en el siguiente enlace:\n{claim_url}\n\n"
+            f"El enlace vence en 7 días."
+        )
+        asyncio.run(self._send_email(to_email, subject, body))
 
     async def _send_email(self, to_email: str, subject: str, message: str) -> None:
         """Send an email notification via SendGrid HTTP API."""

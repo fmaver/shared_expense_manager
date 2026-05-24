@@ -8,13 +8,20 @@ from sqlalchemy.orm import Session
 from template.adapters.orm import (
     ChatSessionModel,
     ExpenseModel,
+    GroupJoinLinkModel,
     GroupMembershipModel,
     GroupModel,
+    InvitationModel,
     MemberModel,
     MonthlyShareModel,
     ProcessedMessageModel,
 )
 from template.domain.models.category import Category
+from template.domain.models.enums import (
+    InvitationChannel,
+    InvitationStatus,
+    NotificationType,
+)
 from template.domain.models.group import Group, GroupStatus, GroupType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
@@ -46,67 +53,79 @@ class MemberRepository:
     def get(self, member_id: int) -> Optional[Member]:
         """Get a member by ID."""
         db_member = self.session.query(MemberModel).filter(MemberModel.id == member_id).first()
-        if db_member:
-            return Member(
-                id=db_member.id,
-                name=db_member.name,
-                telephone=db_member.telephone,
-                email=db_member.email,
-                notification_preference=db_member.notification_preference,
-                last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
-            )
-        return None
+        return self._to_domain(db_member) if db_member else None
 
     def get_member_by_email(self, email: str) -> Optional[Member]:
         """Get a member by their email address."""
         db_member = self.session.query(MemberModel).filter(MemberModel.email == email).first()
-        if db_member:
-            return Member(
-                id=db_member.id,
-                name=db_member.name,
-                telephone=db_member.telephone,
-                email=db_member.email,
-                hashed_password=db_member.hashed_password,
-                notification_preference=db_member.notification_preference,
-                last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
-            )
-        return None
+        return self._to_domain(db_member) if db_member else None
 
     def get_member_by_phone(self, phone: str) -> Optional[Member]:
         """Get a member by their phone number."""
         db_member = self.session.query(MemberModel).filter(MemberModel.telephone == phone).first()
         if db_member:
-            return Member(
-                id=db_member.id,
-                name=db_member.name,
-                telephone=db_member.telephone,
-                email=db_member.email,
-                notification_preference=db_member.notification_preference,
-                last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
-            )
+            return self._to_domain(db_member)
         return None
+
+    def create_stub(self, name: str, email: Optional[str] = None, telephone: Optional[str] = None) -> Member:
+        """Create a stub member with no password. At least one of email or telephone must be provided."""
+        db_member = MemberModel(
+            name=name,
+            email=email,
+            telephone=telephone,
+            hashed_password=None,
+            notification_preference=NotificationType.NONE,
+        )
+        self.session.add(db_member)
+        self.session.commit()
+        self.session.refresh(db_member)
+        return self._to_domain(db_member)
+
+    def claim_stub(self, member_id: int, email: str, password_hash: str) -> Member:
+        """Set email and password on a stub member, making them a full account."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.id == member_id).first()
+        if not db_member:
+            raise ValueError(f"Member {member_id} not found")
+        if db_member.hashed_password:
+            raise ValueError("Member already has a password")
+        db_member.email = email
+        db_member.hashed_password = password_hash
+        self.session.commit()
+        self.session.refresh(db_member)
+        return self._to_domain(db_member)
+
+    def mark_phone_verified(self, member_id: int) -> Member:
+        """Set phone_verified_at to now for the given member."""
+        db_member = self.session.query(MemberModel).filter(MemberModel.id == member_id).first()
+        if not db_member:
+            raise ValueError(f"Member {member_id} not found")
+        db_member.phone_verified_at = datetime.now(timezone.utc)
+        self.session.commit()
+        self.session.refresh(db_member)
+        return self._to_domain(db_member)
+
+    def _to_domain(self, db_member: MemberModel) -> Member:
+        """Convert ORM model to domain Member."""
+        return Member(
+            id=db_member.id,
+            name=db_member.name,
+            telephone=db_member.telephone,
+            email=db_member.email,
+            hashed_password=db_member.hashed_password,
+            phone_verified_at=db_member.phone_verified_at,
+            notification_preference=db_member.notification_preference,
+            last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
+        )
 
     def update_last_wpp_chat(self, phone: str) -> Optional[Member]:
         """Update the last WhatsApp chat datetime for a member."""
         db_member = self.session.query(MemberModel).filter(MemberModel.telephone == phone).first()
         if not db_member:
             return None
-
-        # Use timezone-aware UTC datetime
         db_member.last_wpp_chat_datetime = datetime.now(timezone.utc)
         self.session.commit()
-
-        # print updated datetime
         print("Updated last_wpp_chat_datetime for member:", db_member.last_wpp_chat_datetime)
-
-        return Member(
-            id=db_member.id,
-            name=db_member.name,
-            telephone=db_member.telephone,
-            email=db_member.email,
-            notification_preference=db_member.notification_preference,
-            last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
-        )
+        return self._to_domain(db_member)
 
     def get_last_wpp_chat_time(self, member: Member) -> Optional[datetime]:
         """Get the last WhatsApp chat datetime for a member."""
@@ -117,17 +136,7 @@ class MemberRepository:
 
     def list(self) -> List[Member]:
         """List all members."""
-        return [
-            Member(
-                id=m.id,
-                name=m.name,
-                telephone=m.telephone,
-                email=m.email,
-                notification_preference=m.notification_preference,
-                last_wpp_chat_datetime=m.last_wpp_chat_datetime,
-            )
-            for m in self.session.query(MemberModel).all()
-        ]
+        return [self._to_domain(m) for m in self.session.query(MemberModel).all()]
 
     def _should_update_chat_datetime(
         self, new_datetime: Optional[datetime], current_datetime: Optional[datetime]
@@ -174,14 +183,7 @@ class MemberRepository:
                 db_member.last_wpp_chat_datetime = update_data.last_wpp_chat_datetime
 
         self.session.commit()
-        return Member(
-            id=db_member.id,
-            name=db_member.name,
-            telephone=db_member.telephone,
-            email=db_member.email,
-            notification_preference=db_member.notification_preference,
-            last_wpp_chat_datetime=db_member.last_wpp_chat_datetime,
-        )
+        return self._to_domain(db_member)
 
 
 class SQLAlchemyExpenseRepository(ExpenseRepository):
@@ -646,6 +648,8 @@ class GroupRepository:
                 name=m.name,
                 telephone=m.telephone,
                 email=m.email,
+                hashed_password=m.hashed_password,
+                phone_verified_at=m.phone_verified_at,
                 notification_preference=m.notification_preference,
                 last_wpp_chat_datetime=m.last_wpp_chat_datetime,
             )
@@ -675,3 +679,117 @@ class GroupRepository:
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
+
+
+class InvitationRepository:
+    """Manages group invitations."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        group_id: int,
+        inviter_id: int,
+        channel: InvitationChannel,
+        token: str,
+        expires_at: datetime,
+        invitee_member_id: Optional[int] = None,
+        target: Optional[str] = None,
+    ) -> InvitationModel:
+        """Insert a new invitation row and return it."""
+        row = InvitationModel(
+            group_id=group_id,
+            inviter_id=inviter_id,
+            invitee_member_id=invitee_member_id,
+            channel=channel,
+            target=target,
+            token=token,
+            status=InvitationStatus.PENDING,
+            created_at=datetime.utcnow(),
+            expires_at=expires_at,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def get_by_token(self, token: str) -> Optional[InvitationModel]:
+        """Return the invitation with this token, or None."""
+        return self.session.query(InvitationModel).filter(InvitationModel.token == token).first()
+
+    def list_for_group(self, group_id: int, status: Optional[InvitationStatus] = None) -> List[InvitationModel]:
+        """Return invitations for a group, optionally filtered by status."""
+        q = self.session.query(InvitationModel).filter(InvitationModel.group_id == group_id)
+        if status:
+            q = q.filter(InvitationModel.status == status)
+        return q.order_by(InvitationModel.created_at.desc()).all()
+
+    def mark_accepted(self, invitation_id: int, accepted_by_member_id: int) -> InvitationModel:
+        """Flip status to accepted."""
+        row = self.session.query(InvitationModel).filter(InvitationModel.id == invitation_id).first()
+        if not row:
+            raise ValueError(f"Invitation {invitation_id} not found")
+        row.status = InvitationStatus.ACCEPTED
+        row.accepted_at = datetime.utcnow()
+        row.accepted_by_member_id = accepted_by_member_id
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def revoke(self, invitation_id: int) -> InvitationModel:
+        """Flip status to revoked."""
+        row = self.session.query(InvitationModel).filter(InvitationModel.id == invitation_id).first()
+        if not row:
+            raise ValueError(f"Invitation {invitation_id} not found")
+        row.status = InvitationStatus.REVOKED
+        self.session.commit()
+        return row
+
+    def latest_pending_for_member(self, member_id: int) -> Optional[InvitationModel]:
+        """Return the most recent pending invitation for a stub member."""
+        return (
+            self.session.query(InvitationModel)
+            .filter(
+                InvitationModel.invitee_member_id == member_id,
+                InvitationModel.status == InvitationStatus.PENDING,
+            )
+            .order_by(InvitationModel.created_at.desc())
+            .first()
+        )
+
+
+class GroupJoinLinkRepository:
+    """Manages reusable group join links."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_or_create(self, group_id: int, created_by_member_id: int, token: str) -> GroupJoinLinkModel:
+        """Return existing link for the group, or create one with the provided token."""
+        existing = self.session.query(GroupJoinLinkModel).filter(GroupJoinLinkModel.group_id == group_id).first()
+        if existing:
+            return existing
+        row = GroupJoinLinkModel(
+            group_id=group_id,
+            token=token,
+            created_at=datetime.utcnow(),
+            created_by_member_id=created_by_member_id,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def rotate(self, group_id: int, new_token: str) -> GroupJoinLinkModel:
+        """Replace the token for an existing join link."""
+        row = self.session.query(GroupJoinLinkModel).filter(GroupJoinLinkModel.group_id == group_id).first()
+        if not row:
+            raise ValueError(f"No join link for group {group_id}")
+        row.token = new_token
+        self.session.commit()
+        return row
+
+    def get_by_token(self, token: str) -> Optional[GroupJoinLinkModel]:
+        """Return the join link with this token, or None."""
+        return self.session.query(GroupJoinLinkModel).filter(GroupJoinLinkModel.token == token).first()
