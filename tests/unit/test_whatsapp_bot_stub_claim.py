@@ -44,6 +44,8 @@ class TestFirstContact:
     def test_sends_confirmation_prompt_with_group_and_inviter(self):
         wpp_client = _make_wpp_client()
         invitation = _make_invitation(token="tok123", inviter_name="Alice", group_name="Casa")
+        member_repo = MagicMock()
+        member_repo.get.return_value.name = "Juan"
 
         with (
             patch("template.entrypoint.whatsapp_bot.InvitationRepository") as MockInvRepo,
@@ -59,19 +61,22 @@ class TestFirstContact:
                 member_id=99,
                 estado=_initial_estado(),
                 db=MagicMock(),
-                member_repo=MagicMock(),
+                member_repo=member_repo,
                 wpp_client=wpp_client,
             )
 
         assert nuevo_estado["estado"] == "onboarding_claim_confirm"
-        # The body of the sent text message should mention the group and inviter
+        # The body of the sent text message should mention the group, inviter, and invitee's own name
         call_args = [str(c) for c in wpp_client.send_message.call_args_list]
         combined = " ".join(call_args)
         assert "Alice" in combined
         assert "Casa" in combined
+        assert "Juan" in combined
 
     def test_sets_state_to_confirm(self):
         wpp_client = _make_wpp_client()
+        member_repo = MagicMock()
+        member_repo.get.return_value.name = "Juan"
         with (
             patch("template.entrypoint.whatsapp_bot.InvitationRepository") as MockInvRepo,
             patch("template.entrypoint.whatsapp_bot.GroupRepository") as MockGroupRepo,
@@ -86,7 +91,7 @@ class TestFirstContact:
                 member_id=99,
                 estado=_initial_estado(),
                 db=MagicMock(),
-                member_repo=MagicMock(),
+                member_repo=member_repo,
                 wpp_client=wpp_client,
             )
 
@@ -94,6 +99,8 @@ class TestFirstContact:
 
     def test_no_invitation_uses_generic_inviter_name(self):
         wpp_client = _make_wpp_client()
+        member_repo = MagicMock()
+        member_repo.get.return_value.name = "Juan"
         with (
             patch("template.entrypoint.whatsapp_bot.InvitationRepository") as MockInvRepo,
             patch("template.entrypoint.whatsapp_bot.GroupRepository") as MockGroupRepo,
@@ -108,7 +115,7 @@ class TestFirstContact:
                 member_id=99,
                 estado=_initial_estado(),
                 db=MagicMock(),
-                member_repo=MagicMock(),
+                member_repo=member_repo,
                 wpp_client=wpp_client,
             )
 

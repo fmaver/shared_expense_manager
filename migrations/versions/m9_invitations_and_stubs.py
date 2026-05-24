@@ -21,7 +21,8 @@ def upgrade() -> None:
     # Collapse duplicate telephone values before adding the unique index.
     # Keep the row with the most recent last_wpp_chat_datetime (then lowest id); null out duplicates.
     conn.execute(
-        sa.text("""
+        sa.text(
+            """
             UPDATE members
             SET telephone = NULL
             WHERE id IN (
@@ -36,7 +37,8 @@ def upgrade() -> None:
                 ) ranked
                 WHERE rn > 1
             )
-        """)
+        """
+        )
     )
 
     # Allow NULL on email and telephone (stub members may lack one or both).
@@ -48,7 +50,9 @@ def upgrade() -> None:
 
     # Backfill: members who have chatted have already proven phone ownership.
     conn.execute(
-        sa.text("UPDATE members SET phone_verified_at = last_wpp_chat_datetime WHERE last_wpp_chat_datetime IS NOT NULL")
+        sa.text(
+            "UPDATE members SET phone_verified_at = last_wpp_chat_datetime WHERE last_wpp_chat_datetime IS NOT NULL"
+        )
     )
 
     # Partial unique index: no two members may share the same telephone (when not NULL).

@@ -37,6 +37,7 @@ def _initial_estado(group_id=None):
 # handle_greetings — single group
 # ---------------------------------------------------------------------------
 
+
 class TestGreetingsSingleGroup:
     def test_uses_button_reply_for_single_group(self):
         groups = [_make_group(1, "Casa")]
@@ -67,6 +68,7 @@ class TestGreetingsSingleGroup:
 # ---------------------------------------------------------------------------
 # handle_greetings — multiple groups
 # ---------------------------------------------------------------------------
+
 
 class TestGreetingsMultipleGroups:
     def test_uses_list_reply_for_multiple_groups(self):
@@ -104,6 +106,7 @@ class TestGreetingsMultipleGroups:
 # handle_greetings — new group detection
 # ---------------------------------------------------------------------------
 
+
 class TestNewGroupDetection:
     def test_notifies_when_user_joined_new_group(self):
         groups = [_make_group(1, "Casa"), _make_group(2, "Amigos")]
@@ -139,6 +142,7 @@ class TestNewGroupDetection:
 # ---------------------------------------------------------------------------
 # handle_cambiar_grupo
 # ---------------------------------------------------------------------------
+
 
 class TestHandleCambiarGrupo:
     def test_clears_group_id_from_state(self):

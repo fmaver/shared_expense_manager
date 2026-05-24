@@ -139,9 +139,11 @@ def _handle_stub_claim(  # pylint: disable=too-many-locals
     groups = GroupRepository(db).list_for_member(member_id)
     group_names = ", ".join(g.name for g in groups) if groups else "un grupo"
     inviter_name = invitation.inviter.name if invitation and invitation.inviter else "alguien"
+    stub = member_repo.get(member_id)
+    invitee_name = f", {stub.name}" if stub and stub.name else ""
 
     body = (
-        f"👋 ¡Hola! {inviter_name} te invitó al grupo *{group_names}*.\n\n"
+        f"👋 ¡Hola{invitee_name}! {inviter_name} te invitó al grupo *{group_names}*.\n\n"
         "¿Sos vos? Respondé *SI* para confirmar tu identidad o *NO* si fue un error."
     )
     wpp_client.send_message(text_message(number, body))
