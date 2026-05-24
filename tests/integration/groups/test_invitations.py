@@ -2,10 +2,10 @@
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _register(client, name, email, telephone, password="secret123"):
     r = client.post(
@@ -31,6 +31,7 @@ def _create_group(client, headers, name="Test Group"):
 # ---------------------------------------------------------------------------
 # Email-channel invitation
 # ---------------------------------------------------------------------------
+
 
 class TestEmailInvitation:
     def test_invite_unknown_email_creates_stub_and_pending_invitation(self, client, auth_headers, primary_group_id):
@@ -160,6 +161,7 @@ class TestEmailInvitation:
 # Phone-channel invitation
 # ---------------------------------------------------------------------------
 
+
 class TestPhoneInvitation:
     def test_invite_by_phone_creates_stub_with_null_email(self, client, auth_headers, primary_group_id):
         r = client.post(
@@ -214,6 +216,7 @@ class TestPhoneInvitation:
 # ---------------------------------------------------------------------------
 # Shareable join link
 # ---------------------------------------------------------------------------
+
 
 class TestJoinLink:
     def test_get_join_link_returns_url(self, client, auth_headers, primary_group_id):
@@ -280,6 +283,7 @@ class TestJoinLink:
 # Stub appears in expense splits
 # ---------------------------------------------------------------------------
 
+
 class TestStubInExpenses:
     def test_stub_member_has_share_in_equal_expense(self, client, auth_headers, primary_group_id):
         """Stub appears in the monthly balance even before accepting the invitation."""
@@ -313,6 +317,6 @@ class TestStubInExpenses:
             headers=auth_headers,
         )
 
-        r = client.get(f"/api/v1/shares/2025/6", headers=auth_headers)
+        r = client.get("/api/v1/shares/2025/6", headers=auth_headers)
         balances = r.json()["data"]["balances"]
         assert str(zara_id) in balances

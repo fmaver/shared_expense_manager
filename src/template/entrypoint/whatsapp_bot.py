@@ -149,7 +149,43 @@ def _handle_stub_claim(  # pylint: disable=too-many-locals
     return estado
 
 
-def _process_message(
+def _handle_group_invite_response(
+    text: str,
+    number: str,
+    message_id: str,
+    member: Any,
+    estado: Dict[str, Any],
+    invitation_repo: InvitationRepository,
+    wpp_client: WhatsAppClient,
+    db: Any,
+) -> None:
+    """Handle the SI/NO response when an existing member was asked to join a new group."""
+    wpp_client.send_message(mark_read_message(message_id))
+    lowered = text.strip().lower()
+    pending_token = estado.get("pending_invitation_token")
+
+    if lowered in ("si", "sí", "yes", "s"):
+        inv = invitation_repo.get_by_token(pending_token) if pending_token else None
+        if inv and inv.status.value == "pending":
+            GroupRepository(db).add_member(inv.group_id, member.id)
+            invitation_repo.mark_accepted(inv.id, member.id)
+            wpp_client.send_message(text_message(number, "✅ ¡Te uniste al grupo! Decí _hola_ para ver el menú."))
+        else:
+            wpp_client.send_message(text_message(number, "La invitación ya no está disponible."))
+    elif lowered in ("no", "n"):
+        inv = invitation_repo.get_by_token(pending_token) if pending_token else None
+        if inv:
+            invitation_repo.revoke(inv.id)
+        wpp_client.send_message(text_message(number, "Entendido. No te unirás al grupo."))
+    else:
+        wpp_client.send_message(text_message(number, "Por favor respondé *SI* para unirte o *NO* para rechazar."))
+        return  # stay in the same state
+
+    estado["estado"] = "inicial"
+    estado.pop("pending_invitation_token", None)
+
+
+def _process_message(  # pylint: disable=too-many-locals,too-many-return-statements
     text: str,
     number: str,
     message_id: str,
@@ -177,6 +213,34 @@ def _process_message(
             # Stub member — invitation claim flow only, not the full chatbot
             nuevo_estado = _handle_stub_claim(text, number, message_id, member.id, estado, db, member_repo, wpp_client)
             session_repo.save(number, nuevo_estado)
+            return
+
+        invitation_repo = InvitationRepository(db)
+
+        # If waiting for a join-group response, handle it before anything else
+        if estado.get("estado") == "esperando_respuesta_invitacion":
+            _handle_group_invite_response(text, number, message_id, member, estado, invitation_repo, wpp_client, db)
+            session_repo.save(number, estado)
+            return
+
+        # Prompt the user about any pending invitations to new groups
+        pending_inv = invitation_repo.latest_pending_for_member(member.id)
+        if pending_inv:
+            group = GroupRepository(db).get(pending_inv.group_id)
+            inviter = member_repo.get(pending_inv.inviter_id) if pending_inv.inviter_id else None
+            group_name = group.name if group else "un grupo"
+            inviter_name = inviter.name if inviter else "alguien"
+            wpp_client.send_message(mark_read_message(message_id))
+            wpp_client.send_message(
+                text_message(
+                    number,
+                    f"👥 *{inviter_name}* te invitó al grupo *{group_name}*.\n\n"
+                    "¿Querés unirte? Respondé *SI* para aceptar o *NO* para rechazar.",
+                )
+            )
+            estado["estado"] = "esperando_respuesta_invitacion"
+            estado["pending_invitation_token"] = pending_inv.token
+            session_repo.save(number, estado)
             return
 
         groups = GroupRepository(db).list_for_member(member.id)

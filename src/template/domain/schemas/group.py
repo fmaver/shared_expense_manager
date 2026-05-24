@@ -64,13 +64,14 @@ class InvitationResolveResponse(CamelCaseModel):
     known_phone: Optional[str] = None
     requires_email: bool
     requires_password: bool
+    is_existing_member: bool = False
     status: InvitationStatus
 
 
 class InvitationAcceptRequest(CamelCaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
-    password: str
+    password: Optional[str] = None
 
 
 class GroupJoinRequest(CamelCaseModel):

@@ -5,9 +5,10 @@ from typing import List, Protocol, runtime_checkable
 
 @runtime_checkable
 class WhatsAppInviteClient(Protocol):
+    """Protocol for sending group invitation notifications via WhatsApp."""
+
     def send_invitation(self, to_phone: str, inviter_name: str, group_name: str, claim_url: str) -> None:
         """Send a group invitation message to the given phone number."""
-        ...
 
 
 class MockWhatsAppInviteClient:
@@ -21,6 +22,7 @@ class MockWhatsAppInviteClient:
         self.messages: List[dict] = []
 
     def send_invitation(self, to_phone: str, inviter_name: str, group_name: str, claim_url: str) -> None:
+        """Record the message and log it; no real WhatsApp delivery."""
         entry = {"to": to_phone, "inviter": inviter_name, "group": group_name, "url": claim_url}
         self.messages.append(entry)
         print(
@@ -33,7 +35,8 @@ class MetaWhatsAppInviteClient:
     """Placeholder for future Meta group_invitation template. Not yet approved."""
 
     def send_invitation(self, to_phone: str, inviter_name: str, group_name: str, claim_url: str) -> None:
-        # TODO: replace with real Meta API call once the group_invitation template (es_AR) is approved.
+        """Raises until the Meta group_invitation template is approved."""
+        # Replace with a real Meta API call once the template is approved.
         raise NotImplementedError(
             "MetaWhatsAppInviteClient: group_invitation template not yet approved by Meta. "
             "Use MockWhatsAppInviteClient until the template is live."

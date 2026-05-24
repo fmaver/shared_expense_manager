@@ -6,17 +6,21 @@ from typing import Optional
 
 from passlib.context import CryptContext
 
-from template.adapters.repositories import GroupJoinLinkRepository, GroupRepository, InvitationRepository, MemberRepository
+from template.adapters.repositories import (
+    GroupJoinLinkRepository,
+    GroupRepository,
+    InvitationRepository,
+    MemberRepository,
+)
 from template.domain.models.enums import InvitationChannel, InvitationStatus
 from template.domain.models.member import Member
 from template.domain.schemas.group import (
     GroupJoinLinkResponse,
     GroupJoinResolveResponse,
-    InvitationAcceptRequest,
     InvitationResolveResponse,
     InvitationResponse,
 )
-from template.service_layer.whatsapp_invite_client import MockWhatsAppInviteClient, WhatsAppInviteClient
+from template.service_layer.whatsapp_invite_client import WhatsAppInviteClient
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -31,7 +35,7 @@ def _normalise_phone(phone: str) -> str:
 
 
 class InvitationService:
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         member_repo: MemberRepository,
         group_repo: GroupRepository,
@@ -47,7 +51,7 @@ class InvitationService:
         self._wpp_invite = wpp_invite_client
         self._base_url = app_base_url.rstrip("/")
 
-    def create_invitation(
+    def create_invitation(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-branches
         self,
         group_id: int,
         inviter: Member,
@@ -72,9 +76,10 @@ class InvitationService:
                 if self._group_repo.is_member(group_id, existing.id):
                     raise ValueError(f"Member with email {contact} is already a member of this group")
                 invitee_member = existing
+                # Existing accounts are added to the group only when they explicitly accept
             else:
                 invitee_member = self._member_repo.create_stub(name=name, email=contact, telephone=None)
-            self._group_repo.add_member(group_id, invitee_member.id)
+                self._group_repo.add_member(group_id, invitee_member.id)  # stubs appear in splits immediately
 
         elif inv_channel == InvitationChannel.PHONE:
             normalised = _normalise_phone(contact)
@@ -83,9 +88,10 @@ class InvitationService:
                 if self._group_repo.is_member(group_id, existing.id):
                     raise ValueError(f"Member with phone {normalised} is already a member of this group")
                 invitee_member = existing
+                # Existing accounts are added to the group only when they explicitly accept
             else:
                 invitee_member = self._member_repo.create_stub(name=name, email=None, telephone=normalised)
-            self._group_repo.add_member(group_id, invitee_member.id)
+                self._group_repo.add_member(group_id, invitee_member.id)  # stubs appear in splits immediately
             contact = normalised
 
         token = secrets.token_urlsafe(32)
@@ -157,7 +163,7 @@ class InvitationService:
         """Return metadata about an invitation token (public, no auth required)."""
         row = self._invitation_repo.get_by_token(token)
         if not row:
-            raise ValueError(f"Invitation token not found")
+            raise ValueError("Invitation token not found")
 
         now = datetime.utcnow()
         if row.status == InvitationStatus.PENDING and row.expires_at < now:
@@ -168,8 +174,10 @@ class InvitationService:
         known_phone = invitee.telephone if invitee else None
         known_name = invitee.name if invitee else None
 
-        requires_email = row.channel == InvitationChannel.PHONE and not known_email
-        requires_password = True  # always need to set a password
+        # Existing members (have a password) accept via their current login — no new password needed.
+        is_existing_member = bool(invitee and getattr(invitee, "hashed_password", None))
+        requires_email = not is_existing_member and row.channel == InvitationChannel.PHONE and not known_email
+        requires_password = not is_existing_member
 
         return InvitationResolveResponse(
             group_name=row.group.name if row.group else "",
@@ -179,17 +187,22 @@ class InvitationService:
             known_phone=known_phone,
             requires_email=requires_email,
             requires_password=requires_password,
+            is_existing_member=is_existing_member,
             status=row.status,
         )
 
-    def accept_invitation(
+    def accept_invitation(  # pylint: disable=too-many-branches
         self,
         token: str,
-        password: str,
+        password: Optional[str] = None,
         email: Optional[str] = None,
         current_member: Optional[Member] = None,
     ) -> Member:
-        """Claim the stub account, set credentials, and mark the invitation accepted."""
+        """Accept a group invitation.
+
+        For existing members: call with current_member set (JWT-authenticated). No password needed.
+        For new users (stubs): call unauthenticated with a password (and email if phone-invited).
+        """
         row = self._invitation_repo.get_by_token(token)
         if not row:
             raise ValueError("Invitation token not found")
@@ -203,19 +216,21 @@ class InvitationService:
             raise ValueError("Invitation has no associated member")
 
         if current_member:
-            # Logged-in user accepting — just add to group (no stub claim)
+            # Existing logged-in user — add to group now (not done at invite time)
             if current_member.email and invitee.email and current_member.email != invitee.email:
                 raise ValueError("Logged-in account email does not match the invited email")
-            self._group_repo.add_member(row.group_id, current_member.id)
+            if not self._group_repo.is_member(row.group_id, current_member.id):
+                self._group_repo.add_member(row.group_id, current_member.id)
             self._invitation_repo.mark_accepted(row.id, current_member.id)
             return current_member
 
-        # Unauthenticated accept: claim the stub
+        # Unauthenticated accept: claim the stub account
+        if not password:
+            raise ValueError("Password is required to create your account")
         resolve_email = email or invitee.email
         if not resolve_email:
             raise ValueError("Email is required to claim this invitation")
 
-        # Check email not already taken by another member
         existing = self._member_repo.get_member_by_email(resolve_email)
         if existing and existing.id != invitee.id:
             raise ValueError(f"Email {resolve_email} is already registered")
@@ -233,15 +248,11 @@ class InvitationService:
 
         self._invitation_repo.revoke(row.id)
 
-        # Remove the stub from the group and delete if orphaned
         if row.invitee_member_id:
-            self._group_repo.remove_member(row.group_id, row.invitee_member_id)
-            other_groups = self._group_repo.list_for_member(row.invitee_member_id)
-            invitee = row.invitee if hasattr(row, "invitee") else None
-            if not other_groups and invitee and not invitee.hashed_password:
-                # Orphan stub — nothing else to do (leave the member row, avoid cascade issues).
-                # A future cleanup job can prune these.
-                pass
+            # Only remove from the group if the member is actually in it.
+            # Existing members are not added until they accept, so there may be nothing to remove.
+            if self._group_repo.is_member(row.group_id, row.invitee_member_id):
+                self._group_repo.remove_member(row.group_id, row.invitee_member_id)
 
 
 class GroupJoinLinkService:

@@ -2,10 +2,11 @@
 
 import os
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from jose import jwt
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
@@ -22,11 +23,37 @@ from template.domain.schemas.group import (
     InvitationAcceptRequest,
     InvitationResolveResponse,
 )
-from template.domain.schemas.member import MemberResponse, Token
-from template.service_layer.auth_service import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY, get_current_member
-from template.service_layer.invitation_service import GroupJoinLinkService, InvitationService
+from template.service_layer.auth_service import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALGORITHM,
+    SECRET_KEY,
+)
+from template.service_layer.invitation_service import (
+    GroupJoinLinkService,
+    InvitationService,
+)
 from template.service_layer.notification_service import NotificationService
 from template.service_layer.whatsapp_invite_client import MockWhatsAppInviteClient
+
+_oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
+
+
+def _get_optional_member(
+    db: Session = Depends(get_db),
+    token: Optional[str] = Depends(_oauth2_optional),
+) -> Optional[Any]:
+    """Return the authenticated member if a valid JWT is present, otherwise None."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: Optional[str] = payload.get("sub")
+        if not email:
+            return None
+        return MemberRepository(db).get_member_by_email(email)
+    except JWTError:
+        return None
+
 
 router = APIRouter(tags=["Invitations"])
 
@@ -78,14 +105,20 @@ async def resolve_invitation(
 async def accept_invitation(
     token: str,
     body: InvitationAcceptRequest,
+    current_member: Optional[Any] = Depends(_get_optional_member),
     svc: InvitationService = Depends(_invitation_svc),
 ) -> dict:
-    """Accept a group invitation. Unauthenticated — the caller sets their password here."""
+    """Accept a group invitation.
+
+    Existing members: send their JWT — no password needed, they join the group immediately.
+    New users (stubs): send password (and email if phone-invited) to create their account.
+    """
     try:
         claimed = svc.accept_invitation(
             token=token,
             password=body.password,
             email=body.email,
+            current_member=current_member,
         )
         access_token = _make_token(claimed.id, claimed.email)
         return {"data": {"accessToken": access_token, "tokenType": "bearer"}}
