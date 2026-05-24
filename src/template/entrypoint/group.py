@@ -3,7 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from template.adapters.repositories import MemberRepository
-from template.dependencies import get_group_service, get_member_repository
+from template.dependencies import (
+    get_group_service,
+    get_member_repository,
+    get_repository,
+)
+from template.domain.models.repository import ExpenseRepository
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.group import (
     GroupCreate,
@@ -113,9 +118,16 @@ async def leave_group(
     group_id: int,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
+    expense_repo: ExpenseRepository = Depends(get_repository),
 ) -> None:
-    """Leave a group. Blocked if the member has an outstanding balance."""
+    """Leave a group. Blocked if the member has an outstanding balance in any unsettled month."""
     try:
-        group_service.leave(group_id, current_member.id, 0.0)
+        shares = expense_repo.get_all_monthly_shares(group_id)
+        member_key = str(current_member.id)
+        outstanding = max(
+            (abs(share.balances.get(member_key, 0.0)) for share in shares.values() if not share.is_settled),
+            default=0.0,
+        )
+        group_service.leave(group_id, current_member.id, outstanding)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
