@@ -41,57 +41,92 @@ def upgrade() -> None:
         )
     )
 
-    # Allow NULL on email and telephone (stub members may lack one or both).
-    op.alter_column("members", "email", existing_type=sa.String(255), nullable=True)
-    op.alter_column("members", "telephone", existing_type=sa.String(20), nullable=True)
+    # Allow NULL on email and telephone — idempotent: only drop NOT NULL if the column is currently NOT NULL.
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'members' AND column_name = 'email' AND is_nullable = 'NO'
+                ) THEN
+                    ALTER TABLE members ALTER COLUMN email DROP NOT NULL;
+                END IF;
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'members' AND column_name = 'telephone' AND is_nullable = 'NO'
+                ) THEN
+                    ALTER TABLE members ALTER COLUMN telephone DROP NOT NULL;
+                END IF;
+            END $$;
+        """
+        )
+    )
 
-    # Track when a phone number was verified via WhatsApp roundtrip.
-    op.add_column("members", sa.Column("phone_verified_at", sa.DateTime(), nullable=True))
+    # Track when a phone number was verified via WhatsApp roundtrip — idempotent.
+    conn.execute(sa.text("ALTER TABLE members ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ NULL"))
 
     # Backfill: members who have chatted have already proven phone ownership.
     conn.execute(
         sa.text(
-            "UPDATE members SET phone_verified_at = last_wpp_chat_datetime WHERE last_wpp_chat_datetime IS NOT NULL"
+            "UPDATE members SET phone_verified_at = last_wpp_chat_datetime"
+            " WHERE last_wpp_chat_datetime IS NOT NULL AND phone_verified_at IS NULL"
         )
     )
 
-    # Partial unique index: no two members may share the same telephone (when not NULL).
-    op.create_index(
-        "uq_member_telephone",
-        "members",
-        ["telephone"],
-        unique=True,
-        postgresql_where=sa.text("telephone IS NOT NULL"),
+    # Partial unique index: no two members may share the same telephone (when not NULL) — idempotent.
+    conn.execute(
+        sa.text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_member_telephone
+            ON members (telephone) WHERE telephone IS NOT NULL
+        """
+        )
     )
 
-    # Group invitations table.
-    op.create_table(
-        "group_invitations",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("group_id", sa.Integer(), sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("inviter_id", sa.Integer(), sa.ForeignKey("members.id"), nullable=False),
-        sa.Column("invitee_member_id", sa.Integer(), sa.ForeignKey("members.id"), nullable=True),
-        sa.Column("channel", sa.String(10), nullable=False),
-        sa.Column("target", sa.String(255), nullable=True),
-        sa.Column("token", sa.String(64), nullable=False, unique=True),
-        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.Column("accepted_at", sa.DateTime(), nullable=True),
-        sa.Column("accepted_by_member_id", sa.Integer(), sa.ForeignKey("members.id"), nullable=True),
+    # Group invitations table — idempotent.
+    conn.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS group_invitations (
+                id SERIAL PRIMARY KEY,
+                group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                inviter_id INTEGER NOT NULL REFERENCES members(id),
+                invitee_member_id INTEGER REFERENCES members(id),
+                channel VARCHAR(10) NOT NULL,
+                target VARCHAR(255),
+                token VARCHAR(64) NOT NULL UNIQUE,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP NOT NULL DEFAULT now(),
+                expires_at TIMESTAMP NOT NULL,
+                accepted_at TIMESTAMP,
+                accepted_by_member_id INTEGER REFERENCES members(id)
+            )
+        """
+        )
     )
-    op.create_index("ix_group_invitations_token", "group_invitations", ["token"], unique=True)
-    op.create_index("ix_group_invitations_group_status", "group_invitations", ["group_id", "status"])
+    conn.execute(sa.text("CREATE UNIQUE INDEX IF NOT EXISTS ix_group_invitations_token ON group_invitations (token)"))
+    conn.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_group_invitations_group_status" " ON group_invitations (group_id, status)"
+        )
+    )
 
-    # Shareable group join links table (one per group; rotating changes the token).
-    op.create_table(
-        "group_join_links",
-        sa.Column("group_id", sa.Integer(), sa.ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True),
-        sa.Column("token", sa.String(64), nullable=False, unique=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.Column("created_by_member_id", sa.Integer(), sa.ForeignKey("members.id"), nullable=False),
+    # Shareable group join links table — idempotent.
+    conn.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS group_join_links (
+                group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+                token VARCHAR(64) NOT NULL UNIQUE,
+                created_at TIMESTAMP NOT NULL DEFAULT now(),
+                created_by_member_id INTEGER NOT NULL REFERENCES members(id)
+            )
+        """
+        )
     )
-    op.create_index("ix_group_join_links_token", "group_join_links", ["token"], unique=True)
+    conn.execute(sa.text("CREATE UNIQUE INDEX IF NOT EXISTS ix_group_join_links_token ON group_join_links (token)"))
 
 
 def downgrade() -> None:
