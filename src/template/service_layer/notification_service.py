@@ -75,17 +75,76 @@ class NotificationService:
                 print("No notification sent (preference is NONE)")
 
     def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
-        """Send a group invitation email synchronously via SendGrid."""
-        subject = f"Invitación al grupo '{group_name}'"
-        body = (
+        """Send a group invitation email via Brevo."""
+        subject = f"📨 {inviter_name} te invitó al grupo '{group_name}'"
+        text_body = (
             f"Hola!\n\n"
-            f"{inviter_name} te invitó al grupo '{group_name}'.\n\n"
-            f"Aceptá la invitación haciendo clic en el siguiente enlace:\n{claim_url}\n\n"
-            f"El enlace vence en 7 días."
+            f"{inviter_name} te invitó al grupo '{group_name}' en Shared Expenses.\n\n"
+            f"Aceptá la invitación entrando a este enlace:\n{claim_url}\n\n"
+            f"El enlace vence en 7 días. Si no esperabas esta invitación, podés ignorar este mensaje."
         )
-        self._send_email(to_email, subject, body)
+        html_body = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0"
+        style="background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <!-- Header -->
+        <tr>
+          <td style="background:#4f46e5;padding:32px 40px;text-align:center;">
+            <p style="margin:0;font-size:28px;">💸</p>
+            <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Shared Expenses</h1>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:36px 40px;">
+            <h2 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">¡Fuiste invitado!</h2>
+            <p style="margin:0 0 12px;font-size:15px;color:#444;line-height:1.6;">
+              <strong>{inviter_name}</strong> te invitó a unirte al grupo
+              <strong style="color:#4f46e5;">"{group_name}"</strong>.
+            </p>
+            <p style="margin:0 0 28px;font-size:15px;color:#444;line-height:1.6;">
+              Hacé clic en el botón de abajo para aceptar la invitación y crear tu cuenta:
+            </p>
+            <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="border-radius:6px;background:#4f46e5;">
+                  <a href="{claim_url}"
+                    style="display:inline-block;padding:14px 32px;color:#ffffff;
+                    font-size:15px;font-weight:700;text-decoration:none;border-radius:6px;">
+                    Aceptar invitación →
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="padding:20px 40px 32px;border-top:1px solid #f0f0f0;">
+            <p style="margin:0 0 8px;font-size:12px;color:#999;line-height:1.5;">
+              Este enlace vence en <strong>7 días</strong>. Si no esperabas esta invitación, podés ignorar este mensaje.
+            </p>
+            <p style="margin:0;font-size:12px;color:#bbb;">
+              Si el botón no funciona, copiá este enlace en tu navegador:<br>
+              <a href="{claim_url}" style="color:#4f46e5;word-break:break-all;">{claim_url}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+        self._send_email(to_email, subject, text_body, html_content=html_body)
 
-    def _send_email(self, to_email: str, subject: str, message: str) -> None:
+    def _send_email(self, to_email: str, subject: str, message: str, html_content: str | None = None) -> None:
         """Send an email notification via Brevo HTTP API."""
         if not self.brevo_api_key or not self.brevo_from_email:
             print("Brevo not configured (BREVO_API_KEY / BREVO_FROM_EMAIL unset), skipping email")
@@ -97,6 +156,8 @@ class NotificationService:
             "subject": subject,
             "textContent": message,
         }
+        if html_content:
+            payload["htmlContent"] = html_content
         headers = {
             "api-key": self.brevo_api_key,
             "Content-Type": "application/json",

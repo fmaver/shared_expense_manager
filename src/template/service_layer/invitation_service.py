@@ -51,7 +51,36 @@ class InvitationService:
         self._wpp_invite = wpp_invite_client
         self._base_url = app_base_url.rstrip("/")
 
-    def create_invitation(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-branches
+    def _resolve_invitee(
+        self, group_id: int, inv_channel: InvitationChannel, name: str, contact: str
+    ) -> tuple[Optional[Member], str]:
+        """Look up or create the invitee stub; return (member, normalised_contact)."""
+        if inv_channel == InvitationChannel.EMAIL:
+            existing = self._member_repo.get_member_by_email(contact)
+            if existing:
+                if self._group_repo.is_member(group_id, existing.id):
+                    raise ValueError(f"Member with email {contact} is already a member of this group")
+                if existing.is_stub:
+                    self._group_repo.add_member(group_id, existing.id)
+                return existing, contact
+            member = self._member_repo.create_stub(name=name, email=contact, telephone=None)
+            self._group_repo.add_member(group_id, member.id)
+            return member, contact
+
+        # PHONE channel
+        normalised = _normalise_phone(contact)
+        existing = self._member_repo.get_member_by_phone(normalised)
+        if existing:
+            if self._group_repo.is_member(group_id, existing.id):
+                raise ValueError(f"Member with phone {normalised} is already a member of this group")
+            if existing.is_stub:
+                self._group_repo.add_member(group_id, existing.id)
+            return existing, normalised
+        member = self._member_repo.create_stub(name=name, email=None, telephone=normalised)
+        self._group_repo.add_member(group_id, member.id)
+        return member, normalised
+
+    def create_invitation(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         group_id: int,
         inviter: Member,
@@ -68,31 +97,7 @@ class InvitationService:
             raise ValueError(f"Group {group_id} not found")
 
         inv_channel = InvitationChannel(channel)
-        invitee_member: Optional[Member] = None
-
-        if inv_channel == InvitationChannel.EMAIL:
-            existing = self._member_repo.get_member_by_email(contact)
-            if existing:
-                if self._group_repo.is_member(group_id, existing.id):
-                    raise ValueError(f"Member with email {contact} is already a member of this group")
-                invitee_member = existing
-                # Existing accounts are added to the group only when they explicitly accept
-            else:
-                invitee_member = self._member_repo.create_stub(name=name, email=contact, telephone=None)
-                self._group_repo.add_member(group_id, invitee_member.id)  # stubs appear in splits immediately
-
-        elif inv_channel == InvitationChannel.PHONE:
-            normalised = _normalise_phone(contact)
-            existing = self._member_repo.get_member_by_phone(normalised)
-            if existing:
-                if self._group_repo.is_member(group_id, existing.id):
-                    raise ValueError(f"Member with phone {normalised} is already a member of this group")
-                invitee_member = existing
-                # Existing accounts are added to the group only when they explicitly accept
-            else:
-                invitee_member = self._member_repo.create_stub(name=name, email=None, telephone=normalised)
-                self._group_repo.add_member(group_id, invitee_member.id)  # stubs appear in splits immediately
-            contact = normalised
+        invitee_member, contact = self._resolve_invitee(group_id, inv_channel, name, contact)
 
         token = secrets.token_urlsafe(32)
         expires_at = datetime.utcnow() + timedelta(days=_INVITATION_EXPIRY_DAYS)

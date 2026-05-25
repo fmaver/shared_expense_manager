@@ -142,6 +142,23 @@ class TestCreateInvitationEmailChannel:
         group_repo.add_member.assert_not_called()  # added only at accept time
         invitation_repo.create.assert_called_once()
 
+    def test_existing_stub_not_in_group_is_added_to_group(self, service):
+        """Re-inviting an existing stub (email channel): add_member IS called immediately."""
+        svc, member_repo, group_repo, invitation_repo, notification_service, _ = service
+        inviter = _make_member(id_=1)
+        existing_stub = _make_stub(id_=5, email="stub@example.com", telephone=None)
+
+        group_repo.is_member.side_effect = lambda gid, mid: mid == 1  # only inviter is member
+        member_repo.get_member_by_email.return_value = existing_stub
+        invitation_row = _make_invite_row(invitee_member_id=5, target="stub@example.com")
+        invitation_repo.create.return_value = invitation_row
+
+        with patch("template.service_layer.invitation_service.secrets.token_urlsafe", return_value="tok"):
+            svc.create_invitation(group_id=1, inviter=inviter, name="Stub", channel="email", contact="stub@example.com")
+
+        member_repo.create_stub.assert_not_called()
+        group_repo.add_member.assert_called_once_with(1, 5)
+
     def test_existing_member_already_in_group_raises(self, service):
         svc, member_repo, group_repo, invitation_repo, notification_service, _ = service
         inviter = _make_member(id_=1)
@@ -190,6 +207,23 @@ class TestCreateInvitationPhoneChannel:
             svc.create_invitation(group_id=1, inviter=inviter, name="Bob", channel="phone", contact="5491138718498")
 
         member_repo.get_member_by_phone.assert_called_once_with("541138718498")
+
+    def test_existing_stub_phone_not_in_group_is_added_to_group(self, service):
+        """Re-inviting an existing stub (phone channel): add_member IS called immediately."""
+        svc, member_repo, group_repo, invitation_repo, _, mock_wpp = service
+        inviter = _make_member(id_=1)
+        existing_stub = _make_stub(id_=7, email=None, telephone="541199999999")
+
+        group_repo.is_member.side_effect = lambda gid, mid: mid == 1
+        member_repo.get_member_by_phone.return_value = existing_stub
+        invitation_row = _make_invite_row(invitee_member_id=7, channel=InvitationChannel.PHONE, target="541199999999")
+        invitation_repo.create.return_value = invitation_row
+
+        with patch("template.service_layer.invitation_service.secrets.token_urlsafe", return_value="tok"):
+            svc.create_invitation(group_id=1, inviter=inviter, name="Stub", channel="phone", contact="541199999999")
+
+        member_repo.create_stub.assert_not_called()
+        group_repo.add_member.assert_called_once_with(1, 7)
 
     def test_inviter_not_in_group_raises(self, service):
         svc, member_repo, group_repo, _, _, _ = service
