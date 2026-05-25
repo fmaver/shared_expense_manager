@@ -216,9 +216,7 @@ class TestCreateInvitationPhoneChannel:
 
         group_repo.is_member.side_effect = lambda gid, mid: mid == 1
         member_repo.get_member_by_phone.return_value = existing_stub
-        invitation_row = _make_invite_row(
-            invitee_member_id=7, channel=InvitationChannel.PHONE, target="541199999999"
-        )
+        invitation_row = _make_invite_row(invitee_member_id=7, channel=InvitationChannel.PHONE, target="541199999999")
         invitation_repo.create.return_value = invitation_row
 
         with patch("template.service_layer.invitation_service.secrets.token_urlsafe", return_value="tok"):

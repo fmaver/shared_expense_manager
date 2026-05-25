@@ -92,7 +92,8 @@ class NotificationService:
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
     <tr><td align="center">
-      <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+      <table width="520" cellpadding="0" cellspacing="0"
+        style="background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
         <!-- Header -->
         <tr>
           <td style="background:#4f46e5;padding:32px 40px;text-align:center;">
@@ -114,7 +115,9 @@ class NotificationService:
             <table cellpadding="0" cellspacing="0">
               <tr>
                 <td style="border-radius:6px;background:#4f46e5;">
-                  <a href="{claim_url}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:6px;">
+                  <a href="{claim_url}"
+                    style="display:inline-block;padding:14px 32px;color:#ffffff;
+                    font-size:15px;font-weight:700;text-decoration:none;border-radius:6px;">
                     Aceptar invitación →
                   </a>
                 </td>
