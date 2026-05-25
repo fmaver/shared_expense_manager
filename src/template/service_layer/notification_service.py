@@ -24,8 +24,8 @@ class NotificationService:
 
     def __init__(self):
         """Initialize notification service with configuration."""
-        self.sendgrid_api_key = os.getenv("SENDGRID_API_KEY", "")
-        self.sendgrid_from_email = os.getenv("SENDGRID_FROM_EMAIL", "")
+        self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
+        self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
 
     async def notify_expense_created(
         self, expense: Expense, members: List[Member], creator: Member, member_service: MemberService
@@ -86,29 +86,29 @@ class NotificationService:
         self._send_email(to_email, subject, body)
 
     def _send_email(self, to_email: str, subject: str, message: str) -> None:
-        """Send an email notification via SendGrid HTTP API."""
-        if not self.sendgrid_api_key or not self.sendgrid_from_email:
-            print("SendGrid not configured (SENDGRID_API_KEY / SENDGRID_FROM_EMAIL unset), skipping email")
+        """Send an email notification via Brevo HTTP API."""
+        if not self.brevo_api_key or not self.brevo_from_email:
+            print("Brevo not configured (BREVO_API_KEY / BREVO_FROM_EMAIL unset), skipping email")
             return
 
         payload = {
-            "personalizations": [{"to": [{"email": to_email}]}],
-            "from": {"email": self.sendgrid_from_email},
+            "sender": {"email": self.brevo_from_email},
+            "to": [{"email": to_email}],
             "subject": subject,
-            "content": [{"type": "text/plain", "value": message}],
+            "textContent": message,
         }
         headers = {
-            "Authorization": f"Bearer {self.sendgrid_api_key}",
+            "api-key": self.brevo_api_key,
             "Content-Type": "application/json",
         }
         try:
             response = requests.post(
-                "https://api.sendgrid.com/v3/mail/send",
+                "https://api.brevo.com/v3/smtp/email",
                 json=payload,
                 headers=headers,
                 timeout=10,
             )
-            if response.status_code in (200, 202):
+            if response.status_code in (200, 201, 202):
                 print(f"Email sent to {to_email}")
             else:
                 print(f"Failed to send email to {to_email}: {response.status_code} {response.text}")
