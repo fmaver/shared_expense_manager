@@ -2,6 +2,7 @@
 
 import logging
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from template.adapters.database import SessionLocal, engine
@@ -21,6 +22,7 @@ class InitializationService:
 
             with SessionLocal() as db:
                 cls._upsert_bootstrap_members(db)
+                cls._sync_member_sequence(db)
 
         except Exception as e:
             log.error("Failed to initialize services: %s", str(e))
@@ -57,3 +59,10 @@ class InitializationService:
             db.rollback()
             log.error("Error inserting bootstrap members: %s", str(e))
             raise
+
+    @staticmethod
+    def _sync_member_sequence(db: Session) -> None:
+        """Advance members_id_seq to MAX(id) so auto-increment never collides with seeded rows."""
+        db.execute(text("SELECT setval('members_id_seq', GREATEST(COALESCE((SELECT MAX(id) FROM members), 1), 1))"))
+        db.commit()
+        log.info("Synced members_id_seq")
