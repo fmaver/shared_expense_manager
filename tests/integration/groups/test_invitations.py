@@ -302,7 +302,7 @@ class TestStubInExpenses:
         r = client.get("/api/v1/members/me", headers=auth_headers)
         my_id = r.json()["data"]["id"]
         client.post(
-            "/api/v1/expenses/",
+            f"/api/v1/groups/{primary_group_id}/expenses/",
             json={
                 "description": "Groceries",
                 "amount": 100.0,
@@ -312,11 +312,10 @@ class TestStubInExpenses:
                 "paymentType": "debit",
                 "installments": 1,
                 "splitStrategy": {"type": "equal"},
-                "groupId": primary_group_id,
             },
             headers=auth_headers,
         )
 
-        r = client.get("/api/v1/shares/2025/6", headers=auth_headers)
+        r = client.get(f"/api/v1/groups/{primary_group_id}/shares/2025/6", headers=auth_headers)
         balances = r.json()["data"]["balances"]
         assert str(zara_id) in balances
