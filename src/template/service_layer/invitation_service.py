@@ -76,7 +76,10 @@ class InvitationService:
                 if self._group_repo.is_member(group_id, existing.id):
                     raise ValueError(f"Member with email {contact} is already a member of this group")
                 invitee_member = existing
-                # Existing accounts are added to the group only when they explicitly accept
+                if existing.is_stub:
+                    # Re-inviting a stub: add them to the group immediately so they appear in splits
+                    self._group_repo.add_member(group_id, invitee_member.id)
+                # Real accounts are added to the group only when they explicitly accept
             else:
                 invitee_member = self._member_repo.create_stub(name=name, email=contact, telephone=None)
                 self._group_repo.add_member(group_id, invitee_member.id)  # stubs appear in splits immediately
@@ -88,7 +91,10 @@ class InvitationService:
                 if self._group_repo.is_member(group_id, existing.id):
                     raise ValueError(f"Member with phone {normalised} is already a member of this group")
                 invitee_member = existing
-                # Existing accounts are added to the group only when they explicitly accept
+                if existing.is_stub:
+                    # Re-inviting a stub: add them to the group immediately so they appear in splits
+                    self._group_repo.add_member(group_id, invitee_member.id)
+                # Real accounts are added to the group only when they explicitly accept
             else:
                 invitee_member = self._member_repo.create_stub(name=name, email=None, telephone=normalised)
                 self._group_repo.add_member(group_id, invitee_member.id)  # stubs appear in splits immediately
