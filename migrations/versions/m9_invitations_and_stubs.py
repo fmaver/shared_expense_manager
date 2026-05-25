@@ -1,7 +1,7 @@
 """Add invitations, join links, and stub-member support
 
 Revision ID: m9_invitations_and_stubs
-Revises: m8_drop_old_monthly_shares_unique
+Revises: m8_drop_shares_constraint
 Create Date: 2026-05-24
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "m9_invitations_and_stubs"
-down_revision = "m8_drop_old_monthly_shares_unique"
+down_revision = "m8_drop_shares_constraint"
 branch_labels = None
 depends_on = None
 
