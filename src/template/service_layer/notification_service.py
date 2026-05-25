@@ -1,6 +1,5 @@
 """Notification service for sending notifications to members."""
 
-import asyncio
 import os
 import re
 from datetime import datetime, timezone
@@ -42,7 +41,7 @@ class NotificationService:
 
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
-                await self._send_email(member.email, "Notificación de Gasto 🗂️", message)
+                self._send_email(member.email, "Notificación de Gasto 🗂️", message)
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 print(f"Sending WhatsApp notification to {member.telephone}")
@@ -84,9 +83,9 @@ class NotificationService:
             f"Aceptá la invitación haciendo clic en el siguiente enlace:\n{claim_url}\n\n"
             f"El enlace vence en 7 días."
         )
-        asyncio.run(self._send_email(to_email, subject, body))
+        self._send_email(to_email, subject, body)
 
-    async def _send_email(self, to_email: str, subject: str, message: str) -> None:
+    def _send_email(self, to_email: str, subject: str, message: str) -> None:
         """Send an email notification via SendGrid HTTP API."""
         if not self.sendgrid_api_key or not self.sendgrid_from_email:
             print("SendGrid not configured (SENDGRID_API_KEY / SENDGRID_FROM_EMAIL unset), skipping email")
