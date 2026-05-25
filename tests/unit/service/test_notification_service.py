@@ -112,3 +112,30 @@ class TestSendEmailBrevo:
         service = self._service()
         with patch("requests.post", side_effect=req_lib.RequestException("timeout")):
             service._send_email("to@example.com", "Subject", "Body")
+
+    def test_html_content_included_when_provided(self):
+        """htmlContent is added to the payload when supplied."""
+        service = self._service()
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            service._send_email("to@example.com", "Hello", "Plain text", html_content="<b>HTML</b>")
+
+        _, kwargs = mock_post.call_args
+        payload = kwargs["json"]
+        assert payload["htmlContent"] == "<b>HTML</b>"
+        assert payload["textContent"] == "Plain text"
+
+    def test_no_html_content_key_when_not_provided(self):
+        """htmlContent is absent from payload when not supplied."""
+        service = self._service()
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            service._send_email("to@example.com", "Hello", "Plain text")
+
+        _, kwargs = mock_post.call_args
+        payload = kwargs["json"]
+        assert "htmlContent" not in payload
