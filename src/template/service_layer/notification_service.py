@@ -41,7 +41,7 @@ class NotificationService:
 
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
-                await self._send_email(member.email, "Notificación de Gasto 🗂️", message)
+                self._send_email(member.email, "Notificación de Gasto 🗂️", message)
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 print(f"Sending WhatsApp notification to {member.telephone}")
@@ -74,7 +74,18 @@ class NotificationService:
             else:
                 print("No notification sent (preference is NONE)")
 
-    async def _send_email(self, to_email: str, subject: str, message: str) -> None:
+    def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
+        """Send a group invitation email synchronously via SendGrid."""
+        subject = f"Invitación al grupo '{group_name}'"
+        body = (
+            f"Hola!\n\n"
+            f"{inviter_name} te invitó al grupo '{group_name}'.\n\n"
+            f"Aceptá la invitación haciendo clic en el siguiente enlace:\n{claim_url}\n\n"
+            f"El enlace vence en 7 días."
+        )
+        self._send_email(to_email, subject, body)
+
+    def _send_email(self, to_email: str, subject: str, message: str) -> None:
         """Send an email notification via SendGrid HTTP API."""
         if not self.sendgrid_api_key or not self.sendgrid_from_email:
             print("SendGrid not configured (SENDGRID_API_KEY / SENDGRID_FROM_EMAIL unset), skipping email")

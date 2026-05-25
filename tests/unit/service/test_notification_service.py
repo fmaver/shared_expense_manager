@@ -1,6 +1,5 @@
 """Tests for NotificationService email sending via SendGrid."""
 
-import asyncio
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -75,7 +74,7 @@ class TestSendEmailSendGrid:
         mock_response.status_code = 202
 
         with patch("requests.post", return_value=mock_response) as mock_post:
-            asyncio.run(service._send_email("to@example.com", "Hello", "Body text"))
+            service._send_email("to@example.com", "Hello", "Body text")
 
         mock_post.assert_called_once()
         _, kwargs = mock_post.call_args
@@ -91,7 +90,7 @@ class TestSendEmailSendGrid:
             service = NotificationService()
 
         with patch("requests.post") as mock_post:
-            asyncio.run(service._send_email("to@example.com", "Subject", "Body"))
+            service._send_email("to@example.com", "Subject", "Body")
 
         mock_post.assert_not_called()
 
@@ -103,7 +102,7 @@ class TestSendEmailSendGrid:
         mock_response.text = "Forbidden"
 
         with patch("requests.post", return_value=mock_response):
-            asyncio.run(service._send_email("to@example.com", "Subject", "Body"))
+            service._send_email("to@example.com", "Subject", "Body")
 
     def test_sendgrid_request_exception_does_not_propagate(self):
         """A network error during the POST is swallowed."""
@@ -111,4 +110,4 @@ class TestSendEmailSendGrid:
 
         service = self._service()
         with patch("requests.post", side_effect=req_lib.RequestException("timeout")):
-            asyncio.run(service._send_email("to@example.com", "Subject", "Body"))
+            service._send_email("to@example.com", "Subject", "Body")

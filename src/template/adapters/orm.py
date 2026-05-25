@@ -17,7 +17,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from template.domain.models.enums import NotificationType, PaymentType
+from template.domain.models.enums import (
+    InvitationChannel,
+    InvitationStatus,
+    NotificationType,
+    PaymentType,
+)
 
 
 class Base(DeclarativeBase):
@@ -29,9 +34,10 @@ class MemberModel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
-    telephone: Mapped[str] = mapped_column(String(20))
-    email: Mapped[str] = mapped_column(String(255), unique=True)
+    telephone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notification_preference: Mapped[NotificationType] = mapped_column(
         Enum(NotificationType), default=NotificationType.NONE
     )
@@ -130,3 +136,40 @@ class ProcessedMessageModel(Base):
 
     message_id: Mapped[str] = mapped_column(Text, primary_key=True)
     processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InvitationModel(Base):
+    """Tracks group invitations sent via email, phone, or shareable link."""
+
+    __tablename__ = "group_invitations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
+    inviter_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    invitee_member_id: Mapped[Optional[int]] = mapped_column(ForeignKey("members.id"), nullable=True)
+    channel: Mapped[InvitationChannel] = mapped_column(Enum(InvitationChannel))
+    target: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    status: Mapped[InvitationStatus] = mapped_column(Enum(InvitationStatus), default=InvitationStatus.PENDING)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    accepted_by_member_id: Mapped[Optional[int]] = mapped_column(ForeignKey("members.id"), nullable=True)
+
+    group: Mapped["GroupModel"] = relationship(foreign_keys=[group_id])
+    inviter: Mapped["MemberModel"] = relationship(foreign_keys=[inviter_id])
+    invitee: Mapped[Optional["MemberModel"]] = relationship(foreign_keys=[invitee_member_id])
+
+
+class GroupJoinLinkModel(Base):
+    """Stores reusable shareable links for joining a group."""
+
+    __tablename__ = "group_join_links"
+
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_by_member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+
+    group: Mapped["GroupModel"] = relationship()
+    created_by: Mapped["MemberModel"] = relationship()

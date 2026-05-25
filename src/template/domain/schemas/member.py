@@ -1,6 +1,7 @@
 """Member schemas"""
 
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr
 
@@ -10,7 +11,7 @@ from template.domain.schema_model import CamelCaseModel
 
 class MemberBase(CamelCaseModel):
     name: str
-    telephone: str
+    telephone: Optional[str] = None
     email: EmailStr
     notification_preference: NotificationType = NotificationType.NONE
 
@@ -41,15 +42,17 @@ class MemberLogin(BaseModel):
     password: str
 
 
-class MemberResponse(MemberBase):
+class MemberResponse(CamelCaseModel):
     """Response model for member data."""
 
     id: int
     name: str
-    telephone: str
-    email: EmailStr
+    telephone: Optional[str] = None
+    email: Optional[str] = None
     notification_preference: NotificationType
-    last_wpp_chat_datetime: datetime | None = None
+    phone_verified_at: Optional[datetime] = None
+    last_wpp_chat_datetime: Optional[datetime] = None
+    is_stub: bool = False
 
     class Config:
         from_attributes = True
