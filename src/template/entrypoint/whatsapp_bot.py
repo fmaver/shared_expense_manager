@@ -262,6 +262,7 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             )
             return
 
+        was_awaiting_group = estado.get("estado") == "esperando_seleccion_grupo"
         group_id = _resolve_group_id(number, message_id, interactive_id, estado, groups, wpp_client)
         if group_id is None:
             # Group selection prompt was sent; wait for user response
@@ -273,6 +274,11 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             group_id=group_id,
             group_repo=GroupRepository(db),
         )
+
+        # Group was just picked — synthesise a greeting so the user lands on the main menu
+        # instead of having the group-picker text ("Fran & Guada") processed as an unknown command.
+        if was_awaiting_group:
+            text = "hola"
 
         nuevo_estado = administrar_chatbot(
             text, number, message_id, estado, expense_service, member_service, wpp_client, interactive_id, groups=groups
