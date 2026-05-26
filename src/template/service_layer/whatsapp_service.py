@@ -1662,6 +1662,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
                 f"💰 ${format_amount_es(dup.amount)}\n"
                 f"📅 {format_date_es(dup_date_str)}\n"
                 f"🏷️ {format_category_es(dup.category)}\n"
+                f"💳 {format_payment_type_es(dup.payment_type)}\n"
                 f"👤 {payer_name}\n\n"
                 "¿Querés cargar el gasto de todos modos?"
             )
