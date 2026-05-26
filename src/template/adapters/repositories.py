@@ -503,6 +503,12 @@ _DEFAULT_EXPENSE_DATA: Dict = {
 }
 
 
+# Top-level keys on the estado dict that are NOT part of expense_data but must survive
+# across requests.  We serialise them into expense_data with a "_sess_" prefix so no
+# DB migration is required.
+_SESSION_TOPLEVEL_KEYS = ("group_id", "known_group_ids", "pending_invitation_token")
+
+
 class ChatSessionRepository:
     """Persists chatbot conversation state keyed by telephone number."""
 
@@ -514,22 +520,45 @@ class ChatSessionRepository:
         row = self.session.get(ChatSessionModel, telephone)
         if row is None:
             return {"estado": "inicial", "expense_data": dict(_DEFAULT_EXPENSE_DATA)}
-        return {"estado": row.estado, "expense_data": row.expense_data or dict(_DEFAULT_EXPENSE_DATA)}
+
+        raw = dict(row.expense_data or _DEFAULT_EXPENSE_DATA)
+
+        # Separate session-level keys from expense-level keys
+        session_extras: Dict = {}
+        expense_data: Dict = {}
+        for k, v in raw.items():
+            if k.startswith("_sess_"):
+                session_extras[k[len("_sess_") :]] = v  # noqa: E203
+            else:
+                expense_data[k] = v
+
+        result: Dict = {"estado": row.estado, "expense_data": expense_data or dict(_DEFAULT_EXPENSE_DATA)}
+        result.update(session_extras)
+        return result
 
     def save(self, telephone: str, state: Dict) -> None:
         """Upsert the session state for telephone."""
+        expense_data = dict(state.get("expense_data") or _DEFAULT_EXPENSE_DATA)
+
+        # Persist top-level session keys alongside expense data
+        for key in _SESSION_TOPLEVEL_KEYS:
+            if key in state and state[key] is not None:
+                expense_data[f"_sess_{key}"] = state[key]
+            else:
+                expense_data.pop(f"_sess_{key}", None)
+
         row = self.session.get(ChatSessionModel, telephone)
         if row is None:
             row = ChatSessionModel(
                 telephone=telephone,
                 estado=state["estado"],
-                expense_data=state.get("expense_data", {}),
+                expense_data=expense_data,
                 updated_at=datetime.utcnow(),
             )
             self.session.add(row)
         else:
             row.estado = state["estado"]
-            row.expense_data = state.get("expense_data", {})
+            row.expense_data = expense_data
             row.updated_at = datetime.utcnow()
         self.session.commit()
 

@@ -242,21 +242,21 @@ class _ReportPDF(FPDF):
         self._section_title("🧾 Gastos del mes")
 
         margin = self.l_margin
-        # Use 180 mm — leaves a comfortable 10 mm safety margin on A4 (usable = 190 mm)
-        # so that slight font-metric differences never push the last column off the page.
-        usable = 180.0
+        usable = self.epw  # exact effective page width — guaranteed never to overflow
 
-        # Column widths (total = 180 mm)
-        # Tipo needs room for "Crédito (12 cuotas)" = 18 chars at 7 pt ≈ 30 mm.
-        cols = [
-            ("Fecha", 20, "C"),
-            ("Descripción", 44, "L"),
-            ("Categoría", 26, "L"),
-            ("Pagador", 22, "L"),
-            ("Tipo", 32, "L"),
-            ("División", 16, "L"),
-            ("Monto", 20, "R"),
+        # 6 columns with proportional widths that normalise to exactly self.epw.
+        # División removed — was always truncated and adds little value in a table view.
+        # Tipo gets ~18 % so "Crédito (12 cuotas)" fits without truncation.
+        col_proportions = [
+            ("Fecha", 0.108, "C"),
+            ("Descripción", 0.268, "L"),
+            ("Categoría", 0.147, "L"),
+            ("Pagador", 0.137, "L"),
+            ("Tipo", 0.229, "L"),
+            ("Monto", 0.111, "R"),
         ]
+        total_prop = sum(p for _, p, _ in col_proportions)
+        cols = [(lbl, usable * (p / total_prop), aln) for lbl, p, aln in col_proportions]
 
         row_h = 7
 
@@ -284,25 +284,23 @@ class _ReportPDF(FPDF):
             category_label = f"{expense.category.capitalize()} {Category.get_category_emoji(expense.category)}"
             payer_name = member_names.get(expense.payer_id, str(expense.payer_id))
             tipo = format_payment_type_es(expense.payment_type, expense.installments)
-            division = _split_summary(expense.split_strategy, member_names)
             date_str = expense.date.strftime("%d/%m/%Y")
             amount_str = f"${format_amount_es(expense.amount)}"
 
             row_data = [
-                (date_str, 20, "C"),
-                (expense.description, 44, "L"),
-                (category_label, 26, "L"),
-                (payer_name, 22, "L"),
-                (tipo, 32, "L"),
-                (division, 16, "L"),
-                (amount_str, 20, "R"),
+                (date_str, cols[0][1], "C"),
+                (expense.description, cols[1][1], "L"),
+                (category_label, cols[2][1], "L"),
+                (payer_name, cols[3][1], "L"),
+                (tipo, cols[4][1], "L"),
+                (amount_str, cols[5][1], "R"),
             ]
 
             self.set_font("Fira", "", 7)
             self.set_text_color(*_GRAY_800)
             self.set_xy(margin, y)
             for text, w, align in row_data:
-                # Estimate max chars at 7 pt: ~1.8 mm per character average
+                # ~1.8 mm per char at 7 pt FiraSans
                 max_chars = int(w / 1.8)
                 display = text if len(text) <= max_chars else text[: max_chars - 1] + "…"
                 self.cell(w, row_h, display, border=0, align=align)
@@ -313,7 +311,7 @@ class _ReportPDF(FPDF):
         # Separator + total
         self.ln(1)
         self.set_draw_color(*_SLATE_700)
-        self.line(margin, self.get_y(), margin + usable, self.get_y())
+        self.line(margin, self.get_y(), margin + self.epw, self.get_y())
         self.ln(2)
 
         total = sum(e.amount for e in expenses)
