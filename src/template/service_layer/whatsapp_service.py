@@ -223,7 +223,7 @@ def group_selector_message(number: str, groups: List[Any]) -> str:
             "type": "interactive",
             "interactive": {
                 "type": "list",
-                "body": {"text": "¿A qué grupo querés cambiar?"},
+                "body": {"text": "¿Qué grupo elegís?"},
                 "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
                 "action": {"button": "Ver Grupos", "sections": [{"title": "Mis Grupos", "rows": rows}]},
             },
