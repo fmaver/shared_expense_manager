@@ -628,7 +628,7 @@ def handle_greetings(  # pylint: disable=too-many-locals
     if active_group_name is None and len(groups) == 1:
         active_group_name = groups[0].name
 
-    group_line = f"\n📋 Grupo activo: *{active_group_name}*" if active_group_name else ""
+    group_line = f"\n\n📋 Grupo activo: *{active_group_name}*" if active_group_name else ""
     body = (
         f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨{group_line}\n"
         "¿Cómo podemos ayudarte hoy?\n\n"
@@ -679,7 +679,9 @@ def handle_document_request(  # pylint: disable=too-many-locals
     month_year = datetime.strptime(fecha, "%m-%Y")
     print("calculando balance para el mes y año: ", month_year.month, month_year.year)
 
-    monthly_balance_dict = service.get_monthly_balance(month_year.year, month_year.month).balances  # Dict[str, float]
+    monthly_share = service.get_monthly_balance(month_year.year, month_year.month)
+    monthly_balance_dict = monthly_share.balances if monthly_share else {}  # Dict[str, float]
+    is_settled = bool(monthly_share and monthly_share.is_settled)
     print("monthly_balance_dict: ", monthly_balance_dict)
     monthly_expenses_list = service.get_monthly_expenses(month_year.year, month_year.month)
 
@@ -691,7 +693,7 @@ def handle_document_request(  # pylint: disable=too-many-locals
 
     member_names_dict = service.get_member_names()  # Obtener nombres de miembros
     file_path = pdf_generator.generate_expense_report(
-        monthly_expenses_list, monthly_balance_dict, filename, member_names_dict
+        monthly_expenses_list, monthly_balance_dict, filename, member_names_dict, is_settled=is_settled
     )
     print(f"Archivo PDF generado en: {file_path}")
 
