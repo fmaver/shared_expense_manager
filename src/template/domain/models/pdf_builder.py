@@ -4,6 +4,7 @@ Uses fpdf2 with FiraSans (Latin/Spanish accents) + NotoEmoji fallback (emoji).
 Fonts are vendored under src/template/domain/models/fonts/.
 """
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,11 @@ from template.domain.models.formatters import (
     month_name_es,
 )
 from template.domain.schemas.expense import ExpenseResponse, SplitStrategySchema
+
+# Suppress cosmetic fpdf2/fontTools warnings: emoji glyphs render correctly
+# via the NotoEmoji fallback font even though FiraSansBold doesn't contain them.
+logging.getLogger("fpdf.output").setLevel(logging.ERROR)
+logging.getLogger("fontTools").setLevel(logging.ERROR)
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
 
@@ -236,17 +242,20 @@ class _ReportPDF(FPDF):
         self._section_title("🧾 Gastos del mes")
 
         margin = self.l_margin
-        usable = self.w - 2 * margin  # 190mm on A4
+        # Use 180 mm — leaves a comfortable 10 mm safety margin on A4 (usable = 190 mm)
+        # so that slight font-metric differences never push the last column off the page.
+        usable = 180.0
 
-        # Column widths (total = 190)
+        # Column widths (total = 180 mm)
+        # Tipo needs room for "Crédito (12 cuotas)" = 18 chars at 7 pt ≈ 30 mm.
         cols = [
-            ("Fecha", 22, "C"),
-            ("Descripción", 50, "L"),
-            ("Categoría", 28, "L"),
-            ("Pagador", 25, "L"),
-            ("Tipo", 27, "L"),
-            ("División", 20, "L"),
-            ("Monto", 18, "R"),
+            ("Fecha", 20, "C"),
+            ("Descripción", 44, "L"),
+            ("Categoría", 26, "L"),
+            ("Pagador", 22, "L"),
+            ("Tipo", 32, "L"),
+            ("División", 16, "L"),
+            ("Monto", 20, "R"),
         ]
 
         row_h = 7
@@ -254,7 +263,7 @@ class _ReportPDF(FPDF):
         # Table header row
         self._fill_rect(margin, self.get_y(), usable, row_h, _SLATE_700)
         self.set_text_color(*_WHITE)
-        self.set_font("Fira", "B", 8)
+        self.set_font("Fira", "B", 7)
         self.set_xy(margin, self.get_y())
         for col_label, col_w, col_align in cols:
             self.cell(col_w, row_h, col_label, border=0, align=col_align)
@@ -280,21 +289,21 @@ class _ReportPDF(FPDF):
             amount_str = f"${format_amount_es(expense.amount)}"
 
             row_data = [
-                (date_str, 22, "C"),
-                (expense.description, 50, "L"),
-                (category_label, 28, "L"),
-                (payer_name, 25, "L"),
-                (tipo, 27, "L"),
-                (division, 20, "L"),
-                (amount_str, 18, "R"),
+                (date_str, 20, "C"),
+                (expense.description, 44, "L"),
+                (category_label, 26, "L"),
+                (payer_name, 22, "L"),
+                (tipo, 32, "L"),
+                (division, 16, "L"),
+                (amount_str, 20, "R"),
             ]
 
-            self.set_font("Fira", "", 8)
+            self.set_font("Fira", "", 7)
             self.set_text_color(*_GRAY_800)
             self.set_xy(margin, y)
             for text, w, align in row_data:
-                # Truncate text that would overflow the cell
-                max_chars = int(w / 2.2)
+                # Estimate max chars at 7 pt: ~1.8 mm per character average
+                max_chars = int(w / 1.8)
                 display = text if len(text) <= max_chars else text[: max_chars - 1] + "…"
                 self.cell(w, row_h, display, border=0, align=align)
             self.ln(row_h)
@@ -304,7 +313,7 @@ class _ReportPDF(FPDF):
         # Separator + total
         self.ln(1)
         self.set_draw_color(*_SLATE_700)
-        self.line(margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.line(margin, self.get_y(), margin + usable, self.get_y())
         self.ln(2)
 
         total = sum(e.amount for e in expenses)
