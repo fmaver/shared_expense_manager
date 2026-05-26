@@ -2,6 +2,11 @@
 
 from typing import List, Protocol, runtime_checkable
 
+from template.service_layer.whatsapp_service import (
+    enviar_mensaje_whatsapp,
+    template_message,
+)
+
 
 @runtime_checkable
 class WhatsAppInviteClient(Protocol):
@@ -12,11 +17,7 @@ class WhatsAppInviteClient(Protocol):
 
 
 class MockWhatsAppInviteClient:
-    """Records outbound invitation messages for testing and staging use.
-
-    The production Meta app does not yet have an approved group_invitation template.
-    This mock is the default until that template is live.
-    """
+    """Records outbound invitation messages for testing; use in staging/tests."""
 
     def __init__(self) -> None:
         self.messages: List[dict] = []
@@ -32,12 +33,19 @@ class MockWhatsAppInviteClient:
 
 
 class MetaWhatsAppInviteClient:
-    """Placeholder for future Meta group_invitation template. Not yet approved."""
+    """Sends group invitations via the approved 'group_invitation' Meta template."""
 
     def send_invitation(self, to_phone: str, inviter_name: str, group_name: str, claim_url: str) -> None:
-        """Raises until the Meta group_invitation template is approved."""
-        # Replace with a real Meta API call once the template is approved.
-        raise NotImplementedError(
-            "MetaWhatsAppInviteClient: group_invitation template not yet approved by Meta. "
-            "Use MockWhatsAppInviteClient until the template is live."
-        )
+        """Send the group_invitation template to the invitee's phone number.
+
+        Template positional variables: {{1}} inviter_name, {{2}} group_name, {{3}} claim_url.
+        """
+        parameters = [
+            {"type": "text", "text": inviter_name},
+            {"type": "text", "text": group_name},
+            {"type": "text", "text": claim_url},
+        ]
+        message_data = template_message(to_phone, "group_invitation", "es_AR", parameters)
+        response = enviar_mensaje_whatsapp(message_data)
+        if response.get("status_code") != 200:
+            print(f"[MetaWhatsAppInviteClient] Failed to send to {to_phone}: {response.get('detail')}")

@@ -36,7 +36,7 @@ from template.service_layer.invitation_service import (
     InvitationService,
 )
 from template.service_layer.notification_service import NotificationService
-from template.service_layer.whatsapp_invite_client import MockWhatsAppInviteClient
+from template.service_layer.whatsapp_invite_client import MetaWhatsAppInviteClient
 
 router = APIRouter(prefix="/groups", tags=["Groups"])
 
@@ -47,7 +47,7 @@ def _build_invitation_svc(db: Session) -> InvitationService:
         group_repo=GroupRepository(db),
         invitation_repo=InvitationRepository(db),
         notification_service=NotificationService(),
-        wpp_invite_client=MockWhatsAppInviteClient(),
+        wpp_invite_client=MetaWhatsAppInviteClient(),
         app_base_url=os.getenv("APP_BASE_URL", "http://localhost:5173"),
     )
 
