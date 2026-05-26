@@ -17,7 +17,6 @@ types-python-dateutil = "^2.9.0.20241003"
 sqlalchemy = "^2.0.25"
 psycopg2-binary = "^2.9.9"
 requests = "^2.31.0"
-fpdf = "^1.7.2"
 types-requests = "^2.31.0.20240125"
 python-dotenv = "^1.0.1"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
@@ -26,6 +25,7 @@ python-multipart = "^0.0.7"
 alembic = "^1.13.1"
 bcrypt = "^4.1.2"
 httpx = "0.25.2"
+fpdf2 = "^2.8.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"

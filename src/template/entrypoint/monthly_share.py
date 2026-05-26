@@ -1,12 +1,16 @@
 """Monthly Share API endpoints."""
 
+import io
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi.responses import StreamingResponse
 
 from template.dependencies import get_expense_service
+from template.domain.models.pdf_builder import build_monthly_report
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import MonthlyBalanceResponse
+from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
@@ -154,6 +158,47 @@ async def recalculate_monthly_share(
                 balances=monthly_share.balances,
                 is_settled=monthly_share.is_settled,
             )
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{year}/{month}/pdf")
+async def download_monthly_pdf(
+    year: int = Path(..., ge=1900, le=9999),
+    month: int = Path(..., ge=1, le=12),
+    service: ExpenseService = Depends(get_expense_service),
+    current_member=Depends(get_current_member),
+) -> StreamingResponse:
+    """Download the monthly balance as a designed PDF report."""
+    try:
+        datetime(year, month, 1)
+
+        expenses = service.get_monthly_expenses(year, month)
+        if not expenses:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No expenses found for {year}-{month:02d}",
+            )
+
+        monthly_share = service.get_monthly_balance(year, month)
+        member_names = service.get_member_names()
+
+        pdf_bytes = build_monthly_report(
+            expenses=expenses,
+            balances=monthly_share.balances if monthly_share else {},
+            member_names=member_names,
+            year=year,
+            month=month,
+            is_settled=monthly_share.is_settled if monthly_share else False,
+        )
+
+        filename = f"balance_{year}_{month:02d}.pdf"
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     except ValueError as e:
