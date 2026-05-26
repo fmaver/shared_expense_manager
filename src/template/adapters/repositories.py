@@ -3,6 +3,7 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from template.adapters.orm import (
@@ -488,6 +489,29 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             split_strategy=split_strategy,
             parent_expense_id=db_expense.parent_expense_id,
         )
+
+    def find_similar_expenses(
+        self, group_id: int, year: int, month: int, amount: float, description: str, expense_date: date
+    ) -> List[Expense]:
+        """Find parent expenses in the same group/month that share amount + description or amount + date."""
+        normalized = description.strip().lower()
+        db_expenses = (
+            self.session.query(ExpenseModel)
+            .join(MonthlyShareModel, ExpenseModel.monthly_share_id == MonthlyShareModel.id)
+            .filter(
+                ExpenseModel.group_id == group_id,
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                ExpenseModel.amount == amount,
+                ExpenseModel.installment_no == 1,
+                or_(
+                    func.lower(ExpenseModel.description) == normalized,
+                    ExpenseModel.date == expense_date,
+                ),
+            )
+            .all()
+        )
+        return [self._to_domain_expense(e) for e in db_expenses]
 
 
 _DEFAULT_EXPENSE_DATA: Dict = {
