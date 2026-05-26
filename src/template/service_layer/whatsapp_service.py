@@ -1655,11 +1655,14 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
         if similar:
             dup = similar[0]
             dup_date_str = dup.date.isoformat() if hasattr(dup.date, "isoformat") else str(dup.date)
+            payer_name = member_service.get_member_name_by_id(dup.payer_id)
             warning = (
                 "⚠️ *Encontré un gasto similar cargado previamente:*\n\n"
                 f"💬 {dup.description.capitalize()}\n"
                 f"💰 ${format_amount_es(dup.amount)}\n"
-                f"📅 {format_date_es(dup_date_str)}\n\n"
+                f"📅 {format_date_es(dup_date_str)}\n"
+                f"🏷️ {format_category_es(dup.category)}\n"
+                f"👤 {payer_name}\n\n"
                 "¿Querés cargar el gasto de todos modos?"
             )
             dup_msg = button_reply_message(
