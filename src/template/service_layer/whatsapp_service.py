@@ -468,37 +468,37 @@ def administrar_chatbot(
 
     elif estado_actual_usuario["estado"] == "esperando_estrategia":
         responses, estado_actual_usuario = handle_waiting_for_split_strategy(
-            number, estado_actual_usuario, message_id, text, member_service, interactive_id
+            number, estado_actual_usuario, message_id, text, member_service, interactive_id, service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_definicion_participantes":
         responses, estado_actual_usuario = handle_waiting_for_participants_definition(
-            number, estado_actual_usuario, text, member_service, interactive_id
+            number, estado_actual_usuario, text, member_service, interactive_id, service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_excluidos":
         responses, estado_actual_usuario = handle_waiting_for_excluded_members(
-            number, estado_actual_usuario, member_service, interactive_id
+            number, estado_actual_usuario, member_service, interactive_id, service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_monto_para_miembro":
         responses, estado_actual_usuario = handle_waiting_for_amount_for_member(
-            number, estado_actual_usuario, text, message_id, member_service
+            number, estado_actual_usuario, text, message_id, member_service, service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_porcentaje":
         responses, estado_actual_usuario = handle_waiting_for_percentage(
-            number, estado_actual_usuario, text, member_service
+            number, estado_actual_usuario, text, member_service, service
         )
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_porcentaje_para_miembro":
         responses, estado_actual_usuario = handle_waiting_for_percentage_for_member(
-            number, estado_actual_usuario, text, message_id, member_service
+            number, estado_actual_usuario, text, message_id, member_service, service
         )
         user_responses.extend(responses)
 
@@ -506,6 +506,13 @@ def administrar_chatbot(
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_waiting_for_confirmation(
             number, estado_actual_usuario, text, service, member_service
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_confirmacion_duplicado":
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_waiting_for_duplicate_confirmation(
+            number, estado_actual_usuario, text, service, member_service, interactive_id
         )
         user_responses.extend(responses)
 
@@ -988,18 +995,10 @@ def handle_waiting_for_payment_date(  # pylint: disable=too-many-locals
                 estado_actual_usuario["expense_data"]["category"] = "prestamo"
                 estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
 
-                summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-                summary += "\n¿Confirmas que los datos son correctos?"
-
-                reply_button_data = button_reply_message(
-                    number,
-                    ["✅ Sí, crear préstamo", "❌ No, cancelar"],
-                    summary,
-                    "⚙️ Admin Gastos Compartidos ⚙️",
-                    "sed1",
+                conf_responses, estado_actual_usuario = _make_confirmation_response(
+                    number, estado_actual_usuario, None, member_service
                 )
-                user_responses.append(reply_button_data)
-                estado_actual_usuario["estado"] = "esperando_confirmacion"
+                user_responses.extend(conf_responses)
             else:
                 # N-member path: ask who receives the loan
                 non_payer_names = [member_service.get_member_name_by_id(mid) for mid in non_payer_ids]
@@ -1046,18 +1045,10 @@ def handle_waiting_for_loan_recipient(
     estado_actual_usuario["expense_data"]["category"] = "prestamo"
     estado_actual_usuario["expense_data"]["split_strategy"] = split_strategy_dict
 
-    summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-    summary += "\n¿Confirmas que los datos son correctos?"
-
-    reply_button_data = button_reply_message(
-        number,
-        ["✅ Sí, crear préstamo", "❌ No, cancelar"],
-        summary,
-        "⚙️ Admin Gastos Compartidos ⚙️",
-        "sed1",
+    conf_responses, estado_actual_usuario = _make_confirmation_response(
+        number, estado_actual_usuario, None, member_service
     )
-    user_responses.append(reply_button_data)
-    estado_actual_usuario["estado"] = "esperando_confirmacion"
+    user_responses.extend(conf_responses)
 
     return user_responses, estado_actual_usuario
 
@@ -1246,6 +1237,7 @@ def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals,too-ma
     text: str,
     member_service: MemberService,
     interactive_id: Optional[str] = None,
+    service: Optional[ExpenseService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for split — 3 options: Partes iguales / Porcentajes / Montos exactos"""
     user_responses = []
@@ -1319,13 +1311,10 @@ def handle_waiting_for_split_strategy(  # pylint: disable=too-many-locals,too-ma
         else:
             strategy_dict: Dict[str, Any] = {"type": "equal"}
             estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
-            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-            body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
-            options_conf = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-            header = "⚙️ Admin Gastos Compartidos ⚙️"
-            reply_button_data = button_reply_message(number, options_conf, body, header, "sed1")
-            user_responses.append(reply_button_data)
-            estado_actual_usuario["estado"] = "esperando_confirmacion"
+            conf_responses, estado_actual_usuario = _make_confirmation_response(
+                number, estado_actual_usuario, service, member_service
+            )
+            user_responses.extend(conf_responses)
 
     return user_responses, estado_actual_usuario
 
@@ -1336,6 +1325,7 @@ def handle_waiting_for_participants_definition(
     text: str,
     member_service: MemberService,
     interactive_id: Optional[str] = None,
+    service: Optional[ExpenseService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Two-button branch: 'Todos participan' vs 'Excluir a alguien'."""
     user_responses = []
@@ -1352,12 +1342,10 @@ def handle_waiting_for_participants_definition(
     else:
         # Todos participan
         estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
-        summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-        body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
-        options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-        reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
-        user_responses.append(reply_button_data)
-        estado_actual_usuario["estado"] = "esperando_confirmacion"
+        conf_responses, estado_actual_usuario = _make_confirmation_response(
+            number, estado_actual_usuario, service, member_service
+        )
+        user_responses.extend(conf_responses)
 
     return user_responses, estado_actual_usuario
 
@@ -1398,6 +1386,7 @@ def handle_waiting_for_excluded_members(  # pylint: disable=too-many-locals
     estado_actual_usuario: Dict[str, Any],
     member_service: MemberService,
     interactive_id: Optional[str] = None,
+    service: Optional[ExpenseService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Toggle-list: accumulate excluded members, finalise on 'Listo'."""
     user_responses = []
@@ -1440,12 +1429,10 @@ def handle_waiting_for_excluded_members(  # pylint: disable=too-many-locals
         estado_actual_usuario["expense_data"].pop("excluded_member_ids", None)
         estado_actual_usuario["expense_data"].pop("all_member_ids", None)
 
-        summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-        body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
-        options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-        reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
-        user_responses.append(reply_button_data)
-        estado_actual_usuario["estado"] = "esperando_confirmacion"
+        conf_responses, estado_actual_usuario = _make_confirmation_response(
+            number, estado_actual_usuario, service, member_service
+        )
+        user_responses.extend(conf_responses)
 
     elif interactive_id.startswith("exc_"):
         member_id = int(interactive_id[len("exc_") :])
@@ -1466,6 +1453,7 @@ def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
     text: str,
     message_id: str,
     member_service: MemberService,
+    service: Optional[ExpenseService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Queue-based exact amounts: collect one dollar amount per non-payer, then finalise."""
     user_responses = []
@@ -1522,12 +1510,10 @@ def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
             del estado_actual_usuario["expense_data"]["remaining_member_ids"]
             del estado_actual_usuario["expense_data"]["pending_amounts"]
 
-            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-            summary += "\n¿Confirmas que los datos son correctos?"
-            options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-            reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
-            user_responses.append(reply_button_data)
-            estado_actual_usuario["estado"] = "esperando_confirmacion"
+            conf_responses, estado_actual_usuario = _make_confirmation_response(
+                number, estado_actual_usuario, service, member_service
+            )
+            user_responses.extend(conf_responses)
 
     except ValueError as e:
         error_message = text_message(number, f"❌ {str(e)}")
@@ -1537,7 +1523,11 @@ def handle_waiting_for_amount_for_member(  # pylint: disable=too-many-locals
 
 
 def handle_waiting_for_percentage(
-    number: str, estado_actual_usuario: Dict[str, Any], text: str, member_service: MemberService
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    member_service: MemberService,
+    service: Optional[ExpenseService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for percentage"""
     user_responses = []
@@ -1559,15 +1549,10 @@ def handle_waiting_for_percentage(
         }
         estado_actual_usuario["expense_data"]["split_strategy"] = strategy_dict
 
-        # Instead of creating the expense, show summary and ask for confirmation
-        summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-        summary += """\n¿Confirmas que los datos son correctos?"""
-        options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-
-        reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
-        user_responses.append(reply_button_data)
-
-        estado_actual_usuario["estado"] = "esperando_confirmacion"
+        conf_responses, estado_actual_usuario = _make_confirmation_response(
+            number, estado_actual_usuario, service, member_service
+        )
+        user_responses.extend(conf_responses)
 
     except ValueError as e:
         error_message = text_message(number, f"Error: {str(e)}. Por favor, ingresa un número entre 0 y 100.")
@@ -1582,6 +1567,7 @@ def handle_waiting_for_percentage_for_member(  # pylint: disable=too-many-locals
     text: str,
     message_id: str,
     member_service: MemberService,
+    service: Optional[ExpenseService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """N-member percentage: collect one non-payer percentage per turn, then finalise."""
     user_responses = []
@@ -1628,16 +1614,102 @@ def handle_waiting_for_percentage_for_member(  # pylint: disable=too-many-locals
             del estado_actual_usuario["expense_data"]["remaining_member_ids"]
             del estado_actual_usuario["expense_data"]["pending_percentages"]
 
-            summary = get_expense_summary(estado_actual_usuario["expense_data"], member_service)
-            summary += "\n¿Confirmas que los datos son correctos?"
-            options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
-            reply_button_data = button_reply_message(number, options, summary, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
-            user_responses.append(reply_button_data)
-            estado_actual_usuario["estado"] = "esperando_confirmacion"
+            conf_responses, estado_actual_usuario = _make_confirmation_response(
+                number, estado_actual_usuario, service, member_service
+            )
+            user_responses.extend(conf_responses)
 
     except ValueError as e:
         error_message = text_message(number, f"Error: {str(e)}. Por favor, ingresa un número entre 0 y 100.")
         user_responses.append(error_message)
+
+    return user_responses, estado_actual_usuario
+
+
+def _make_confirmation_response(  # pylint: disable=too-many-locals
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Check for duplicates then build either a duplicate warning or the normal confirmation message.
+
+    Sets estado to 'esperando_confirmacion_duplicado' or 'esperando_confirmacion'.
+    """
+    expense_data = estado_actual_usuario["expense_data"]
+    is_loan = expense_data.get("service") == "prestar plata"
+
+    if not is_loan and service is not None:
+        try:
+            expense_date = date.fromisoformat(expense_data["date"])
+            similar = service.find_similar_expenses(
+                year=expense_date.year,
+                month=expense_date.month,
+                amount=expense_data["amount"],
+                description=expense_data["description"],
+                expense_date=expense_date,
+            )
+        except (ValueError, KeyError, TypeError):
+            similar = []
+
+        if similar:
+            dup = similar[0]
+            dup_date_str = dup.date.isoformat() if hasattr(dup.date, "isoformat") else str(dup.date)
+            warning = (
+                "⚠️ *Encontré un gasto similar cargado previamente:*\n\n"
+                f"💬 {dup.description.capitalize()}\n"
+                f"💰 ${format_amount_es(dup.amount)}\n"
+                f"📅 {format_date_es(dup_date_str)}\n\n"
+                "¿Querés cargar el gasto de todos modos?"
+            )
+            dup_msg = button_reply_message(
+                number,
+                ["✅ Sí, cargar de todos modos", "❌ No, cancelar"],
+                warning,
+                "⚙️ Admin Gastos Compartidos ⚙️",
+                "sed_dup",
+            )
+            estado_actual_usuario["estado"] = "esperando_confirmacion_duplicado"
+            return [dup_msg], estado_actual_usuario
+
+    summary = get_expense_summary(expense_data, member_service)
+    if is_loan:
+        body = f"{summary}\n¿Confirmas que los datos son correctos?"
+        options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
+    else:
+        body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
+        options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
+
+    msg = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
+    estado_actual_usuario["estado"] = "esperando_confirmacion"
+    return [msg], estado_actual_usuario
+
+
+def handle_waiting_for_duplicate_confirmation(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+    interactive_id: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """User responded to the duplicate-expense warning — proceed or cancel."""
+    user_responses = []
+
+    # Button ID "sed_dup_btn_1" = "Sí, cargar de todos modos"
+    confirmed = interactive_id == "sed_dup_btn_1" or "todos modos" in text.lower()
+
+    if confirmed:
+        conf_responses, estado_actual_usuario = _make_confirmation_response(
+            number, estado_actual_usuario, None, member_service
+        )
+        user_responses.extend(conf_responses)
+    else:
+        body = "Gasto cancelado. ¿Deseas realizar otra operación?"
+        options = ["🏠 Ir al Inicio", "👋 No gracias"]
+        reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
+        user_responses.append(reply_button_data)
+        clean_estado_usuario(estado_actual_usuario)
 
     return user_responses, estado_actual_usuario
 

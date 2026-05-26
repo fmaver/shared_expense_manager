@@ -89,6 +89,19 @@ def mock_repository():  # noqa: C901
         def get_child_expenses(self, parent_expense_id: int) -> List[Expense]:
             return [e for e in self.expenses if e.parent_expense_id == parent_expense_id]
 
+        def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
+            self, group_id: int, year: int, month: int, amount: float, description: str, expense_date: date
+        ) -> List[Expense]:
+            normalized = description.strip().lower()
+            results = []
+            for ms in self.monthly_shares.values():
+                if ms.year == year and ms.month == month and ms.group_id == group_id:
+                    for e in ms.expenses:
+                        desc_match = e.description.strip().lower() == normalized
+                        if e.amount == amount and e.installment_no == 1 and (desc_match or e.date == expense_date):
+                            results.append(e)
+            return results
+
         def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
             return [e for e in self.expenses if e.date == specific_date]
 

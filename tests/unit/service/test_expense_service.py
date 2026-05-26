@@ -12,6 +12,7 @@ from template.domain.models.split import EqualSplit
 from template.domain.schemas.expense import (
     CategorySchema,
     ExpenseCreate,
+    ExpenseResponse,
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
@@ -265,3 +266,71 @@ class TestUpdateExpenseRouting:
         assert children, "No child installments found"
         with pytest.raises(ValueError, match="Cannot update"):
             service.update_expense(children[0].id, self._data(PaymentType.CREDIT, 3))
+
+
+class TestFindSimilarExpenses:
+    BASE_DATE = date(2026, 5, 15)
+
+    @pytest.fixture
+    def service(self, mock_repository):
+        from unittest.mock import MagicMock
+
+        group_repo = MagicMock()
+        group_repo.list_members.return_value = [
+            Member(id=1, name="Alice", telephone="+1234567890", email="a@a.com"),
+            Member(id=2, name="Bob", telephone="+1234567891", email="b@b.com"),
+        ]
+        return ExpenseService(mock_repository, group_id=1, group_repo=group_repo)
+
+    def _create(self, service, description="supermercado", amount=100.0, dt=None):
+        dt = dt or self.BASE_DATE
+        return service.create_expense(
+            ExpenseCreate(
+                description=description,
+                amount=amount,
+                date=dt,
+                category=CategorySchema(name="comida"),
+                payer_id=1,
+                payment_type=PaymentType.DEBIT,
+                installments=1,
+                split_strategy=SplitStrategySchema(type="equal"),
+            )
+        )
+
+    def test_returns_empty_when_no_match(self, service):
+        self._create(service, "supermercado", 100.0)
+        results = service.find_similar_expenses(2026, 5, 200.0, "supermercado", self.BASE_DATE)
+        assert results == []
+
+    def test_matches_by_amount_and_description(self, service):
+        self._create(service, "supermercado", 100.0)
+        results = service.find_similar_expenses(2026, 5, 100.0, "supermercado", date(2026, 5, 20))
+        assert len(results) == 1
+        assert results[0].description == "supermercado"
+        assert results[0].amount == pytest.approx(100.0)
+
+    def test_description_match_is_case_insensitive(self, service):
+        self._create(service, "Supermercado", 100.0)
+        results = service.find_similar_expenses(2026, 5, 100.0, "SUPERMERCADO", date(2026, 5, 20))
+        assert len(results) == 1
+
+    def test_matches_by_amount_and_date(self, service):
+        self._create(service, "electricidad", 100.0, self.BASE_DATE)
+        results = service.find_similar_expenses(2026, 5, 100.0, "agua", self.BASE_DATE)
+        assert len(results) == 1
+
+    def test_no_match_across_different_month(self, service):
+        self._create(service, "supermercado", 100.0)  # May 2026
+        results = service.find_similar_expenses(2026, 4, 100.0, "supermercado", self.BASE_DATE)
+        assert results == []
+
+    def test_no_match_different_amount_only(self, service):
+        self._create(service, "supermercado", 100.0)
+        results = service.find_similar_expenses(2026, 5, 200.0, "supermercado", date(2026, 5, 20))
+        assert results == []
+
+    def test_returns_expense_response_objects(self, service):
+        self._create(service, "supermercado", 100.0)
+        results = service.find_similar_expenses(2026, 5, 100.0, "supermercado", date(2026, 5, 20))
+        assert len(results) == 1
+        assert isinstance(results[0], ExpenseResponse)

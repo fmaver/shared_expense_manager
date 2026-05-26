@@ -1,6 +1,8 @@
 """Expense API endpoints."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from datetime import date
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
@@ -153,6 +155,21 @@ async def delete_expense(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+
+@router.get("/similar", response_model=ResponseModel[list[ExpenseResponse]])
+async def find_similar_expenses(
+    year: int,
+    month: int,
+    amount: float,
+    description: str,
+    expense_date: date = Query(..., alias="date"),
+    service: ExpenseService = Depends(get_expense_service),
+    current_member=Depends(get_current_member),
+) -> ResponseModel[list[ExpenseResponse]]:
+    """Find expenses in the same month that may be duplicates of a new entry."""
+    similar = service.find_similar_expenses(year, month, amount, description, expense_date)
+    return ResponseModel(data=similar)
 
 
 @router.get("/{expense_id}", response_model=ResponseModel[ExpenseResponse])

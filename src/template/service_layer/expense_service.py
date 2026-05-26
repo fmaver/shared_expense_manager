@@ -1,5 +1,6 @@
 """Service layer module for managing expenses and expense-related operations."""
 
+from datetime import date
 from typing import Dict, List, Optional
 
 from template.domain.models.category import Category
@@ -51,6 +52,8 @@ class ExpenseService:
 
     def __init__(self, repository: ExpenseRepository, group_id: int, group_repo):
         """Initialize the expense service."""
+        self._repository = repository
+        self._group_id = group_id
         self._manager = ExpenseManager(repository, group_id, group_repo)
 
     def create_expense(self, expense_data: ExpenseCreate) -> Expense:
@@ -70,6 +73,35 @@ class ExpenseService:
         )
 
         return self._manager.create_and_add_expense(expense)
+
+    def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
+        self, year: int, month: int, amount: float, description: str, expense_date: date
+    ) -> List[ExpenseResponse]:
+        """Return expenses in the same group/month that may be duplicates of a new entry."""
+        expenses = self._repository.find_similar_expenses(
+            group_id=self._group_id,
+            year=year,
+            month=month,
+            amount=amount,
+            description=description,
+            expense_date=expense_date,
+        )
+        return [
+            ExpenseResponse(
+                id=e.id,
+                description=e.description,
+                amount=e.amount,
+                date=e.date,
+                category=e.category.name,
+                payer_id=e.payer_id,
+                payment_type=e.payment_type,
+                installments=e.installments,
+                installment_no=e.installment_no,
+                split_strategy=_strategy_to_schema(e.split_strategy),
+                parent_expense_id=e.parent_expense_id,
+            )
+            for e in expenses
+        ]
 
     def get_monthly_balance(self, year: int, month: int) -> MonthlyShare:
         """Get monthly balances"""
