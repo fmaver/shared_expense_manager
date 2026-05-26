@@ -1664,7 +1664,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
             )
             dup_msg = button_reply_message(
                 number,
-                ["✅ Sí, cargar de todos modos", "❌ No, cancelar"],
+                ["✅ Sí, agregar igual", "❌ No, cancelar"],
                 warning,
                 "⚙️ Admin Gastos Compartidos ⚙️",
                 "sed_dup",
@@ -1696,8 +1696,8 @@ def handle_waiting_for_duplicate_confirmation(
     """User responded to the duplicate-expense warning — proceed or cancel."""
     user_responses = []
 
-    # Button ID "sed_dup_btn_1" = "Sí, cargar de todos modos"
-    confirmed = interactive_id == "sed_dup_btn_1" or "todos modos" in text.lower()
+    # Button ID "sed_dup_btn_1" = "Sí, agregar igual"
+    confirmed = interactive_id == "sed_dup_btn_1" or "agregar igual" in text.lower()
 
     if confirmed:
         conf_responses, estado_actual_usuario = _make_confirmation_response(
