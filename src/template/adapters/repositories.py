@@ -490,7 +490,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             parent_expense_id=db_expense.parent_expense_id,
         )
 
-    def find_similar_expenses(
+    def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
         self, group_id: int, year: int, month: int, amount: float, description: str, expense_date: date
     ) -> List[Expense]:
         """Find parent expenses in the same group/month that share amount + description or amount + date."""

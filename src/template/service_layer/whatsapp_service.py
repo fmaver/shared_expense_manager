@@ -1626,7 +1626,7 @@ def handle_waiting_for_percentage_for_member(  # pylint: disable=too-many-locals
     return user_responses, estado_actual_usuario
 
 
-def _make_confirmation_response(
+def _make_confirmation_response(  # pylint: disable=too-many-locals
     number: str,
     estado_actual_usuario: Dict[str, Any],
     service: Optional[ExpenseService],

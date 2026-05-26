@@ -81,7 +81,10 @@ def test_create_credit_expense_expands_installments(client, auth_headers, primar
 
 # ── Similar expense endpoint ──────────────────────────────────────────────────
 
-def _create_expense(client, auth_headers, group_id, member_id, description="supermercado", amount=1500.0, dt="2026-05-15"):
+
+def _create_expense(
+    client, auth_headers, group_id, member_id, description="supermercado", amount=1500.0, dt="2026-05-15"
+):
     payload = {
         "description": description,
         "amount": amount,
@@ -181,7 +184,9 @@ def test_similar_skips_credit_installment_children(client, auth_headers, primary
     }
     client.post(f"/api/v1/groups/{primary_group_id}/expenses/", json=payload, headers=auth_headers)
     # Installment 1 lands in June 2026; query for it
-    r = _get_similar(client, auth_headers, primary_group_id, 1000.0, "heladera (1/3)", dt="2026-06-01", year=2026, month=6)
+    r = _get_similar(
+        client, auth_headers, primary_group_id, 1000.0, "heladera (1/3)", dt="2026-06-01", year=2026, month=6
+    )
     assert r.status_code == 200
     assert len(r.json()["data"]) == 1
     assert r.json()["data"][0]["installmentNo"] == 1
