@@ -12,6 +12,13 @@ import requests
 
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
+from template.domain.models.formatters import (
+    format_amount_es,
+    format_category_es,
+    format_date_es,
+    format_member_name_es,
+    format_payment_type_es,
+)
 from template.domain.models.models import MonthlyShare
 from template.domain.models.pdf_builder import ExpensePDF
 from template.domain.schemas.expense import (
@@ -239,7 +246,7 @@ def category_select_message(number: str) -> str:
             "type": "interactive",
             "interactive": {
                 "type": "list",
-                "body": {"text": "🏷️ ¿Cuál es la categoría del gasto?\n\n_También podés escribir el nombre o número._"},
+                "body": {"text": "🏷️ ¿Cuál es la categoría del gasto?"},
                 "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
                 "action": {"button": "Ver Categorías", "sections": [{"title": "Categorías", "rows": rows}]},
             },
@@ -1182,44 +1189,6 @@ def parse_user_date(text: str) -> date:
         except ValueError:
             continue
     raise ValueError(f"No se pudo interpretar la fecha: {text!r}")
-
-
-def format_amount_es(amount: float) -> str:
-    """Format a monetary amount in Argentine style (comma as decimal separator)."""
-    return f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def format_date_es(iso: str) -> str:
-    """Convert YYYY-MM-DD ISO string to DD/MM/AAAA for display."""
-    try:
-        d = datetime.strptime(iso, "%Y-%m-%d").date()
-        return d.strftime("%d/%m/%Y")
-    except ValueError:
-        return iso
-
-
-def format_payment_type_es(payment_type: str, installments: int) -> str:
-    """Render payment type in Spanish for the summary."""
-    if payment_type in ("credito", "crédito"):
-        if installments <= 1:
-            return "Crédito (1 cuota)"
-        return f"Crédito ({installments} cuotas)"
-    return "Débito"
-
-
-def format_category_es(name: str) -> str:
-    """Render category name with its emoji for the summary."""
-    if name == "prestamo":
-        return "Préstamo 💰"
-    emoji = Category.get_category_emoji(name)
-    label = name.capitalize()
-    return f"{label} {emoji}" if emoji else label
-
-
-def format_member_name_es(member_id: Any, member_service: MemberService) -> str:
-    """Return member name; falls back to 'Desconocido' on missing records."""
-    name = member_service.get_member_name_by_id(member_id)
-    return name if name else "Desconocido"
 
 
 def get_expense_summary(  # pylint: disable=too-many-locals

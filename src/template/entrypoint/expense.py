@@ -14,7 +14,7 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.auth_service import get_current_member
-from template.service_layer.expense_service import ExpenseService
+from template.service_layer.expense_service import ExpenseService, _strategy_to_schema
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 
@@ -72,11 +72,33 @@ async def create_expense(
 
 @router.put("/{expense_id}", response_model=ResponseModel[ExpenseResponse])
 async def update_expense(
-    expense_id: int, expense_data: ExpenseCreate, service: ExpenseService = Depends(get_expense_service)
+    expense_id: int,
+    expense_data: ExpenseCreate,
+    background_tasks: BackgroundTasks,
+    service: ExpenseService = Depends(get_expense_service),
+    member_service: MemberService = Depends(get_member_service),
+    db: Session = Depends(get_db),
+    current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Update an existing expense."""
     try:
+        # Capture the old state before overwriting
+        old_expense = service.get_expense(expense_id)
+
         updated_expense = service.update_expense(expense_id, expense_data)
+
+        # Schedule notification in background
+        member_repository = MemberRepository(db)
+        members = member_repository.list()
+        notification_service = NotificationService()
+        background_tasks.add_task(
+            notification_service.notify_expense_updated,
+            old=old_expense,
+            new=updated_expense,
+            actor=current_member,
+            members=members,
+            member_service=member_service,
+        )
 
         response_data = ExpenseResponse(
             id=updated_expense.id,
@@ -88,10 +110,7 @@ async def update_expense(
             installments=updated_expense.installments,
             installment_no=updated_expense.installment_no,
             payment_type=updated_expense.payment_type,
-            split_strategy=SplitStrategySchema(
-                type="equal" if isinstance(updated_expense.split_strategy, EqualSplit) else "percentage",
-                percentages=getattr(updated_expense.split_strategy, "percentages", None),
-            ),
+            split_strategy=_strategy_to_schema(updated_expense.split_strategy),
             parent_expense_id=updated_expense.parent_expense_id,
         )
 
@@ -104,10 +123,32 @@ async def update_expense(
 
 
 @router.delete("/{expense_id}")
-async def delete_expense(expense_id: int, service: ExpenseService = Depends(get_expense_service)) -> None:
+async def delete_expense(
+    expense_id: int,
+    background_tasks: BackgroundTasks,
+    service: ExpenseService = Depends(get_expense_service),
+    member_service: MemberService = Depends(get_member_service),
+    db: Session = Depends(get_db),
+    current_member=Depends(get_current_member),
+) -> None:
     """Delete an expense."""
     try:
+        # Capture expense before deleting so we can notify
+        expense_to_delete = service.get_expense(expense_id)
+
         service.delete_expense(expense_id)
+
+        if expense_to_delete:
+            member_repository = MemberRepository(db)
+            members = member_repository.list()
+            notification_service = NotificationService()
+            background_tasks.add_task(
+                notification_service.notify_expense_deleted,
+                expense=expense_to_delete,
+                actor=current_member,
+                members=members,
+                member_service=member_service,
+            )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:

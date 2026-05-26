@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 import requests
 
 from template.domain.models.enums import NotificationType
+from template.domain.models.formatters import format_amount_es
 from template.domain.models.member import Member
 from template.domain.models.models import Expense
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
@@ -228,13 +229,21 @@ class NotificationService:
         """Create a message summarizing the expense."""
         payer = member_service.get_member_name_by_id(expense.payer_id)
 
+        # Dedicated message for loans
+        if expense.category and expense.category.name.lower() == "prestamo":
+            return (
+                f"💸 *{payer}* te prestó *${format_amount_es(expense.amount)}*"
+                f" el {expense.date.strftime('%d/%m/%Y')}.\n\n"
+                f"_Saldo actualizado disponible en la app._"
+            )
+
         description = self._remove_installments_from_description(expense.description)
 
         summary = [
             f"📝 Resumen del gasto creado por {creator.name}:\n",
             f"💬 Descripción: {description}",
             f"💰 Monto: ${expense.amount * expense.installments:.2f}",
-            f"📅 Fecha: {expense.date.strftime('%Y-%m-%d')}",
+            f"📅 Fecha: {expense.date.strftime('%d/%m/%Y')}",
             f"📂 Categoría: {expense.category.name} {expense.category.get_category_emoji(expense.category.name)}",
             f"👤 Pagador: {payer}",
             f"💳 Método de pago: {expense.payment_type}",
@@ -267,13 +276,97 @@ class NotificationService:
 
         return "\n".join(summary)
 
+    async def notify_expense_updated(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        old: Expense,
+        new: Expense,
+        actor: Member,
+        members: List[Member],
+        member_service: MemberService,
+    ) -> None:
+        """Notify members (union of old+new involved, minus actor) about an edited expense."""
+        actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
+        old_is_loan = old.category and old.category.name.lower() == "prestamo"
+        new_is_loan = new.category and new.category.name.lower() == "prestamo"
+
+        if old_is_loan or new_is_loan:
+            message = (
+                f"✏️ *{actor_name}* editó un préstamo.\n"
+                f"Antes: ${format_amount_es(old.amount)} el {old.date.strftime('%d/%m/%Y')}\n"
+                f"Ahora: ${format_amount_es(new.amount)} el {new.date.strftime('%d/%m/%Y')}"
+            )
+        else:
+            old_cat = old.category.name if old.category else "-"
+            new_cat = new.category.name if new.category else "-"
+            old_desc = self._remove_installments_from_description(old.description)
+            new_desc = self._remove_installments_from_description(new.description)
+            message = (
+                f"✏️ *{actor_name}* editó un gasto.\n"
+                f"Antes: {old_desc} · ${format_amount_es(old.amount)} · "
+                f"{old.date.strftime('%d/%m/%Y')} · {old_cat}\n"
+                f"Ahora: {new_desc} · ${format_amount_es(new.amount)} · "
+                f"{new.date.strftime('%d/%m/%Y')} · {new_cat}"
+            )
+
+        recipients = {
+            m
+            for m in members
+            if m.id != actor.id and (self._is_involved_in_expense(old, m.id) or self._is_involved_in_expense(new, m.id))
+        }
+        await self._broadcast(message, recipients, member_service)
+
+    async def notify_expense_deleted(
+        self,
+        expense: Expense,
+        actor: Member,
+        members: List[Member],
+        member_service: MemberService,
+    ) -> None:
+        """Notify involved members (minus actor) that an expense was deleted."""
+        actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
+        is_loan = expense.category and expense.category.name.lower() == "prestamo"
+
+        if is_loan:
+            message = (
+                f"🗑️ *{actor_name}* eliminó un préstamo de "
+                f"${format_amount_es(expense.amount)} del {expense.date.strftime('%d/%m/%Y')}."
+            )
+        else:
+            cat = expense.category.name if expense.category else "-"
+            desc = self._remove_installments_from_description(expense.description)
+            message = (
+                f"🗑️ *{actor_name}* eliminó el gasto: {desc} · "
+                f"${format_amount_es(expense.amount)} · {expense.date.strftime('%d/%m/%Y')} · {cat}."
+            )
+
+        recipients = {m for m in members if m.id != actor.id and self._is_involved_in_expense(expense, m.id)}
+        await self._broadcast(message, recipients, member_service)
+
+    async def _broadcast(self, message: str, recipients, member_service: MemberService) -> None:
+        """Send a plain WhatsApp/email message to each recipient per their preference."""
+        for member in recipients:
+            if member.notification_preference == NotificationType.EMAIL:
+                self._send_email(member.email, "Actualización de Gasto 📝", message)
+            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+                last_interacted = member_service.get_last_wpp_chat_time(member)
+                time_now = datetime.now(timezone.utc)
+                if last_interacted and not last_interacted.tzinfo:
+                    last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+                days_since = (time_now - last_interacted).days if last_interacted else None
+                if last_interacted is None or (days_since is not None and days_since >= 1):
+                    # Outside the 24h window — no generic template for edits/deletes,
+                    # so skip to avoid a 404 from Meta on missing template.
+                    print(f"Skipping WPP notification for {member.telephone}: outside 24h window")
+                else:
+                    await self._send_whatsapp(member.telephone, message)
+
     def _remove_installments_from_description(self, description: str) -> str:
         """Remove the installment suffix from the description.
         i.e: "Gasto de prueba (1/2)" becomes "Gasto de prueba"
         """
         return re.sub(r"\s*\(\d+\/\d+\)\s*$", "", description)
 
-    def _create_expense_template_parameters(
+    def _create_expense_template_parameters(  # pylint: disable=too-many-locals
         self, expense: Expense, creator: Member, member_service: MemberService
     ) -> List[Dict[str, str]]:
         """Create template parameters for WhatsApp template notification.
@@ -286,14 +379,18 @@ class NotificationService:
         Returns:
             List of parameters for the WhatsApp template
         """
-        description = self._remove_installments_from_description(expense.description)
         payer = member_service.get_member_name_by_id(expense.payer_id)
+        is_loan = expense.category and expense.category.name.lower() == "prestamo"
+        description = (
+            f"Préstamo de {payer}" if is_loan else self._remove_installments_from_description(expense.description)
+        )
+        creator_label = f"{payer} te prestó" if is_loan else creator.name
 
         parameters = [
-            {"type": "text", "parameter_name": "creator_name", "text": creator.name},
+            {"type": "text", "parameter_name": "creator_name", "text": creator_label},
             {"type": "text", "parameter_name": "descripcion", "text": description},
             {"type": "text", "parameter_name": "monto", "text": f"{expense.amount * expense.installments:.2f}"},
-            {"type": "text", "parameter_name": "fecha", "text": expense.date.strftime("%Y-%m-%d")},
+            {"type": "text", "parameter_name": "fecha", "text": expense.date.strftime("%d/%m/%Y")},
             {
                 "type": "text",
                 "parameter_name": "categoria",
