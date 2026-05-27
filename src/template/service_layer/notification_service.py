@@ -3,7 +3,7 @@
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -32,41 +32,37 @@ class NotificationService:
         self, expense: Expense, members: List[Member], creator: Member, member_service: MemberService
     ) -> None:
         """Notify members about a new expense based on their notification preferences."""
+        is_loan = expense.category and expense.category.name.lower() == "prestamo"
+        subject = "💰 Nuevo préstamo" if is_loan else "💸 Nuevo gasto registrado"
 
         for member in members:
             if member.id == creator.id:
-                continue  # Skip the creator
+                continue
 
             if not self._is_involved_in_expense(expense, member.id):
-                continue  # Skip members excluded from this expense
+                continue
 
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
-                self._send_email(member.email, "Notificación de Gasto 🗂️", message)
+                html = self._build_html_expense_created(expense, creator, member_service)
+                self._send_email(member.email, subject, message, html_content=html)
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 print(f"Sending WhatsApp notification to {member.telephone}")
                 last_interacted_with_wpp = member_service.get_last_wpp_chat_time(member)
                 time_now = datetime.now(timezone.utc)
 
-                # Ensure last_interacted_with_wpp is timezone-aware
                 if last_interacted_with_wpp and not last_interacted_with_wpp.tzinfo:
                     last_interacted_with_wpp = last_interacted_with_wpp.replace(tzinfo=timezone.utc)
 
-                print(f"Last interaction: {last_interacted_with_wpp}")
-                print(f"Time now: {time_now}")
-
-                # Only calculate time difference if last_interacted_with_wpp exists
                 time_difference_days = None
                 if last_interacted_with_wpp:
                     time_difference_days = (time_now - last_interacted_with_wpp).days
-                    print(f"Time difference: {time_difference_days} days")
 
                 if last_interacted_with_wpp is None or (time_difference_days is not None and time_difference_days >= 1):
                     parameters = self._create_expense_template_parameters(expense, creator, member_service)
                     print("Sending template message")
                     await self._send_whatsapp_template(member.telephone, parameters)
-
                 else:
                     message = self._create_expense_message(expense, creator, member_service)
                     print("Sending regular message")
@@ -181,10 +177,7 @@ class NotificationService:
         """Send a WhatsApp notification."""
         message = "📝 Notamos un nuevo Gasto\nA continuación puede ver un resumen👇\n\n" + message
         try:
-            # Format the message data using the text_message helper
             message_data = text_message(phone_number, message)
-
-            # Send the message using the WhatsApp service
             response = enviar_mensaje_whatsapp(message_data)
 
             if response.get("status_code") == 200:
@@ -198,10 +191,7 @@ class NotificationService:
     async def _send_whatsapp_template(self, phone_number: str, parameters: List[Dict[str, Any]]) -> None:
         """Send a WhatsApp notification using a template."""
         try:
-            # Format the message data using the text_message helper
             message_data = template_message(phone_number, "expense_notification", "es_AR", parameters)
-
-            # Send the message using the WhatsApp service
             response = enviar_mensaje_whatsapp(message_data)
 
             if response.get("status_code") == 200:
@@ -226,10 +216,9 @@ class NotificationService:
         return True
 
     def _create_expense_message(self, expense: Expense, creator: Member, member_service: MemberService) -> str:
-        """Create a message summarizing the expense."""
+        """Create a plain-text message summarizing the expense."""
         payer = member_service.get_member_name_by_id(expense.payer_id)
 
-        # Dedicated message for loans
         if expense.category and expense.category.name.lower() == "prestamo":
             return (
                 f"💸 *{payer}* te prestó *${format_amount_es(expense.amount)}*"
@@ -276,7 +265,8 @@ class NotificationService:
 
         return "\n".join(summary)
 
-    async def notify_expense_updated(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+    async def notify_expense_updated(
         self,
         old: Expense,
         new: Expense,
@@ -288,8 +278,9 @@ class NotificationService:
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
         old_is_loan = old.category and old.category.name.lower() == "prestamo"
         new_is_loan = new.category and new.category.name.lower() == "prestamo"
+        is_loan = old_is_loan or new_is_loan
 
-        if old_is_loan or new_is_loan:
+        if is_loan:
             message = (
                 f"✏️ *{actor_name}* editó un préstamo.\n"
                 f"Antes: ${format_amount_es(old.amount)} el {old.date.strftime('%d/%m/%Y')}\n"
@@ -308,12 +299,15 @@ class NotificationService:
                 f"{new.date.strftime('%d/%m/%Y')} · {new_cat}"
             )
 
+        subject = "✏️ Préstamo actualizado" if is_loan else "✏️ Gasto actualizado"
+        html = self._build_html_expense_updated(old, new, actor_name, member_service)
+
         recipients = {
             m
             for m in members
             if m.id != actor.id and (self._is_involved_in_expense(old, m.id) or self._is_involved_in_expense(new, m.id))
         }
-        await self._broadcast(message, recipients, member_service)
+        await self._broadcast(message, recipients, member_service, subject=subject, html_content=html)
 
     async def notify_expense_deleted(
         self,
@@ -339,14 +333,24 @@ class NotificationService:
                 f"${format_amount_es(expense.amount)} · {expense.date.strftime('%d/%m/%Y')} · {cat}."
             )
 
-        recipients = {m for m in members if m.id != actor.id and self._is_involved_in_expense(expense, m.id)}
-        await self._broadcast(message, recipients, member_service)
+        subject = "🗑️ Préstamo eliminado" if is_loan else "🗑️ Gasto eliminado"
+        html = self._build_html_expense_deleted(expense, actor_name, member_service)
 
-    async def _broadcast(self, message: str, recipients, member_service: MemberService) -> None:
-        """Send a plain WhatsApp/email message to each recipient per their preference."""
+        recipients = {m for m in members if m.id != actor.id and self._is_involved_in_expense(expense, m.id)}
+        await self._broadcast(message, recipients, member_service, subject=subject, html_content=html)
+
+    async def _broadcast(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        message: str,
+        recipients,
+        member_service: MemberService,
+        subject: str = "Actualización de Gasto 📝",
+        html_content: str | None = None,
+    ) -> None:
+        """Send a message to each recipient per their notification preference."""
         for member in recipients:
             if member.notification_preference == NotificationType.EMAIL:
-                self._send_email(member.email, "Actualización de Gasto 📝", message)
+                self._send_email(member.email, subject, message, html_content=html_content)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
                 time_now = datetime.now(timezone.utc)
@@ -354,31 +358,202 @@ class NotificationService:
                     last_interacted = last_interacted.replace(tzinfo=timezone.utc)
                 days_since = (time_now - last_interacted).days if last_interacted else None
                 if last_interacted is None or (days_since is not None and days_since >= 1):
-                    # Outside the 24h window — no generic template for edits/deletes,
-                    # so skip to avoid a 404 from Meta on missing template.
                     print(f"Skipping WPP notification for {member.telephone}: outside 24h window")
                 else:
                     await self._send_whatsapp(member.telephone, message)
 
     def _remove_installments_from_description(self, description: str) -> str:
-        """Remove the installment suffix from the description.
-        i.e: "Gasto de prueba (1/2)" becomes "Gasto de prueba"
-        """
+        """Remove the installment suffix from the description."""
         return re.sub(r"\s*\(\d+\/\d+\)\s*$", "", description)
+
+    def _split_description(self, expense: Expense, member_service: MemberService) -> str:
+        """Return a short text summary of the split strategy."""
+        strategy = expense.split_strategy
+        if isinstance(strategy, PercentageSplit):
+            parts = [
+                f"{member_service.get_member_name_by_id(int(mid)) or mid}: {pct}%"
+                for mid, pct in strategy.percentages.items()
+            ]
+            return ", ".join(parts)
+        if isinstance(strategy, ExactAmountsSplit):
+            parts = [
+                f"{member_service.get_member_name_by_id(int(mid)) or mid}: ${amt:.2f}"
+                for mid, amt in strategy.amounts.items()
+            ]
+            return ", ".join(parts)
+        if isinstance(strategy, EqualSplit) and strategy.participant_ids:
+            names = [member_service.get_member_name_by_id(mid) or str(mid) for mid in strategy.participant_ids]
+            return f"Equitativo ({', '.join(names)})"
+        return "Equitativo"
+
+    def _expense_detail_rows(self, expense: Expense, member_service: MemberService) -> List[Tuple[str, str]]:
+        """Build label/value row pairs for an expense summary."""
+        payer = member_service.get_member_name_by_id(expense.payer_id) or "—"
+        desc = self._remove_installments_from_description(expense.description)
+        cat_name = expense.category.name if expense.category else "—"
+        cat_emoji = expense.category.get_category_emoji(cat_name) if expense.category else ""
+        rows: List[Tuple[str, str]] = [
+            ("Descripción", desc),
+            ("Monto", f"${format_amount_es(expense.amount)}"),
+            ("Fecha", expense.date.strftime("%d/%m/%Y")),
+            ("Categoría", f"{cat_name} {cat_emoji}".strip()),
+            ("Pagador", payer),
+            ("Pago", expense.payment_type),
+        ]
+        if expense.installments > 1:
+            rows.append(("Cuotas", str(expense.installments)))
+        rows.append(("División", self._split_description(expense, member_service)))
+        return rows
+
+    def _html_card(self, emoji: str, title: str, body_html: str, footer_note: str = "") -> str:
+        """Wrap body_html in the standard card layout."""
+        footer_row = ""
+        if footer_note:
+            footer_row = (
+                '<tr><td style="padding:20px 40px 32px;border-top:1px solid #f0f0f0;">'
+                f'<p style="margin:0;font-size:12px;color:#999;line-height:1.5;">{footer_note}</p>'
+                "</td></tr>"
+            )
+        return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0"
+        style="background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:#4f46e5;padding:32px 40px;text-align:center;">
+            <p style="margin:0;font-size:28px;">{emoji}</p>
+            <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Shared Expenses</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 40px;">
+            <h2 style="margin:0 0 20px;font-size:20px;color:#1a1a2e;">{title}</h2>
+            {body_html}
+          </td>
+        </tr>
+        {footer_row}
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    def _html_detail_table(self, rows: List[Tuple[str, str]]) -> str:
+        """Render a two-column label/value table."""
+        rows_html = "".join(
+            f"<tr>"
+            f'<td style="padding:7px 16px 7px 0;font-size:14px;color:#666;'
+            f'white-space:nowrap;vertical-align:top;">{label}</td>'
+            f'<td style="padding:7px 0;font-size:14px;color:#1a1a2e;font-weight:600;">{value}</td>'
+            f"</tr>"
+            for label, value in rows
+        )
+        return f'<table cellpadding="0" cellspacing="0" width="100%">{rows_html}</table>'
+
+    def _build_html_expense_created(self, expense: Expense, creator: Member, member_service: MemberService) -> str:
+        """Build HTML for a new-expense or new-loan notification email."""
+        payer = member_service.get_member_name_by_id(expense.payer_id) or "—"
+        is_loan = expense.category and expense.category.name.lower() == "prestamo"
+
+        if is_loan:
+            rows: List[Tuple[str, str]] = [
+                ("Prestador", payer),
+                ("Monto", f"${format_amount_es(expense.amount)}"),
+                ("Fecha", expense.date.strftime("%d/%m/%Y")),
+            ]
+            intro = (
+                f'<p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">'
+                f"<strong>{payer}</strong> registró un nuevo préstamo.</p>"
+            )
+            return self._html_card(
+                "💰",
+                "Nuevo préstamo",
+                intro + self._html_detail_table(rows),
+                footer_note="El saldo actualizado está disponible en la app.",
+            )
+
+        rows = self._expense_detail_rows(expense, member_service)
+        intro = (
+            f'<p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">'
+            f"<strong>{creator.name}</strong> registró un nuevo gasto.</p>"
+        )
+        return self._html_card("💸", "Nuevo gasto registrado", intro + self._html_detail_table(rows))
+
+    def _build_html_expense_updated(  # pylint: disable=too-many-locals
+        self, old: Expense, new: Expense, actor_name: str, member_service: MemberService
+    ) -> str:
+        """Build HTML for an expense-updated notification email."""
+        old_is_loan = old.category and old.category.name.lower() == "prestamo"
+        new_is_loan = new.category and new.category.name.lower() == "prestamo"
+        is_loan = old_is_loan or new_is_loan
+        title = "Préstamo actualizado" if is_loan else "Gasto actualizado"
+
+        if is_loan:
+            old_rows: List[Tuple[str, str]] = [
+                ("Monto", f"${format_amount_es(old.amount)}"),
+                ("Fecha", old.date.strftime("%d/%m/%Y")),
+            ]
+            new_rows: List[Tuple[str, str]] = [
+                ("Monto", f"${format_amount_es(new.amount)}"),
+                ("Fecha", new.date.strftime("%d/%m/%Y")),
+            ]
+        else:
+            old_rows = self._expense_detail_rows(old, member_service)
+            new_rows = self._expense_detail_rows(new, member_service)
+
+        kind = "préstamo" if is_loan else "gasto"
+        intro = (
+            f'<p style="margin:0 0 20px;font-size:15px;color:#444;line-height:1.6;">'
+            f"<strong>{actor_name}</strong> editó un {kind}.</p>"
+        )
+        before_header = (
+            '<div style="background:#fef2f2;border-radius:6px;padding:16px;margin-bottom:12px;">'
+            '<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#dc2626;'
+            'text-transform:uppercase;letter-spacing:.5px;">Antes</p>'
+        )
+        before_box = before_header + self._html_detail_table(old_rows) + "</div>"
+        after_header = (
+            '<div style="background:#f0fdf4;border-radius:6px;padding:16px;">'
+            '<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#16a34a;'
+            'text-transform:uppercase;letter-spacing:.5px;">Después</p>'
+        )
+        after_box = after_header + self._html_detail_table(new_rows) + "</div>"
+        return self._html_card("✏️", title, intro + before_box + after_box)
+
+    def _build_html_expense_deleted(self, expense: Expense, actor_name: str, member_service: MemberService) -> str:
+        """Build HTML for an expense-deleted notification email."""
+        is_loan = expense.category and expense.category.name.lower() == "prestamo"
+        title = "Préstamo eliminado" if is_loan else "Gasto eliminado"
+        kind = "préstamo" if is_loan else "gasto"
+
+        if is_loan:
+            payer = member_service.get_member_name_by_id(expense.payer_id) or "—"
+            rows: List[Tuple[str, str]] = [
+                ("Prestador", payer),
+                ("Monto", f"${format_amount_es(expense.amount)}"),
+                ("Fecha", expense.date.strftime("%d/%m/%Y")),
+            ]
+        else:
+            rows = self._expense_detail_rows(expense, member_service)
+
+        intro = (
+            f'<p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">'
+            f"<strong>{actor_name}</strong> eliminó el siguiente {kind}:</p>"
+        )
+        deleted_box = '<div style="background:#fef2f2;border-radius:6px;padding:16px;">'
+        deleted_box += self._html_detail_table(rows) + "</div>"
+        return self._html_card("🗑️", title, intro + deleted_box)
 
     def _create_expense_template_parameters(  # pylint: disable=too-many-locals
         self, expense: Expense, creator: Member, member_service: MemberService
     ) -> List[Dict[str, str]]:
-        """Create template parameters for WhatsApp template notification.
-
-        Args:
-            expense: The expense to create the parameters for
-            creator: The member who created the expense
-            member_service: The member service instance
-
-        Returns:
-            List of parameters for the WhatsApp template
-        """
+        """Create template parameters for WhatsApp template notification."""
         payer = member_service.get_member_name_by_id(expense.payer_id)
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
         description = (
@@ -405,7 +580,6 @@ class NotificationService:
             },
         ]
 
-        # Add division information
         division_text = ""
         if isinstance(expense.split_strategy, PercentageSplit):
             division_parts = []
