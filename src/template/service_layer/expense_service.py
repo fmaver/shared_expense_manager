@@ -57,6 +57,11 @@ class ExpenseService:
         self._group_repo = group_repo
         self._manager = ExpenseManager(repository, group_id, group_repo)
 
+    @property
+    def group_id(self) -> int:
+        """Return the group ID this service is scoped to."""
+        return self._group_id
+
     def get_group_name(self) -> Optional[str]:
         """Return the name of this service's group."""
         group = self._group_repo.get(self._group_id)

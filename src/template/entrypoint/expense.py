@@ -51,6 +51,7 @@ async def create_expense(
             member_service=member_service,
             group_name=group_name,
             multi_group_member_ids=multi_group_ids,
+            group_id=service.group_id,
         )
 
         # Create response data
@@ -106,6 +107,7 @@ async def update_expense(
             member_service=member_service,
             group_name=group_name,
             multi_group_member_ids=multi_group_ids,
+            group_id=service.group_id,
         )
 
         response_data = ExpenseResponse(
@@ -158,6 +160,7 @@ async def delete_expense(
                 member_service=member_service,
                 group_name=group_name,
                 multi_group_member_ids=multi_group_ids,
+                group_id=service.group_id,
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

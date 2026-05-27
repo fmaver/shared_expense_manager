@@ -233,6 +233,28 @@ def group_selector_message(number: str, groups: List[Any]) -> str:
     )
 
 
+def notification_message_with_buttons(number: str, body: str, app_url: str) -> str:
+    """Interactive notification with app URL in body and 'Entendido' quick reply button.
+
+    Used for expense created/updated/deleted notifications within the 24h window.
+    Replicates the template UX (visit-site link + acknowledge button) for free-form messages.
+    """
+    return json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": f"{body}\n\n🔗 {app_url}"},
+                "footer": {"text": "⚙️ Jirens Shared Expenses"},
+                "action": {"buttons": [{"type": "reply", "reply": {"id": "notif_ok", "title": "✅ Entendido"}}]},
+            },
+        }
+    )
+
+
 def category_select_message(number: str) -> str:
     """Build a list_reply with cat_<name> IDs for category selection."""
     categories = Category.get_numbered_categories_with_emoji()
@@ -674,7 +696,8 @@ def handle_greetings(  # pylint: disable=too-many-locals
         f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨{group_line}\n"
         "¿Cómo podemos ayudarte hoy?\n\n"
         "💡 Podés escribir _cancelar_ en cualquier momento para volver al inicio.\n"
-        "⚡ O escribí directamente, ej: _gasté $500 en el super_"
+        "⚡ Escribí directamente, ej: _gasté $500 en el super_\n"
+        "📷 O enviá una foto del comprobante o ticket"
     )
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
