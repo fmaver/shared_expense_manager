@@ -40,6 +40,8 @@ async def create_expense(
         # Get all members to notify
         member_repository = MemberRepository(db)
         members = member_repository.list()
+        group_name = service.get_group_name()
+        multi_group_ids = service.get_multi_group_member_ids(members)
 
         # Add notification task to background tasks
         notification_service = NotificationService()
@@ -49,6 +51,8 @@ async def create_expense(
             members=members,
             creator=current_member,
             member_service=member_service,
+            group_name=group_name,
+            multi_group_member_ids=multi_group_ids,
         )
 
         # Create response data
@@ -94,6 +98,8 @@ async def update_expense(
         # Schedule notification in background
         member_repository = MemberRepository(db)
         members = member_repository.list()
+        group_name = service.get_group_name()
+        multi_group_ids = service.get_multi_group_member_ids(members)
         notification_service = NotificationService()
         background_tasks.add_task(
             notification_service.notify_expense_updated,
@@ -102,6 +108,8 @@ async def update_expense(
             actor=current_member,
             members=members,
             member_service=member_service,
+            group_name=group_name,
+            multi_group_member_ids=multi_group_ids,
         )
 
         response_data = ExpenseResponse(
@@ -145,6 +153,8 @@ async def delete_expense(
         if expense_to_delete:
             member_repository = MemberRepository(db)
             members = member_repository.list()
+            group_name = service.get_group_name()
+            multi_group_ids = service.get_multi_group_member_ids(members)
             notification_service = NotificationService()
             background_tasks.add_task(
                 notification_service.notify_expense_deleted,
@@ -152,6 +162,8 @@ async def delete_expense(
                 actor=current_member,
                 members=members,
                 member_service=member_service,
+                group_name=group_name,
+                multi_group_member_ids=multi_group_ids,
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

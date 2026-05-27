@@ -578,6 +578,8 @@ def create_expense(
 
     # Get all members to notify
     members = service.get_members()
+    group_name = service.get_group_name()
+    multi_group_ids = service.get_multi_group_member_ids(members)
 
     # Get creator member by phone number
     member_creator = member_service.get_member_by_phone(number)
@@ -589,7 +591,16 @@ def create_expense(
         from template.service_layer.notification_service import NotificationService
 
         notification_service = NotificationService()
-        asyncio.run(notification_service.notify_expense_created(expense, members, member_creator, member_service))
+        asyncio.run(
+            notification_service.notify_expense_created(
+                expense,
+                members,
+                member_creator,
+                member_service,
+                group_name=group_name,
+                multi_group_member_ids=multi_group_ids,
+            )
+        )
 
 
 # al parecer para Argentina, whatsapp agrega 549 como prefijo en lugar de 54,
