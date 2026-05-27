@@ -456,14 +456,26 @@ class NotificationService:
         """Build template parameters for the expense_updated WhatsApp template."""
         old_desc = self._remove_installments_from_description(old.description)
         new_desc = self._remove_installments_from_description(new.description)
+
+        changes = []
+        if old_desc != new_desc:
+            changes.append(f"• Descripción: {old_desc} → {new_desc}")
+        if old.amount != new.amount:
+            changes.append(f"• Monto: ${format_amount_es(old.amount)} → ${format_amount_es(new.amount)}")
+        if old.date != new.date:
+            changes.append(f"• Fecha: {old.date.strftime('%d/%m/%Y')} → {new.date.strftime('%d/%m/%Y')}")
+        old_cat = old.category.name if old.category else "-"
+        new_cat = new.category.name if new.category else "-"
+        if old_cat != new_cat:
+            changes.append(f"• Categoría: {old_cat} → {new_cat}")
+        cambios = "\n".join(changes) if changes else "Sin cambios detectados"
+
         return [
-            {"type": "text", "parameter_name": "actor_name", "text": actor_name},
-            {"type": "text", "parameter_name": "old_descripcion", "text": old_desc},
-            {"type": "text", "parameter_name": "old_monto", "text": format_amount_es(old.amount)},
-            {"type": "text", "parameter_name": "old_fecha", "text": old.date.strftime("%d/%m/%Y")},
-            {"type": "text", "parameter_name": "new_descripcion", "text": new_desc},
-            {"type": "text", "parameter_name": "new_monto", "text": format_amount_es(new.amount)},
-            {"type": "text", "parameter_name": "new_fecha", "text": new.date.strftime("%d/%m/%Y")},
+            {"type": "text", "parameter_name": "actor", "text": actor_name},
+            {"type": "text", "parameter_name": "descripcion", "text": new_desc},
+            {"type": "text", "parameter_name": "fecha", "text": new.date.strftime("%d/%m/%Y")},
+            {"type": "text", "parameter_name": "monto", "text": format_amount_es(new.amount)},
+            {"type": "text", "parameter_name": "cambios", "text": cambios},
         ]
 
     def _create_expense_deleted_template_parameters(
@@ -474,7 +486,7 @@ class NotificationService:
         cat_name = expense.category.name if expense.category else "-"
         payer = member_service.get_member_name_by_id(expense.payer_id) or "-"
         return [
-            {"type": "text", "parameter_name": "actor_name", "text": actor_name},
+            {"type": "text", "parameter_name": "actor", "text": actor_name},
             {"type": "text", "parameter_name": "descripcion", "text": desc},
             {"type": "text", "parameter_name": "monto", "text": format_amount_es(expense.amount)},
             {"type": "text", "parameter_name": "fecha", "text": expense.date.strftime("%d/%m/%Y")},
