@@ -18,6 +18,7 @@ from template.domain.models.formatters import (
     format_date_es,
     format_member_name_es,
     format_payment_type_es,
+    month_name_es,
 )
 from template.domain.models.models import MonthlyShare
 from template.domain.models.pdf_builder import ExpensePDF
@@ -514,6 +515,20 @@ def administrar_chatbot(
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_waiting_for_duplicate_confirmation(
             number, estado_actual_usuario, text, service, member_service, interactive_id
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_respuesta_mes_saldado":
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_waiting_for_settled_response(
+            number, estado_actual_usuario, text, service, member_service, interactive_id
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_fecha_gasto_saldado":
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_waiting_for_settled_date(
+            number, estado_actual_usuario, text, service, member_service
         )
         user_responses.extend(responses)
 
@@ -1806,16 +1821,36 @@ def handle_waiting_for_confirmation(
 
     if "crear" in text.lower():  # Confirmed
         split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
-        create_expense(
-            number, estado_actual_usuario, service, split_strategy_dict=split_strategy, member_service=member_service
-        )
-        clean_estado_usuario(estado_actual_usuario)
-
-        body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
-        options = ["🏠 Ir al Inicio", "👋 No gracias"]
-        footer = "⚙️ Admin Gastos Compartidos ⚙️"
-        reply_button_data = button_reply_message(number, options, body, footer, "sed1")
-        user_responses.append(reply_button_data)
+        try:
+            create_expense(
+                number,
+                estado_actual_usuario,
+                service,
+                split_strategy_dict=split_strategy,
+                member_service=member_service,
+            )
+            clean_estado_usuario(estado_actual_usuario)
+            body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
+            options = ["🏠 Ir al Inicio", "👋 No gracias"]
+            footer = "⚙️ Admin Gastos Compartidos ⚙️"
+            reply_button_data = button_reply_message(number, options, body, footer, "sed1")
+            user_responses.append(reply_button_data)
+        except ValueError as exc:
+            if "está saldado" in str(exc):
+                expense_date = date.fromisoformat(estado_actual_usuario["expense_data"]["date"])
+                month_str = month_name_es(expense_date.month)
+                estado_actual_usuario["estado"] = "esperando_respuesta_mes_saldado"
+                body = f"⚠️ El balance de *{month_str} {expense_date.year}* está saldado.\n\n" "¿Qué querés hacer?"
+                reply_button_data = button_reply_message(
+                    number,
+                    ["🔓 Reabrir el mes", "📅 Cambiar la fecha"],
+                    body,
+                    "⚙️ Admin Gastos Compartidos ⚙️",
+                    "sed_settled",
+                )
+                user_responses.append(reply_button_data)
+            else:
+                raise
 
     else:  # Cancelled
         body = "Gasto cancelado. ¿Deseas realizar otra operación?"
@@ -1827,6 +1862,97 @@ def handle_waiting_for_confirmation(
 
         clean_estado_usuario(estado_actual_usuario)
 
+    return user_responses, estado_actual_usuario
+
+
+def handle_waiting_for_settled_response(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    service: ExpenseService,
+    member_service: MemberService,
+    interactive_id: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """User chose to reopen the month or change the date after a settled-month error."""
+    user_responses = []
+    reopening = interactive_id == "sed_settled_btn_1" or "reabrir" in text.lower()
+    change_date = interactive_id == "sed_settled_btn_2" or "cambiar" in text.lower()
+
+    if reopening:
+        expense_date = date.fromisoformat(estado_actual_usuario["expense_data"]["date"])
+        try:
+            service.unsettle_monthly_share(expense_date.year, expense_date.month)
+        except Exception:  # pylint: disable=broad-except
+            pass
+        split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
+        try:
+            create_expense(
+                number,
+                estado_actual_usuario,
+                service,
+                split_strategy_dict=split_strategy,
+                member_service=member_service,
+            )
+            clean_estado_usuario(estado_actual_usuario)
+            body = "✨ ¡El mes fue reabierto y el gasto registrado exitosamente!\n\n¿Deseas realizar otra operación?"
+        except Exception:  # pylint: disable=broad-except
+            clean_estado_usuario(estado_actual_usuario)
+            body = "❌ No se pudo registrar el gasto. Intentalo de nuevo."
+        options = ["🏠 Ir al Inicio", "👋 No gracias"]
+        user_responses.append(button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1"))
+
+    elif change_date:
+        estado_actual_usuario["estado"] = "esperando_fecha_gasto_saldado"
+        body = (
+            "📅 ¿Cuál es la nueva fecha del gasto?\n\n"
+            "_o escribí la fecha:_\n"
+            "_DD/MM/AAAA, DD-MM-AAAA, DD-MM o DD/MM (año actual)_"
+        )
+        user_responses.append(
+            button_reply_message(number, ["Hoy", "Ayer"], body, "⚙️ Admin Gastos Compartidos ⚙️", "sed_fecha_s")
+        )
+
+    else:
+        expense_date = date.fromisoformat(estado_actual_usuario["expense_data"]["date"])
+        month_str = month_name_es(expense_date.month)
+        body = f"⚠️ El balance de *{month_str} {expense_date.year}* está saldado.\n\n" "¿Qué querés hacer?"
+        user_responses.append(
+            button_reply_message(
+                number,
+                ["🔓 Reabrir el mes", "📅 Cambiar la fecha"],
+                body,
+                "⚙️ Admin Gastos Compartidos ⚙️",
+                "sed_settled",
+            )
+        )
+
+    return user_responses, estado_actual_usuario
+
+
+def handle_waiting_for_settled_date(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    service: ExpenseService,
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """User entered a new date after choosing to change it on a settled month."""
+    user_responses = []
+    try:
+        new_date = parse_user_date(text)
+        estado_actual_usuario["expense_data"]["date"] = new_date.isoformat()
+        conf_responses, estado_actual_usuario = _make_confirmation_response(
+            number, estado_actual_usuario, service, member_service
+        )
+        user_responses.extend(conf_responses)
+    except ValueError:
+        user_responses.append(
+            text_message(
+                number,
+                "❌ No pude entender la fecha. Podés escribir _hoy_, _ayer_, "
+                "o una fecha como _15/03/2025_, _15-03-2025_ o _15-03_.",
+            )
+        )
     return user_responses, estado_actual_usuario
 
 
