@@ -21,6 +21,7 @@ class ParsedExpense:  # pylint: disable=too-many-instance-attributes
     installments: int
     is_loan: bool = field(default=False)
     recipient_id: Optional[int] = field(default=None)
+    split_strategy: Optional[Dict[str, Any]] = field(default=None)
 
 
 def _build_prompt(
@@ -56,8 +57,7 @@ Triggered by: "gasté", "pagué", "compré", "fui a", "salí", or a named member
 - If no date mentioned → use today ({today.isoformat()})
 - "ayer" → use yesterday ({yesterday.isoformat()})
 - "el lunes/martes/miércoles/jueves/viernes" → most recent past occurrence of that weekday
-- If no payment type → "debit"; "tarjeta/crédito/credito" → "credit"
-- If no installments → 1; "en X cuotas" → installments = X
+- Description: short noun phrase, 2-4 words max.
 - Category inference (ONLY use categories from the list above):
   supermercado → groceries: coto, dia, carrefour, jumbo, verdulería, panadería, pollería, almacén, super
   salidas      → eating out / delivery: restaurant, resto, bar, pizzería, sushi, delivery, pedidos ya, rappi
@@ -69,7 +69,26 @@ Triggered by: "gasté", "pagué", "compré", "fui a", "salí", or a named member
   salud        → health: farmacia, médico, doctor, dentista, hospital, óptica, kinesiología
   mascota      → pets: veterinario, pet shop, alimento mascota, baño mascota
   otros        → fallback for anything not covered above
-- Description: short noun phrase, 2-4 words max.
+
+--- PAYMENT TYPE RULES ---
+- Default → "debit"
+- Any mention of installments (cuotas) implies credit even without the word "crédito":
+  "tarjeta", "crédito", "credito", "cuotas", "en cuotas", "X cuotas", "pague en X" → "credit"
+- "en X cuotas" → installments = X; "en cuotas" with no number → installments = 1; default → 1
+
+--- SPLIT STRATEGY RULES ---
+- If no split is mentioned → omit "split_strategy" from the JSON (the app defaults to equal among all)
+- If a split IS explicitly stated, include a "split_strategy" object:
+  * Equal among all:    "a partes iguales", "mitad y mitad", "dividimos", "entre todos"
+    → {{"type": "equal"}}
+  * Equal among subset: "entre X e Y" when only naming a subset of members
+    → {{"type": "equal", "participant_ids": [id1, id2]}}
+  * Percentage split:   "me corresponde el X%", "X% para mí, Y% para Z"
+    → {{"type": "percentage", "percentages": {{"<id1>": pct1, "<id2>": pct2}}}}  (must sum to 100)
+  * Exact amounts:      "me corresponden X y a Z Y", "yo pago X y Z paga Y"
+    → {{"type": "exact", "amounts": {{"<id1>": amt1, "<id2>": amt2}}}}  (must sum to total)
+  * "yo"/"me"/"mi" = current user (id={current_member_id})
+  * Use member IDs as string keys in percentages/amounts dicts (JSON requires string keys)
 
 --- LOAN RULES ---
 Triggered by: "presté", "le presté", "prestó", "me prestó", "le prestó".
@@ -92,7 +111,8 @@ If the message is a regular EXPENSE:
   "payer_id": <integer>,
   "date": "<YYYY-MM-DD>",
   "payment_type": "debit" or "credit",
-  "installments": <integer, default 1>
+  "installments": <integer, default 1>,
+  "split_strategy": <object or omit if default equal>
 }}
 
 If the message is a LOAN:
@@ -169,6 +189,7 @@ def parse_quick_expense(
                 recipient_id=int(data["recipient_id"]) if data.get("recipient_id") is not None else None,
             )
 
+        raw_strategy = data.get("split_strategy") or None
         return ParsedExpense(
             amount=float(data["amount"]),
             description=str(data["description"]),
@@ -177,6 +198,7 @@ def parse_quick_expense(
             expense_date=expense_date,
             payment_type=str(data.get("payment_type", "debit")),
             installments=int(data.get("installments", 1)),
+            split_strategy=raw_strategy,
         )
 
     except Exception as exc:  # pylint: disable=broad-except

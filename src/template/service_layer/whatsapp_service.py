@@ -1712,7 +1712,7 @@ def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positio
     estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
     estado_actual_usuario["expense_data"]["payment_type"] = parsed.payment_type
     estado_actual_usuario["expense_data"]["installments"] = parsed.installments
-    estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
+    estado_actual_usuario["expense_data"]["split_strategy"] = parsed.split_strategy or {"type": "equal"}
 
     return _make_confirmation_response(number, estado_actual_usuario, service, member_service)
 

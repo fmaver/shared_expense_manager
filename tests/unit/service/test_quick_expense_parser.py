@@ -82,6 +82,7 @@ class TestParseQuickExpense:
         assert result.expense_date == date(2026, 5, 26)
         assert result.payment_type == "debit"
         assert result.installments == 1
+        assert result.split_strategy is None
 
     def test_parses_third_person_payer(self):
         payload = {
@@ -118,6 +119,43 @@ class TestParseQuickExpense:
         assert result.payment_type == "credit"
         assert result.installments == 3
 
+    def test_cuotas_without_explicit_credito_implies_credit(self):
+        """'pague en 3 cuotas' should be parsed as credit even without the word 'crédito'."""
+        payload = {
+            "is_expense": True,
+            "amount": 5000.0,
+            "description": "zapatillas",
+            "category": "shopping",
+            "payer_id": 1,
+            "date": "2026-05-26",
+            "payment_type": "credit",
+            "installments": 3,
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("pague zapatillas en 3 cuotas $5000", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.payment_type == "credit"
+        assert result.installments == 3
+
+    def test_cuotas_without_number_implies_credit_1_installment(self):
+        """'pagué en cuotas' with no count should be credit with 1 installment."""
+        payload = {
+            "is_expense": True,
+            "amount": 3000.0,
+            "description": "ropa",
+            "category": "shopping",
+            "payer_id": 1,
+            "date": "2026-05-26",
+            "payment_type": "credit",
+            "installments": 1,
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("pagué ropa en cuotas $3000", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.payment_type == "credit"
+
     def test_returns_none_on_llm_exception(self):
         client = MagicMock()
         client.messages.create.side_effect = Exception("network error")
@@ -126,12 +164,9 @@ class TestParseQuickExpense:
         assert result is None
 
     def test_returns_none_on_invalid_json(self):
-        client = MagicMock()
-        client.messages.create.return_value = (
-            _mock_response.__wrapped__ if hasattr(_mock_response, "__wrapped__") else MagicMock()
-        )
         bad_msg = MagicMock()
         bad_msg.content = [MagicMock(text="not valid json {{")]
+        client = MagicMock()
         client.messages.create.return_value = bad_msg
         with patch("anthropic.Anthropic", return_value=client):
             result = parse_quick_expense("gasté $100", MEMBERS, CATEGORIES, 1, TODAY)
@@ -246,3 +281,167 @@ class TestParseQuickLoan:
         assert result is not None
         assert result.is_loan is True
         assert result.recipient_id is None
+
+
+class TestParseQuickExpenseSplitStrategy:
+    def test_no_split_mentioned_returns_none_split_strategy(self):
+        """When no split is mentioned the field should be None (bot defaults to equal)."""
+        payload = {
+            "is_expense": True,
+            "amount": 1000.0,
+            "description": "supermercado",
+            "category": "supermercado",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("gasté $1000 en el super", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.split_strategy is None
+
+    def test_explicit_equal_split(self):
+        """'a partes iguales' → split_strategy type equal."""
+        payload = {
+            "is_expense": True,
+            "amount": 2000.0,
+            "description": "cena",
+            "category": "salidas",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+            "split_strategy": {"type": "equal"},
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("salí a comer $2000 a partes iguales", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.split_strategy == {"type": "equal"}
+
+    def test_exact_amounts_split(self):
+        """'me corresponden X y a Guada Y' → exact split with per-member amounts."""
+        payload = {
+            "is_expense": True,
+            "amount": 2000.0,
+            "description": "supermercado",
+            "category": "supermercado",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+            "split_strategy": {"type": "exact", "amounts": {"1": 1500, "2": 500}},
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense(
+                "Pague 2000 en supermercado, me corresponden 1500 y a Guada 500",
+                MEMBERS,
+                CATEGORIES,
+                1,
+                TODAY,
+            )
+
+        assert result is not None
+        assert result.split_strategy is not None
+        assert result.split_strategy["type"] == "exact"
+        amounts = result.split_strategy["amounts"]
+        assert amounts["1"] == 1500
+        assert amounts["2"] == 500
+
+    def test_percentage_split(self):
+        """'me corresponde el 70% y a Guada el 30%' → percentage split."""
+        payload = {
+            "is_expense": True,
+            "amount": 5000.0,
+            "description": "alquiler",
+            "category": "casa",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+            "split_strategy": {"type": "percentage", "percentages": {"1": 70, "2": 30}},
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense(
+                "pagué el alquiler $5000, me corresponde el 70% y a Guada el 30%",
+                MEMBERS,
+                CATEGORIES,
+                1,
+                TODAY,
+            )
+
+        assert result is not None
+        assert result.split_strategy is not None
+        assert result.split_strategy["type"] == "percentage"
+        pcts = result.split_strategy["percentages"]
+        assert pcts["1"] == 70
+        assert pcts["2"] == 30
+
+    def test_equal_subset_split(self):
+        """'entre Fran y Guada' with extra members → equal with participant_ids subset."""
+        members_3 = [
+            {"id": 1, "name": "Fran"},
+            {"id": 2, "name": "Guada"},
+            {"id": 3, "name": "Pedro"},
+        ]
+        payload = {
+            "is_expense": True,
+            "amount": 3000.0,
+            "description": "cena",
+            "category": "salidas",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+            "split_strategy": {"type": "equal", "participant_ids": [1, 2]},
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense(
+                "pagué $3000 de cena entre Fran y Guada",
+                members_3,
+                CATEGORIES,
+                1,
+                TODAY,
+            )
+
+        assert result is not None
+        assert result.split_strategy is not None
+        assert result.split_strategy["type"] == "equal"
+        assert result.split_strategy["participant_ids"] == [1, 2]
+
+    def test_exact_split_implies_excludes_non_mentioned_members(self):
+        """Exact split with only 2 of 3 members means the third is excluded (0 share)."""
+        members_3 = [
+            {"id": 1, "name": "Fran"},
+            {"id": 2, "name": "Guada"},
+            {"id": 3, "name": "Pedro"},
+        ]
+        payload = {
+            "is_expense": True,
+            "amount": 2000.0,
+            "description": "supermercado",
+            "category": "supermercado",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+            "split_strategy": {"type": "exact", "amounts": {"1": 1500, "2": 500}},
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense(
+                "Pague 2000 en super, me corresponden 1500 y a Guada 500",
+                members_3,
+                CATEGORIES,
+                1,
+                TODAY,
+            )
+
+        assert result is not None
+        assert result.split_strategy["type"] == "exact"
+        amounts = result.split_strategy["amounts"]
+        # Pedro (id=3) is not mentioned → not in amounts dict
+        assert "3" not in amounts
+        assert amounts["1"] == 1500
+        assert amounts["2"] == 500
