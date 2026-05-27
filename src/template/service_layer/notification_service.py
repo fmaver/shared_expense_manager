@@ -48,7 +48,9 @@ class NotificationService:
             if not self._is_involved_in_expense(expense, member.id):
                 continue
 
-            effective_group = group_name if (group_name and multi_group_member_ids and member.id in multi_group_member_ids) else None
+            effective_group = (
+                group_name if (group_name and multi_group_member_ids and member.id in multi_group_member_ids) else None
+            )
 
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
@@ -63,7 +65,7 @@ class NotificationService:
             else:
                 print("No notification sent (preference is NONE)")
 
-    async def _send_wpp_expense_notification(
+    async def _send_wpp_expense_notification(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         member: Member,
         expense: Expense,
