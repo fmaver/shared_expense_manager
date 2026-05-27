@@ -28,6 +28,7 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.image_expense_parser import parse_image_expense
 from template.service_layer.member_service import MemberService
 from template.service_layer.quick_expense_parser import parse_quick_expense
 from template.service_layer.whatsapp_client import WhatsAppClient
@@ -526,10 +527,40 @@ def administrar_chatbot(
         )
         user_responses.extend(responses)
 
+    elif estado_actual_usuario["estado"] == "esperando_campo_a_editar":
+        responses, estado_actual_usuario = handle_waiting_for_field_selection(
+            number, estado_actual_usuario, interactive_id, member_service
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_nuevo_valor_campo":
+        responses, estado_actual_usuario = handle_waiting_for_new_value(
+            number, estado_actual_usuario, text, service, member_service
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_nueva_categoria_edicion":
+        responses, estado_actual_usuario = handle_waiting_for_new_category(
+            number, estado_actual_usuario, interactive_id, service, member_service
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_nuevo_pagador_edicion":
+        responses, estado_actual_usuario = handle_waiting_for_new_payer(
+            number, estado_actual_usuario, text, interactive_id, service, member_service
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_nuevo_tipo_pago_edicion":
+        responses, estado_actual_usuario = handle_waiting_for_new_payment_type(
+            number, estado_actual_usuario, text, interactive_id, service, member_service
+        )
+        user_responses.extend(responses)
+
     elif estado_actual_usuario["estado"] == "esperando_confirmacion":
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_waiting_for_confirmation(
-            number, estado_actual_usuario, text, service, member_service
+            number, estado_actual_usuario, text, service, member_service, interactive_id
         )
         user_responses.extend(responses)
 
@@ -1747,8 +1778,267 @@ def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positio
     estado_actual_usuario["expense_data"]["payment_type"] = parsed.payment_type
     estado_actual_usuario["expense_data"]["installments"] = parsed.installments
     estado_actual_usuario["expense_data"]["split_strategy"] = parsed.split_strategy or {"type": "equal"}
+    estado_actual_usuario["expense_data"]["from_parser"] = True
 
     return _make_confirmation_response(number, estado_actual_usuario, service, member_service)
+
+
+def handle_image_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    image_bytes: bytes,
+    mime_type: str,
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Parse an incoming image and drop into the confirmation flow."""
+    current_member = member_service.get_member_by_phone(number)
+    if current_member is None:
+        msg = text_message(number, "Lo siento, no pude identificarte. 🤔")
+        return [msg], estado_actual_usuario
+
+    categories = Category.get_user_categories()
+    parsed = parse_image_expense(image_bytes, mime_type, categories)
+
+    if parsed is None or parsed.amount is None:
+        msg = text_message(
+            number,
+            "😕 No pude leer el comprobante.\n\n¿Querés cargar el gasto manualmente? Tocá 💰 *Cargar Gasto*.",
+        )
+        return [msg], estado_actual_usuario
+
+    estado_actual_usuario["expense_data"]["service"] = "cargar gasto"
+    estado_actual_usuario["expense_data"]["amount"] = parsed.amount
+    estado_actual_usuario["expense_data"]["description"] = parsed.description
+    estado_actual_usuario["expense_data"]["category"] = parsed.category
+    estado_actual_usuario["expense_data"]["payer_id"] = current_member.id
+    estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
+    estado_actual_usuario["expense_data"]["payment_type"] = parsed.payment_type
+    estado_actual_usuario["expense_data"]["installments"] = 1
+    estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
+    estado_actual_usuario["expense_data"]["from_parser"] = True
+
+    prefix = "✅ Esto encontré en la imagen:" if parsed.confidence == "high" else "⚠️ No estoy seguro de todo, revisá:"
+    return _make_confirmation_response(number, estado_actual_usuario, service, member_service, header_prefix=prefix)
+
+
+# ---------------------------------------------------------------------------
+# Edit-field flow — shown on LLM-generated summaries (image + quick-expense)
+# ---------------------------------------------------------------------------
+
+_EDITABLE_FIELDS = [
+    ("edit_monto", "💰 Monto"),
+    ("edit_descripcion", "💬 Descripción"),
+    ("edit_fecha", "📅 Fecha"),
+    ("edit_categoria", "📂 Categoría"),
+    ("edit_pagador", "👤 Pagador"),
+    ("edit_tipo_pago", "💳 Tipo de pago"),
+]
+
+
+def _field_edit_menu(number: str) -> str:
+    """Return a list-reply message with the editable expense fields."""
+    rows = [{"id": fid, "title": label, "description": ""} for fid, label in _EDITABLE_FIELDS]
+    return json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": number,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": "¿Qué campo querés editar?"},
+                "footer": {"text": "⚙️ Admin Gastos Compartidos ⚙️"},
+                "action": {"button": "Ver Campos", "sections": [{"title": "Campos", "rows": rows}]},
+            },
+        }
+    )
+
+
+def handle_waiting_for_field_selection(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    interactive_id: Optional[str],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """User picked which field to edit from the edit menu."""
+    if not interactive_id or not interactive_id.startswith("edit_"):
+        msg = text_message(number, "Por favor seleccioná un campo de la lista.")
+        return [msg], estado_actual_usuario
+
+    field_id = interactive_id  # e.g. "edit_monto"
+
+    if field_id == "edit_categoria":
+        estado_actual_usuario["estado"] = "esperando_nueva_categoria_edicion"
+        return [category_select_message(number)], estado_actual_usuario
+
+    if field_id == "edit_pagador":
+        members = member_service.list_members()
+        options = [m.name for m in members]
+        member_ids = [m.id for m in members]
+        estado_actual_usuario["expense_data"]["_edit_member_ids"] = member_ids
+        msg = member_select_message(
+            number, options, "👤 ¿Quién pagó el gasto?", "⚙️ Admin Gastos Compartidos ⚙️", "edit_pag"
+        )
+        estado_actual_usuario["estado"] = "esperando_nuevo_pagador_edicion"
+        return [msg], estado_actual_usuario
+
+    if field_id == "edit_tipo_pago":
+        msg = button_reply_message(
+            number,
+            ["💳 Débito", "💳 Crédito 1 cuota", "💳 Crédito en cuotas"],
+            "¿Cómo se pagó?",
+            "⚙️ Admin Gastos Compartidos ⚙️",
+            "edit_pago",
+        )
+        estado_actual_usuario["estado"] = "esperando_nuevo_tipo_pago_edicion"
+        return [msg], estado_actual_usuario
+
+    # Free-text fields: monto, descripcion, fecha
+    prompts = {
+        "edit_monto": "💰 Ingresá el nuevo monto:\n\n✨ Ejemplo: 1500 o 1500,50",
+        "edit_descripcion": "💬 Ingresá la nueva descripción:",
+        "edit_fecha": (
+            "📅 Ingresá la nueva fecha:\n\n" "_Podés escribir: hoy, ayer, DD/MM/AAAA, DD-MM-AAAA, DD/MM o DD-MM_"
+        ),
+    }
+    prompt_text = prompts.get(field_id, "Ingresá el nuevo valor:")
+    estado_actual_usuario["expense_data"]["_editing_field"] = field_id
+    estado_actual_usuario["estado"] = "esperando_nuevo_valor_campo"
+    return [text_message(number, prompt_text)], estado_actual_usuario
+
+
+def _apply_field_edit_and_confirm(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """After any field edit, show the updated summary and return to confirmation."""
+    estado_actual_usuario["expense_data"].pop("_editing_field", None)
+    estado_actual_usuario["expense_data"].pop("_edit_member_ids", None)
+    return _make_confirmation_response(number, estado_actual_usuario, service, member_service)
+
+
+def handle_waiting_for_new_value(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Handle free-text input for monto / descripcion / fecha edits."""
+    field_id = estado_actual_usuario["expense_data"].get("_editing_field", "")
+
+    if field_id == "edit_monto":
+        normalized = text.strip().replace(",", ".")
+        try:
+            amount = float(normalized)
+            if amount <= 0:
+                raise ValueError("non-positive")
+            estado_actual_usuario["expense_data"]["amount"] = amount
+        except ValueError:
+            return [
+                text_message(number, "❌ Monto inválido. Ingresá un número, ej: 1500 o 1500,50")
+            ], estado_actual_usuario
+
+    elif field_id == "edit_descripcion":
+        desc = text.strip()
+        if not desc:
+            return [text_message(number, "❌ La descripción no puede estar vacía.")], estado_actual_usuario
+        estado_actual_usuario["expense_data"]["description"] = desc
+
+    elif field_id == "edit_fecha":
+        try:
+            parsed_date = parse_user_date(text.strip())
+            estado_actual_usuario["expense_data"]["date"] = parsed_date.isoformat()
+        except ValueError:
+            return [
+                text_message(number, "❌ Fecha inválida. Usá: hoy, ayer, DD/MM/AAAA, DD-MM-AAAA, DD/MM o DD-MM")
+            ], estado_actual_usuario
+
+    return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
+
+
+def handle_waiting_for_new_category(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    interactive_id: Optional[str],
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Handle category selection during an edit."""
+    if interactive_id and interactive_id.startswith("cat_"):
+        category = interactive_id[len("cat_") :]
+        estado_actual_usuario["expense_data"]["category"] = category
+        return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
+    return [text_message(number, "Por favor seleccioná una categoría de la lista.")], estado_actual_usuario
+
+
+def handle_waiting_for_new_payer(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    interactive_id: Optional[str],
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Handle payer selection during an edit."""
+    member_ids: List[int] = estado_actual_usuario["expense_data"].get("_edit_member_ids", [])
+    members = member_service.list_members()
+
+    selected_id: Optional[int] = None
+    if interactive_id and interactive_id.startswith("edit_pag_"):
+        try:
+            idx = int(interactive_id.split("_")[-1]) - 1
+            if 0 <= idx < len(members):
+                selected_id = members[idx].id
+        except (ValueError, IndexError):
+            pass
+
+    if selected_id is None:
+        # Fallback: name match
+        lower = text.strip().lower()
+        for m in members:
+            if m.name.lower() == lower:
+                selected_id = m.id
+                break
+
+    if selected_id is None:
+        return [
+            text_message(number, "No encontré ese miembro. Por favor seleccioná de la lista.")
+        ], estado_actual_usuario
+
+    estado_actual_usuario["expense_data"]["payer_id"] = selected_id
+    _ = member_ids  # consumed
+    return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
+
+
+def handle_waiting_for_new_payment_type(
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    interactive_id: Optional[str],
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Handle payment type selection during an edit."""
+    is_credit_single = interactive_id == "edit_pago_btn_2" or "1 cuota" in text.lower()
+    is_credit_multi = interactive_id == "edit_pago_btn_3" or ("cuota" in text.lower() and "1 cuota" not in text.lower())
+
+    if is_credit_single:
+        estado_actual_usuario["expense_data"]["payment_type"] = "credit"
+        estado_actual_usuario["expense_data"]["installments"] = 1
+    elif is_credit_multi:
+        estado_actual_usuario["expense_data"]["payment_type"] = "credit"
+        estado_actual_usuario["expense_data"]["installments"] = estado_actual_usuario["expense_data"].get(
+            "installments", 1
+        )
+    else:
+        estado_actual_usuario["expense_data"]["payment_type"] = "debit"
+        estado_actual_usuario["expense_data"]["installments"] = 1
+
+    return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
 
 
 def _make_confirmation_response(  # pylint: disable=too-many-locals
@@ -1756,6 +2046,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
     estado_actual_usuario: Dict[str, Any],
     service: Optional[ExpenseService],
     member_service: MemberService,
+    header_prefix: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Check for duplicates then build either a duplicate warning or the normal confirmation message.
 
@@ -1802,12 +2093,19 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
             return [dup_msg], estado_actual_usuario
 
     summary = get_expense_summary(expense_data, member_service)
+    if header_prefix:
+        summary = f"{header_prefix}\n\n{summary}"
+
+    from_parser = expense_data.get("from_parser", False)
     if is_loan:
         body = f"{summary}\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
     else:
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
+
+    if from_parser and not is_loan:
+        options.append("✏️ Editar campo")
 
     msg = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
     estado_actual_usuario["estado"] = "esperando_confirmacion"
@@ -1843,15 +2141,21 @@ def handle_waiting_for_duplicate_confirmation(
     return user_responses, estado_actual_usuario
 
 
-def handle_waiting_for_confirmation(
+def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals
     number: str,
     estado_actual_usuario: Dict[str, Any],
     text: str,
     service: ExpenseService,
     member_service: MemberService,
+    interactive_id: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for confirmation"""
     user_responses = []
+
+    is_edit = interactive_id == "sed1_btn_3" or "editar" in text.lower()
+    if is_edit:
+        estado_actual_usuario["estado"] = "esperando_campo_a_editar"
+        return [_field_edit_menu(number)], estado_actual_usuario
 
     if "crear" in text.lower():  # Confirmed
         split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]

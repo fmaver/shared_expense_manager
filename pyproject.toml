@@ -27,6 +27,7 @@ bcrypt = "^4.1.2"
 httpx = "0.25.2"
 fpdf2 = "^2.8.7"
 anthropic = "^0.40"
+google-genai = ">=1.0,<2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
