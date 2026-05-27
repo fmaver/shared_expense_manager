@@ -48,8 +48,7 @@ class NotificationService:
             if not self._is_involved_in_expense(expense, member.id):
                 continue
 
-            show_group = bool(group_name and multi_group_member_ids and member.id in multi_group_member_ids)
-            effective_group = group_name if show_group else None
+            effective_group = group_name if (group_name and multi_group_member_ids and member.id in multi_group_member_ids) else None
 
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
@@ -59,30 +58,38 @@ class NotificationService:
                 self._send_email(member.email, subject, message, html_content=html)
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
-                print(f"Sending WhatsApp notification to {member.telephone}")
-                last_interacted_with_wpp = member_service.get_last_wpp_chat_time(member)
-                time_now = datetime.now(timezone.utc)
-
-                if last_interacted_with_wpp and not last_interacted_with_wpp.tzinfo:
-                    last_interacted_with_wpp = last_interacted_with_wpp.replace(tzinfo=timezone.utc)
-
-                time_difference_days = None
-                if last_interacted_with_wpp:
-                    time_difference_days = (time_now - last_interacted_with_wpp).days
-
-                if last_interacted_with_wpp is None or (time_difference_days is not None and time_difference_days >= 1):
-                    parameters = self._create_expense_template_parameters(expense, creator, member_service)
-                    print("Sending template message")
-                    await self._send_whatsapp_template(member.telephone, parameters)
-                else:
-                    message = self._create_expense_message(expense, creator, member_service)
-                    if effective_group:
-                        message = f"📁 *{effective_group}*\n\n{message}"
-                    print("Sending regular message")
-                    await self._send_whatsapp(member.telephone, message)
+                await self._send_wpp_expense_notification(member, expense, creator, member_service, effective_group)
 
             else:
                 print("No notification sent (preference is NONE)")
+
+    async def _send_wpp_expense_notification(
+        self,
+        member: Member,
+        expense: Expense,
+        creator: Member,
+        member_service: MemberService,
+        effective_group: Optional[str],
+    ) -> None:
+        print(f"Sending WhatsApp notification to {member.telephone}")
+        last_interacted = member_service.get_last_wpp_chat_time(member)
+        time_now = datetime.now(timezone.utc)
+
+        if last_interacted and not last_interacted.tzinfo:
+            last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+
+        if last_interacted is None or (time_now - last_interacted).days >= 1:
+            print("Sending template message")
+            await self._send_whatsapp_template(
+                member.telephone,
+                self._create_expense_template_parameters(expense, creator, member_service),
+            )
+        else:
+            message = self._create_expense_message(expense, creator, member_service)
+            if effective_group:
+                message = f"📁 *{effective_group}*\n\n{message}"
+            print("Sending regular message")
+            await self._send_whatsapp(member.telephone, message)
 
     def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
         """Send a group invitation email via Brevo."""
