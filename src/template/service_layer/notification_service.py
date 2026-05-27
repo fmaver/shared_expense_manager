@@ -15,6 +15,7 @@ from template.domain.models.split import EqualSplit, ExactAmountsSplit, Percenta
 from template.service_layer.member_service import MemberService
 from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
+    notification_message_with_buttons,
     template_message,
     text_message,
 )
@@ -36,6 +37,7 @@ class NotificationService:
         member_service: MemberService,
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
+        group_id: Optional[int] = None,
     ) -> None:
         """Notify members about a new expense based on their notification preferences."""
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
@@ -48,9 +50,8 @@ class NotificationService:
             if not self._is_involved_in_expense(expense, member.id):
                 continue
 
-            effective_group = (
-                group_name if (group_name and multi_group_member_ids and member.id in multi_group_member_ids) else None
-            )
+            is_multi = bool(multi_group_member_ids and member.id in multi_group_member_ids)
+            effective_group = group_name if (group_name and is_multi) else None
 
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
@@ -60,7 +61,9 @@ class NotificationService:
                 self._send_email(member.email, subject, message, html_content=html)
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
-                await self._send_wpp_expense_notification(member, expense, creator, member_service, effective_group)
+                await self._send_wpp_expense_notification(
+                    member, expense, creator, member_service, effective_group, group_id=group_id, is_multi=is_multi
+                )
 
             else:
                 print("No notification sent (preference is NONE)")
@@ -72,6 +75,8 @@ class NotificationService:
         creator: Member,
         member_service: MemberService,
         effective_group: Optional[str],
+        group_id: Optional[int] = None,
+        is_multi: bool = False,
     ) -> None:
         print(f"Sending WhatsApp notification to {member.telephone}")
         last_interacted = member_service.get_last_wpp_chat_time(member)
@@ -84,14 +89,17 @@ class NotificationService:
             print("Sending template message")
             await self._send_whatsapp_template(
                 member.telephone,
+                "expense_notification",
                 self._create_expense_template_parameters(expense, creator, member_service),
             )
         else:
             message = self._create_expense_message(expense, creator, member_service)
             if effective_group:
                 message = f"📁 *{effective_group}*\n\n{message}"
+            message = "📝 Notamos un nuevo Gasto\nA continuación puede ver un resumen👇\n\n" + message
+            app_url = self._build_app_url(group_id, is_multi)
             print("Sending regular message")
-            await self._send_whatsapp(member.telephone, message)
+            await self._send_whatsapp(member.telephone, message, app_url=app_url)
 
     def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
         """Send a group invitation email via Brevo."""
@@ -195,11 +203,13 @@ class NotificationService:
         except requests.RequestException as e:
             print(f"Failed to send email to {to_email}: {str(e)}")
 
-    async def _send_whatsapp(self, phone_number: str, message: str) -> None:
-        """Send a WhatsApp notification."""
-        message = "📝 Notamos un nuevo Gasto\nA continuación puede ver un resumen👇\n\n" + message
+    async def _send_whatsapp(self, phone_number: str, message: str, app_url: Optional[str] = None) -> None:
+        """Send a WhatsApp notification, with interactive buttons when app_url is provided."""
         try:
-            message_data = text_message(phone_number, message)
+            if app_url:
+                message_data = notification_message_with_buttons(phone_number, message, app_url)
+            else:
+                message_data = text_message(phone_number, message)
             response = enviar_mensaje_whatsapp(message_data)
 
             if response.get("status_code") == 200:
@@ -210,10 +220,12 @@ class NotificationService:
         except (requests.RequestException, ValueError, ConnectionError) as e:
             print(f"Failed to send WhatsApp message to {phone_number}: {str(e)}")
 
-    async def _send_whatsapp_template(self, phone_number: str, parameters: List[Dict[str, Any]]) -> None:
-        """Send a WhatsApp notification using a template."""
+    async def _send_whatsapp_template(
+        self, phone_number: str, template_name: str, parameters: List[Dict[str, Any]]
+    ) -> None:
+        """Send a WhatsApp notification using a named template."""
         try:
-            message_data = template_message(phone_number, "expense_notification", "es_AR", parameters)
+            message_data = template_message(phone_number, template_name, "es_AR", parameters)
             response = enviar_mensaje_whatsapp(message_data)
 
             if response.get("status_code") == 200:
@@ -297,6 +309,7 @@ class NotificationService:
         member_service: MemberService,
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
+        group_id: Optional[int] = None,
     ) -> None:
         """Notify members (union of old+new involved, minus actor) about an edited expense."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -334,6 +347,7 @@ class NotificationService:
             group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
         )
         html = self._build_html_expense_updated(old, new, actor_name, member_service, group_name=html_group)
+        template_params = self._create_expense_updated_template_parameters(old, new, actor_name)
         await self._broadcast(
             message,
             recipients,
@@ -342,6 +356,9 @@ class NotificationService:
             html_content=html,
             group_name=group_name,
             multi_group_member_ids=multi_group_member_ids,
+            group_id=group_id,
+            template_name="expense_updated",
+            template_parameters=template_params,
         )
 
     async def notify_expense_deleted(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -352,6 +369,7 @@ class NotificationService:
         member_service: MemberService,
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
+        group_id: Optional[int] = None,
     ) -> None:
         """Notify involved members (minus actor) that an expense was deleted."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -376,6 +394,7 @@ class NotificationService:
             group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
         )
         html = self._build_html_expense_deleted(expense, actor_name, member_service, group_name=html_group)
+        template_params = self._create_expense_deleted_template_parameters(expense, actor_name, member_service)
         await self._broadcast(
             message,
             recipients,
@@ -384,6 +403,9 @@ class NotificationService:
             html_content=html,
             group_name=group_name,
             multi_group_member_ids=multi_group_member_ids,
+            group_id=group_id,
+            template_name="expense_deleted",
+            template_parameters=template_params,
         )
 
     async def _broadcast(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -395,10 +417,14 @@ class NotificationService:
         html_content: str | None = None,
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
+        group_id: Optional[int] = None,
+        template_name: Optional[str] = None,
+        template_parameters: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Send a message to each recipient per their notification preference."""
         for member in recipients:
-            show_group = bool(group_name and multi_group_member_ids and member.id in multi_group_member_ids)
+            is_multi = bool(multi_group_member_ids and member.id in multi_group_member_ids)
+            show_group = bool(group_name and is_multi)
             if member.notification_preference == NotificationType.EMAIL:
                 self._send_email(member.email, subject, message, html_content=html_content)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
@@ -408,10 +434,53 @@ class NotificationService:
                     last_interacted = last_interacted.replace(tzinfo=timezone.utc)
                 days_since = (time_now - last_interacted).days if last_interacted else None
                 if last_interacted is None or (days_since is not None and days_since >= 1):
-                    print(f"Skipping WPP notification for {member.telephone}: outside 24h window")
+                    if template_name and template_parameters is not None:
+                        await self._send_whatsapp_template(member.telephone, template_name, template_parameters)
+                    else:
+                        print(f"Skipping WPP notification for {member.telephone}: outside 24h window")
                 else:
                     wa_message = f"📁 *{group_name}*\n\n{message}" if show_group else message
-                    await self._send_whatsapp(member.telephone, wa_message)
+                    app_url = self._build_app_url(group_id, is_multi)
+                    await self._send_whatsapp(member.telephone, wa_message, app_url=app_url)
+
+    def _build_app_url(self, group_id: Optional[int], is_multi: bool) -> str:
+        """Build the app URL for the notification, scoping to a specific group for multi-group members."""
+        base = os.getenv("APP_BASE_URL", "http://localhost:5173")
+        if group_id and is_multi:
+            return f"{base}/groups/{group_id}"
+        return base
+
+    def _create_expense_updated_template_parameters(
+        self, old: Expense, new: Expense, actor_name: str
+    ) -> List[Dict[str, str]]:
+        """Build template parameters for the expense_updated WhatsApp template."""
+        old_desc = self._remove_installments_from_description(old.description)
+        new_desc = self._remove_installments_from_description(new.description)
+        return [
+            {"type": "text", "parameter_name": "actor_name", "text": actor_name},
+            {"type": "text", "parameter_name": "old_descripcion", "text": old_desc},
+            {"type": "text", "parameter_name": "old_monto", "text": format_amount_es(old.amount)},
+            {"type": "text", "parameter_name": "old_fecha", "text": old.date.strftime("%d/%m/%Y")},
+            {"type": "text", "parameter_name": "new_descripcion", "text": new_desc},
+            {"type": "text", "parameter_name": "new_monto", "text": format_amount_es(new.amount)},
+            {"type": "text", "parameter_name": "new_fecha", "text": new.date.strftime("%d/%m/%Y")},
+        ]
+
+    def _create_expense_deleted_template_parameters(
+        self, expense: Expense, actor_name: str, member_service: MemberService
+    ) -> List[Dict[str, str]]:
+        """Build template parameters for the expense_deleted WhatsApp template."""
+        desc = self._remove_installments_from_description(expense.description)
+        cat_name = expense.category.name if expense.category else "-"
+        payer = member_service.get_member_name_by_id(expense.payer_id) or "-"
+        return [
+            {"type": "text", "parameter_name": "actor_name", "text": actor_name},
+            {"type": "text", "parameter_name": "descripcion", "text": desc},
+            {"type": "text", "parameter_name": "monto", "text": format_amount_es(expense.amount)},
+            {"type": "text", "parameter_name": "fecha", "text": expense.date.strftime("%d/%m/%Y")},
+            {"type": "text", "parameter_name": "categoria", "text": cat_name},
+            {"type": "text", "parameter_name": "pagador", "text": payer},
+        ]
 
     def _remove_installments_from_description(self, description: str) -> str:
         """Remove the installment suffix from the description."""
