@@ -10,13 +10,16 @@ log = logging.getLogger(__name__)
 
 
 class WhatsAppClient(Protocol):
-    """Interface for sending WhatsApp messages and uploading media."""
+    """Interface for sending WhatsApp messages and uploading/downloading media."""
 
     def send_message(self, data: str) -> Dict[str, Any]:
         """Send a pre-serialised JSON message payload."""
 
     def upload_media(self, file_path: str) -> Tuple[str, int]:
         """Upload a file and return (media_id, status_code)."""
+
+    def download_media(self, media_id: str) -> Tuple[bytes, str]:
+        """Download a media file by ID. Returns (bytes, mime_type)."""
 
 
 class MetaWhatsAppClient:
@@ -68,3 +71,27 @@ class MetaWhatsAppClient:
             return "Error al enviar documento", resp.status_code
         except requests.exceptions.RequestException as e:
             return str(e), 403
+
+    def download_media(self, media_id: str) -> Tuple[bytes, str]:
+        """Download a WhatsApp media file by ID. Returns (bytes, mime_type).
+
+        Two-step: first resolve the media URL via the Graph API, then download.
+        """
+        token = os.getenv("WHATSAPP_TOKEN")
+        if not token:
+            raise ValueError("WHATSAPP_TOKEN is not set")
+        headers = {"Authorization": f"Bearer {token}"}
+        # Step 1: resolve the download URL
+        meta_resp = requests.get(
+            f"https://graph.facebook.com/v20.0/{media_id}",
+            headers=headers,
+            timeout=10,
+        )
+        meta_resp.raise_for_status()
+        meta = meta_resp.json()
+        media_url: str = meta["url"]
+        mime_type: str = meta.get("mime_type", "image/jpeg")
+        # Step 2: download the binary
+        dl_resp = requests.get(media_url, headers=headers, timeout=30)
+        dl_resp.raise_for_status()
+        return dl_resp.content, mime_type

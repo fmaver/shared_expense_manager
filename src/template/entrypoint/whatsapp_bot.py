@@ -26,6 +26,7 @@ from template.service_layer.whatsapp_client import WhatsAppClient
 from template.service_layer.whatsapp_service import (
     administrar_chatbot,
     group_selector_message,
+    handle_image_expense,
     mark_read_message,
     obtener_interactive_id_whatsapp,
     obtener_mensaje_whatsapp,
@@ -56,6 +57,8 @@ def _resolve_group_id(
     groups: List[Any],
     wpp_client: WhatsAppClient,
     text: str = "",
+    image_media_id: str | None = None,
+    image_mime_type: str = "image/jpeg",
 ) -> Optional[int]:
     """Return the group_id for this session, or None if the user must still pick a group.
 
@@ -85,8 +88,12 @@ def _resolve_group_id(
         _send_group_selector(number, message_id, groups, wpp_client)
         return None
 
-    # First message with multiple groups — save text for replay, then prompt to select
-    estado["pending_quick_message"] = text
+    # First message with multiple groups — save text or image for replay, then prompt to select
+    if image_media_id:
+        estado["pending_image_media_id"] = image_media_id
+        estado["pending_image_mime_type"] = image_mime_type
+    else:
+        estado["pending_quick_message"] = text
     estado["estado"] = "esperando_seleccion_grupo"
     _send_group_selector(number, message_id, groups, wpp_client)
     return None
@@ -189,12 +196,43 @@ def _handle_group_invite_response(
     estado.pop("pending_invitation_token", None)
 
 
+def _process_image_message(  # pylint: disable=too-many-locals
+    number: str,
+    message_id: str,
+    estado: Dict[str, Any],
+    image_media_id: str,
+    image_mime_type: str,
+    expense_service: ExpenseService,
+    member_service: MemberService,
+    wpp_client: WhatsAppClient,
+    session_repo: ChatSessionRepository,
+) -> None:
+    """Download an image and parse it as an expense, sending confirmation messages."""
+    wpp_client.send_message(mark_read_message(message_id))
+    try:
+        image_bytes, resolved_mime = wpp_client.download_media(image_media_id)
+        mime = resolved_mime or image_mime_type
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Failed to download image %s: %s", image_media_id, exc)
+        wpp_client.send_message(
+            text_message(number, "😕 No pude descargar la imagen. Intentá de nuevo o cargá el gasto manualmente.")
+        )
+        session_repo.save(number, estado)
+        return
+    responses, nuevo_estado = handle_image_expense(number, estado, image_bytes, mime, expense_service, member_service)
+    for item in responses:
+        wpp_client.send_message(item)
+    session_repo.save(number, nuevo_estado)
+
+
 def _process_message(  # pylint: disable=too-many-locals,too-many-return-statements
     text: str,
     number: str,
     message_id: str,
     wpp_client: WhatsAppClient,
     interactive_id: str | None = None,
+    image_media_id: str | None = None,
+    image_mime_type: str = "image/jpeg",
 ) -> None:
     """Run chatbot logic in a background task with its own DB session."""
     with SessionLocal() as db:
@@ -265,7 +303,17 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             return
 
         was_awaiting_group = estado.get("estado") == "esperando_seleccion_grupo"
-        group_id = _resolve_group_id(number, message_id, interactive_id, estado, groups, wpp_client, text)
+        group_id = _resolve_group_id(
+            number,
+            message_id,
+            interactive_id,
+            estado,
+            groups,
+            wpp_client,
+            text,
+            image_media_id,
+            image_mime_type,
+        )
         if group_id is None:
             # Group selection prompt was sent; wait for user response
             session_repo.save(number, estado)
@@ -280,7 +328,28 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
         # Group was just picked — replay a saved quick-expense message if present,
         # otherwise synthesise a greeting so the user lands on the main menu.
         if was_awaiting_group:
-            text = estado.pop("pending_quick_message", None) or "hola"
+            pending_image = estado.pop("pending_image_media_id", None)
+            pending_mime = estado.pop("pending_image_mime_type", "image/jpeg")
+            if pending_image:
+                image_media_id = pending_image
+                image_mime_type = pending_mime
+            else:
+                text = estado.pop("pending_quick_message", None) or "hola"
+
+        if image_media_id:
+            # Image message: download and parse instead of going through the text chatbot
+            _process_image_message(
+                number,
+                message_id,
+                estado,
+                image_media_id,
+                image_mime_type,
+                expense_service,
+                member_service,
+                wpp_client,
+                session_repo,
+            )
+            return
 
         nuevo_estado = administrar_chatbot(
             text, number, message_id, estado, expense_service, member_service, wpp_client, interactive_id, groups=groups
@@ -309,7 +378,7 @@ async def verificar_token(request: Request) -> str:
 
 
 @router.post("/webhook", response_class=PlainTextResponse)
-async def recibir_mensajes(
+async def recibir_mensajes(  # pylint: disable=too-many-locals
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -327,6 +396,12 @@ async def recibir_mensajes(
         message_id = message["id"]
         text = obtener_mensaje_whatsapp(message)
         interactive_id = obtener_interactive_id_whatsapp(message)
+        # Detect image messages
+        image_media_id: str | None = None
+        image_mime_type = "image/jpeg"
+        if message.get("type") == "image":
+            image_media_id = message["image"].get("id")
+            image_mime_type = message["image"].get("mime_type", "image/jpeg")
     except (KeyError, IndexError, ValueError):
         return "ok"
 
@@ -334,5 +409,14 @@ async def recibir_mensajes(
         logger.info("Duplicate message_id %s ignored", message_id)
         return "ok"
 
-    background_tasks.add_task(_process_message, text, number, message_id, wpp_client, interactive_id)
+    background_tasks.add_task(
+        _process_message,
+        text,
+        number,
+        message_id,
+        wpp_client,
+        interactive_id,
+        image_media_id,
+        image_mime_type,
+    )
     return "ok"
