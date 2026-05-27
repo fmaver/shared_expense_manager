@@ -55,6 +55,7 @@ def _resolve_group_id(
     estado: Dict[str, Any],
     groups: List[Any],
     wpp_client: WhatsAppClient,
+    text: str = "",
 ) -> Optional[int]:
     """Return the group_id for this session, or None if the user must still pick a group.
 
@@ -84,7 +85,8 @@ def _resolve_group_id(
         _send_group_selector(number, message_id, groups, wpp_client)
         return None
 
-    # First message with multiple groups — prompt to select
+    # First message with multiple groups — save text for replay, then prompt to select
+    estado["pending_quick_message"] = text
     estado["estado"] = "esperando_seleccion_grupo"
     _send_group_selector(number, message_id, groups, wpp_client)
     return None
@@ -263,7 +265,7 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             return
 
         was_awaiting_group = estado.get("estado") == "esperando_seleccion_grupo"
-        group_id = _resolve_group_id(number, message_id, interactive_id, estado, groups, wpp_client)
+        group_id = _resolve_group_id(number, message_id, interactive_id, estado, groups, wpp_client, text)
         if group_id is None:
             # Group selection prompt was sent; wait for user response
             session_repo.save(number, estado)
@@ -275,10 +277,10 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             group_repo=GroupRepository(db),
         )
 
-        # Group was just picked — synthesise a greeting so the user lands on the main menu
-        # instead of having the group-picker text ("Fran & Guada") processed as an unknown command.
+        # Group was just picked — replay a saved quick-expense message if present,
+        # otherwise synthesise a greeting so the user lands on the main menu.
         if was_awaiting_group:
-            text = "hola"
+            text = estado.pop("pending_quick_message", None) or "hola"
 
         nuevo_estado = administrar_chatbot(
             text, number, message_id, estado, expense_service, member_service, wpp_client, interactive_id, groups=groups

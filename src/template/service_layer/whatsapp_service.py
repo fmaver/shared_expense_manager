@@ -28,6 +28,7 @@ from template.domain.schemas.expense import (
 )
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
+from template.service_layer.quick_expense_parser import parse_quick_expense
 from template.service_layer.whatsapp_client import WhatsAppClient
 
 
@@ -516,6 +517,13 @@ def administrar_chatbot(
         )
         user_responses.extend(responses)
 
+    elif estado_actual_usuario["estado"] == "inicial":
+        update_member_last_chat(number, member_service)
+        responses, estado_actual_usuario = handle_quick_expense(
+            number, estado_actual_usuario, text, service, member_service
+        )
+        user_responses.extend(responses)
+
     else:
         update_member_last_chat(number, member_service)
         data = text_message(number, "Lo siento, no entendí lo que dijiste.")
@@ -639,7 +647,8 @@ def handle_greetings(  # pylint: disable=too-many-locals
     body = (
         f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨{group_line}\n"
         "¿Cómo podemos ayudarte hoy?\n\n"
-        "💡 Podés escribir _cancelar_ en cualquier momento para volver al inicio."
+        "💡 Podés escribir _cancelar_ en cualquier momento para volver al inicio.\n"
+        "⚡ O escribí directamente, ej: _gasté $500 en el super_"
     )
     footer = "⚙️ Admin Gastos Compartidos ⚙️"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
@@ -1624,6 +1633,48 @@ def handle_waiting_for_percentage_for_member(  # pylint: disable=too-many-locals
         user_responses.append(error_message)
 
     return user_responses, estado_actual_usuario
+
+
+def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    text: str,
+    service: Optional[ExpenseService],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Attempt to parse a free-form expense message via LLM and enter the confirmation flow."""
+    current_member = member_service.get_member_by_phone(number)
+    if current_member is None or service is None:
+        data = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
+        return [data], estado_actual_usuario
+
+    members = member_service.list_members()
+    member_dicts = [{"id": m.id, "name": m.name} for m in members]
+    categories = Category.get_user_categories()
+
+    parsed = parse_quick_expense(
+        text=text,
+        members=member_dicts,
+        categories=categories,
+        current_member_id=current_member.id,
+    )
+
+    if parsed is None:
+        data = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
+        return [data], estado_actual_usuario
+
+    # Load parsed fields into expense_data
+    estado_actual_usuario["expense_data"]["service"] = "cargar gasto"
+    estado_actual_usuario["expense_data"]["amount"] = parsed.amount
+    estado_actual_usuario["expense_data"]["description"] = parsed.description
+    estado_actual_usuario["expense_data"]["category"] = parsed.category
+    estado_actual_usuario["expense_data"]["payer_id"] = parsed.payer_id
+    estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
+    estado_actual_usuario["expense_data"]["payment_type"] = parsed.payment_type
+    estado_actual_usuario["expense_data"]["installments"] = parsed.installments
+    estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
+
+    return _make_confirmation_response(number, estado_actual_usuario, service, member_service)
 
 
 def _make_confirmation_response(  # pylint: disable=too-many-locals
