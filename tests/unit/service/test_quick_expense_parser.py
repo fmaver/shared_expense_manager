@@ -15,7 +15,18 @@ MEMBERS = [
     {"id": 1, "name": "Fran"},
     {"id": 2, "name": "Guada"},
 ]
-CATEGORIES = ["comida", "supermercado", "entretenimiento", "servicios", "transporte", "viajes", "salud", "otros"]
+CATEGORIES = [
+    "auto",
+    "casa",
+    "salidas",
+    "supermercado",
+    "mascota",
+    "entretenimiento",
+    "shopping",
+    "viajes",
+    "salud",
+    "otros",
+]
 TODAY = date(2026, 5, 26)
 
 
@@ -142,3 +153,96 @@ class TestParseQuickExpense:
 
         assert result is not None
         assert result.expense_date == TODAY
+
+    def test_expense_is_not_a_loan(self):
+        payload = {
+            "is_expense": True,
+            "is_loan": False,
+            "amount": 1000.0,
+            "description": "super",
+            "category": "supermercado",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+            "payment_type": "debit",
+            "installments": 1,
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("gasté $1000 en el super", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.is_loan is False
+        assert result.recipient_id is None
+
+
+class TestParseQuickLoan:
+    def test_parses_first_person_loan(self):
+        payload = {
+            "is_expense": True,
+            "is_loan": True,
+            "amount": 12000.0,
+            "description": "préstamo a Guada",
+            "payer_id": 1,
+            "recipient_id": 2,
+            "date": "2026-05-25",
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("le presté 12000 pesos a Guada", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert isinstance(result, ParsedExpense)
+        assert result.is_loan is True
+        assert result.amount == 12000.0
+        assert result.payer_id == 1
+        assert result.recipient_id == 2
+        assert result.category == "prestamo"
+        assert result.payment_type == "debito"
+        assert result.installments == 1
+
+    def test_parses_third_person_loan(self):
+        payload = {
+            "is_expense": True,
+            "is_loan": True,
+            "amount": 5000.0,
+            "description": "préstamo a Fran",
+            "payer_id": 2,
+            "recipient_id": 1,
+            "date": TODAY.isoformat(),
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("Guada le prestó $5000 a Fran", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.is_loan is True
+        assert result.payer_id == 2
+        assert result.recipient_id == 1
+
+    def test_parses_loan_with_yesterday_date(self):
+        payload = {
+            "is_expense": True,
+            "is_loan": True,
+            "amount": 12000.0,
+            "description": "préstamo a Guada",
+            "payer_id": 1,
+            "recipient_id": 2,
+            "date": "2026-05-25",
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("el lunes pasado le presté a Guada 12000", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.expense_date.isoformat() == "2026-05-25"
+
+    def test_returns_none_when_recipient_id_missing(self):
+        payload = {
+            "is_expense": True,
+            "is_loan": True,
+            "amount": 1000.0,
+            "description": "préstamo",
+            "payer_id": 1,
+            "date": TODAY.isoformat(),
+        }
+        with patch("anthropic.Anthropic", return_value=_make_client(payload)):
+            result = parse_quick_expense("le presté plata a alguien", MEMBERS, CATEGORIES, 1, TODAY)
+
+        assert result is not None
+        assert result.is_loan is True
+        assert result.recipient_id is None

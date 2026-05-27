@@ -1642,11 +1642,11 @@ def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positio
     service: Optional[ExpenseService],
     member_service: MemberService,
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """Attempt to parse a free-form expense message via LLM and enter the confirmation flow."""
+    """Attempt to parse a free-form expense or loan message via LLM and enter the confirmation flow."""
     current_member = member_service.get_member_by_phone(number)
-    if current_member is None or service is None:
-        data = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
-        return [data], estado_actual_usuario
+    if current_member is None:
+        msg = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
+        return [msg], estado_actual_usuario
 
     members = member_service.list_members()
     member_dicts = [{"id": m.id, "name": m.name} for m in members]
@@ -1660,10 +1660,35 @@ def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positio
     )
 
     if parsed is None:
-        data = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
-        return [data], estado_actual_usuario
+        msg = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
+        return [msg], estado_actual_usuario
 
-    # Load parsed fields into expense_data
+    if parsed.is_loan:
+        if parsed.recipient_id is None:
+            msg = text_message(
+                number,
+                "Lo siento, no pude identificar a quién le prestaste el dinero. 🤔\n\n¿En qué puedo ayudarte?",
+            )
+            return [msg], estado_actual_usuario
+
+        estado_actual_usuario["expense_data"]["service"] = "prestar plata"
+        estado_actual_usuario["expense_data"]["amount"] = parsed.amount
+        estado_actual_usuario["expense_data"]["description"] = parsed.description
+        estado_actual_usuario["expense_data"]["category"] = "prestamo"
+        estado_actual_usuario["expense_data"]["payer_id"] = parsed.payer_id
+        estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
+        estado_actual_usuario["expense_data"]["payment_type"] = "debito"
+        estado_actual_usuario["expense_data"]["installments"] = 1
+        estado_actual_usuario["expense_data"]["split_strategy"] = {
+            "type": "percentage",
+            "percentages": {parsed.payer_id: 0, parsed.recipient_id: 100},
+        }
+        return _make_confirmation_response(number, estado_actual_usuario, None, member_service)
+
+    if service is None:
+        msg = text_message(number, "Lo siento, no entendí lo que dijiste. 🤔\n\n¿En qué puedo ayudarte?")
+        return [msg], estado_actual_usuario
+
     estado_actual_usuario["expense_data"]["service"] = "cargar gasto"
     estado_actual_usuario["expense_data"]["amount"] = parsed.amount
     estado_actual_usuario["expense_data"]["description"] = parsed.description
