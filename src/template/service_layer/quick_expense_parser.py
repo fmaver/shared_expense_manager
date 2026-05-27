@@ -115,7 +115,7 @@ def parse_quick_expense(
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = response.content[0].text.strip()
+        raw = response.content[0].text.strip()  # type: ignore[union-attr]
         data: Dict[str, Any] = json.loads(raw)
 
         if not data.get("is_expense"):

@@ -6,7 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from template.service_layer.quick_expense_parser import ParsedExpense, parse_quick_expense
+from template.service_layer.quick_expense_parser import (
+    ParsedExpense,
+    parse_quick_expense,
+)
 
 MEMBERS = [
     {"id": 1, "name": "Fran"},
@@ -113,7 +116,9 @@ class TestParseQuickExpense:
 
     def test_returns_none_on_invalid_json(self):
         client = MagicMock()
-        client.messages.create.return_value = _mock_response.__wrapped__ if hasattr(_mock_response, "__wrapped__") else MagicMock()
+        client.messages.create.return_value = (
+            _mock_response.__wrapped__ if hasattr(_mock_response, "__wrapped__") else MagicMock()
+        )
         bad_msg = MagicMock()
         bad_msg.content = [MagicMock(text="not valid json {{")]
         client.messages.create.return_value = bad_msg
