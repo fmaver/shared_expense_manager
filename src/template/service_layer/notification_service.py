@@ -459,16 +459,16 @@ class NotificationService:
 
         changes = []
         if old_desc != new_desc:
-            changes.append(f"Descripción: '{old_desc}' → '{new_desc}'")
+            changes.append(f"• Descripción: {old_desc} → {new_desc}")
         if old.amount != new.amount:
-            changes.append(f"Monto: ${format_amount_es(old.amount)} → ${format_amount_es(new.amount)}")
+            changes.append(f"• Monto: ${format_amount_es(old.amount)} → ${format_amount_es(new.amount)}")
         if old.date != new.date:
-            changes.append(f"Fecha: {old.date.strftime('%d/%m/%Y')} → {new.date.strftime('%d/%m/%Y')}")
+            changes.append(f"• Fecha: {old.date.strftime('%d/%m/%Y')} → {new.date.strftime('%d/%m/%Y')}")
         old_cat = old.category.name if old.category else "-"
         new_cat = new.category.name if new.category else "-"
         if old_cat != new_cat:
-            changes.append(f"Categoría: {old_cat} → {new_cat}")
-        cambios = " · ".join(changes) if changes else "Sin cambios"
+            changes.append(f"• Categoría: {old_cat} → {new_cat}")
+        cambios = "\n".join(changes) if changes else "Sin cambios detectados"
 
         return [
             {"type": "text", "parameter_name": "actor", "text": actor_name},
