@@ -838,7 +838,7 @@ def send_acknowledgement_settle_accounts(
     fecha = estado_actual_usuario["expense_data"]["date"]
 
     body = f"⚠️ Estás a punto de saldar las cuentas para el mes y año: {fecha}.\n¿Estás seguro?"
-    footer = "💡 Podés reabrir el mes desde la app si cambiás de opinión"
+    footer = "💡 Podés reabrir el mes en cualquier momento si cambiás de opinión"
     options = ["✅ Sí", "❌ No"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
