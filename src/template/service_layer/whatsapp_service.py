@@ -726,11 +726,10 @@ def handle_greetings(  # pylint: disable=too-many-locals
     body = (
         f"👋 ¡Hola {member_name}! Bienvenido a Jirens Shared Expenses ✨{group_line}\n"
         "¿Cómo podemos ayudarte hoy?\n\n"
-        "💡 Podés escribir _cancelar_ en cualquier momento para volver al inicio.\n"
         "⚡ Escribí directamente, ej: _gasté $500 en el super_\n"
         "📷 O enviá una foto del comprobante o ticket"
     )
-    footer = "⚙️ Admin Gastos Compartidos ⚙️"
+    footer = "💡 Escribí cancelar en cualquier momento para volver al inicio"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
     if len(groups) > 1:
         options.append("🔄 Cambiar Grupo")
@@ -839,7 +838,7 @@ def send_acknowledgement_settle_accounts(
     fecha = estado_actual_usuario["expense_data"]["date"]
 
     body = f"⚠️ Estás a punto de saldar las cuentas para el mes y año: {fecha}.\n¿Estás seguro?"
-    footer = "⚠️ Este proceso es irreversible"
+    footer = "💡 Podés reabrir el mes desde la app si cambiás de opinión"
     options = ["✅ Sí", "❌ No"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
@@ -870,12 +869,11 @@ def handle_settle_accounts(
     month_year = datetime.strptime(fecha, "%m-%Y")
     print("saldando cuentas para el mes y año: ", str(month_year.month), str(month_year.year))
 
-    monthly_share_settled = service.settle_monthly_share(month_year.year, month_year.month)
-    print(f"monthly_share_settled with balance: {monthly_share_settled.balances}")
-
-    # Llamar al método settle_monthly_share del servicio
     try:
-        body = """✨ ¡Cuentas saldadas!\n\n¿Te gustaría hacer algo más? 🤔"""
+        monthly_share_settled = service.settle_monthly_share(month_year.year, month_year.month)
+        print(f"monthly_share_settled with balance: {monthly_share_settled.balances}")
+
+        body = "✨ ¡Cuentas saldadas!\n\n¿Te gustaría hacer algo más? 🤔"
         options = ["🏠 Ir al Inicio", "👋 No gracias", "📄 Obtener Documento"]
         footer = "⚙️ Admin Gastos Compartidos ⚙️"
 
@@ -884,8 +882,7 @@ def handle_settle_accounts(
 
     except ValueError as e:
         print("Error al saldar cuentas: ", e)
-        body = str(e)
-        reply_text = reply_text_message(number, message_id, body)
+        reply_text = reply_text_message(number, message_id, str(e))
         user_responses.append(reply_text)
 
     return user_responses, estado_actual_usuario
@@ -2096,7 +2093,6 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
     if header_prefix:
         summary = f"{header_prefix}\n\n{summary}"
 
-    from_parser = expense_data.get("from_parser", False)
     if is_loan:
         body = f"{summary}\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
@@ -2104,7 +2100,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
 
-    if from_parser and not is_loan:
+    if not is_loan:
         options.append("✏️ Editar campo")
 
     msg = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
