@@ -38,17 +38,19 @@ async def create_expense(
         expense = service.create_expense(expense_data)
 
         # Get all members to notify
-        member_repository = MemberRepository(db)
-        members = member_repository.list()
+        members = MemberRepository(db).list()
+        group_name = service.get_group_name()
+        multi_group_ids = service.get_multi_group_member_ids(members)
 
         # Add notification task to background tasks
-        notification_service = NotificationService()
         background_tasks.add_task(
-            notification_service.notify_expense_created,
+            NotificationService().notify_expense_created,
             expense=expense,
             members=members,
             creator=current_member,
             member_service=member_service,
+            group_name=group_name,
+            multi_group_member_ids=multi_group_ids,
         )
 
         # Create response data
@@ -92,16 +94,18 @@ async def update_expense(
         updated_expense = service.update_expense(expense_id, expense_data)
 
         # Schedule notification in background
-        member_repository = MemberRepository(db)
-        members = member_repository.list()
-        notification_service = NotificationService()
+        members = MemberRepository(db).list()
+        group_name = service.get_group_name()
+        multi_group_ids = service.get_multi_group_member_ids(members)
         background_tasks.add_task(
-            notification_service.notify_expense_updated,
+            NotificationService().notify_expense_updated,
             old=old_expense,
             new=updated_expense,
             actor=current_member,
             members=members,
             member_service=member_service,
+            group_name=group_name,
+            multi_group_member_ids=multi_group_ids,
         )
 
         response_data = ExpenseResponse(
@@ -143,15 +147,17 @@ async def delete_expense(
         service.delete_expense(expense_id)
 
         if expense_to_delete:
-            member_repository = MemberRepository(db)
-            members = member_repository.list()
-            notification_service = NotificationService()
+            members = MemberRepository(db).list()
+            group_name = service.get_group_name()
+            multi_group_ids = service.get_multi_group_member_ids(members)
             background_tasks.add_task(
-                notification_service.notify_expense_deleted,
+                NotificationService().notify_expense_deleted,
                 expense=expense_to_delete,
                 actor=current_member,
                 members=members,
                 member_service=member_service,
+                group_name=group_name,
+                multi_group_member_ids=multi_group_ids,
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

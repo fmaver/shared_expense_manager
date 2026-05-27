@@ -54,7 +54,17 @@ class ExpenseService:
         """Initialize the expense service."""
         self._repository = repository
         self._group_id = group_id
+        self._group_repo = group_repo
         self._manager = ExpenseManager(repository, group_id, group_repo)
+
+    def get_group_name(self) -> Optional[str]:
+        """Return the name of this service's group."""
+        group = self._group_repo.get(self._group_id)
+        return group.name if group else None
+
+    def get_multi_group_member_ids(self, members: List[Member]) -> set:
+        """Return the set of member IDs that belong to more than one group."""
+        return {m.id for m in members if len(self._group_repo.list_for_member(m.id)) > 1}
 
     def create_expense(self, expense_data: ExpenseCreate) -> Expense:
         """Create a new expense."""

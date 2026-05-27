@@ -3,7 +3,7 @@
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -28,8 +28,14 @@ class NotificationService:
         self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
         self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
 
-    async def notify_expense_created(
-        self, expense: Expense, members: List[Member], creator: Member, member_service: MemberService
+    async def notify_expense_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        expense: Expense,
+        members: List[Member],
+        creator: Member,
+        member_service: MemberService,
+        group_name: Optional[str] = None,
+        multi_group_member_ids: Optional[set] = None,
     ) -> None:
         """Notify members about a new expense based on their notification preferences."""
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
@@ -42,34 +48,50 @@ class NotificationService:
             if not self._is_involved_in_expense(expense, member.id):
                 continue
 
+            effective_group = (
+                group_name if (group_name and multi_group_member_ids and member.id in multi_group_member_ids) else None
+            )
+
             if member.notification_preference == NotificationType.EMAIL:
                 message = self._create_expense_message(expense, creator, member_service)
-                html = self._build_html_expense_created(expense, creator, member_service)
+                if effective_group:
+                    message = f"📁 *{effective_group}*\n\n{message}"
+                html = self._build_html_expense_created(expense, creator, member_service, group_name=effective_group)
                 self._send_email(member.email, subject, message, html_content=html)
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
-                print(f"Sending WhatsApp notification to {member.telephone}")
-                last_interacted_with_wpp = member_service.get_last_wpp_chat_time(member)
-                time_now = datetime.now(timezone.utc)
-
-                if last_interacted_with_wpp and not last_interacted_with_wpp.tzinfo:
-                    last_interacted_with_wpp = last_interacted_with_wpp.replace(tzinfo=timezone.utc)
-
-                time_difference_days = None
-                if last_interacted_with_wpp:
-                    time_difference_days = (time_now - last_interacted_with_wpp).days
-
-                if last_interacted_with_wpp is None or (time_difference_days is not None and time_difference_days >= 1):
-                    parameters = self._create_expense_template_parameters(expense, creator, member_service)
-                    print("Sending template message")
-                    await self._send_whatsapp_template(member.telephone, parameters)
-                else:
-                    message = self._create_expense_message(expense, creator, member_service)
-                    print("Sending regular message")
-                    await self._send_whatsapp(member.telephone, message)
+                await self._send_wpp_expense_notification(member, expense, creator, member_service, effective_group)
 
             else:
                 print("No notification sent (preference is NONE)")
+
+    async def _send_wpp_expense_notification(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        member: Member,
+        expense: Expense,
+        creator: Member,
+        member_service: MemberService,
+        effective_group: Optional[str],
+    ) -> None:
+        print(f"Sending WhatsApp notification to {member.telephone}")
+        last_interacted = member_service.get_last_wpp_chat_time(member)
+        time_now = datetime.now(timezone.utc)
+
+        if last_interacted and not last_interacted.tzinfo:
+            last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+
+        if last_interacted is None or (time_now - last_interacted).days >= 1:
+            print("Sending template message")
+            await self._send_whatsapp_template(
+                member.telephone,
+                self._create_expense_template_parameters(expense, creator, member_service),
+            )
+        else:
+            message = self._create_expense_message(expense, creator, member_service)
+            if effective_group:
+                message = f"📁 *{effective_group}*\n\n{message}"
+            print("Sending regular message")
+            await self._send_whatsapp(member.telephone, message)
 
     def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
         """Send a group invitation email via Brevo."""
@@ -273,6 +295,8 @@ class NotificationService:
         actor: Member,
         members: List[Member],
         member_service: MemberService,
+        group_name: Optional[str] = None,
+        multi_group_member_ids: Optional[set] = None,
     ) -> None:
         """Notify members (union of old+new involved, minus actor) about an edited expense."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -300,21 +324,34 @@ class NotificationService:
             )
 
         subject = "✏️ Préstamo actualizado" if is_loan else "✏️ Gasto actualizado"
-        html = self._build_html_expense_updated(old, new, actor_name, member_service)
-
         recipients = {
             m
             for m in members
             if m.id != actor.id and (self._is_involved_in_expense(old, m.id) or self._is_involved_in_expense(new, m.id))
         }
-        await self._broadcast(message, recipients, member_service, subject=subject, html_content=html)
+        # Include group name in HTML when at least one recipient needs it
+        html_group = (
+            group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
+        )
+        html = self._build_html_expense_updated(old, new, actor_name, member_service, group_name=html_group)
+        await self._broadcast(
+            message,
+            recipients,
+            member_service,
+            subject=subject,
+            html_content=html,
+            group_name=group_name,
+            multi_group_member_ids=multi_group_member_ids,
+        )
 
-    async def notify_expense_deleted(
+    async def notify_expense_deleted(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         expense: Expense,
         actor: Member,
         members: List[Member],
         member_service: MemberService,
+        group_name: Optional[str] = None,
+        multi_group_member_ids: Optional[set] = None,
     ) -> None:
         """Notify involved members (minus actor) that an expense was deleted."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -334,10 +371,20 @@ class NotificationService:
             )
 
         subject = "🗑️ Préstamo eliminado" if is_loan else "🗑️ Gasto eliminado"
-        html = self._build_html_expense_deleted(expense, actor_name, member_service)
-
         recipients = {m for m in members if m.id != actor.id and self._is_involved_in_expense(expense, m.id)}
-        await self._broadcast(message, recipients, member_service, subject=subject, html_content=html)
+        html_group = (
+            group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
+        )
+        html = self._build_html_expense_deleted(expense, actor_name, member_service, group_name=html_group)
+        await self._broadcast(
+            message,
+            recipients,
+            member_service,
+            subject=subject,
+            html_content=html,
+            group_name=group_name,
+            multi_group_member_ids=multi_group_member_ids,
+        )
 
     async def _broadcast(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -346,9 +393,12 @@ class NotificationService:
         member_service: MemberService,
         subject: str = "Actualización de Gasto 📝",
         html_content: str | None = None,
+        group_name: Optional[str] = None,
+        multi_group_member_ids: Optional[set] = None,
     ) -> None:
         """Send a message to each recipient per their notification preference."""
         for member in recipients:
+            show_group = bool(group_name and multi_group_member_ids and member.id in multi_group_member_ids)
             if member.notification_preference == NotificationType.EMAIL:
                 self._send_email(member.email, subject, message, html_content=html_content)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
@@ -360,7 +410,8 @@ class NotificationService:
                 if last_interacted is None or (days_since is not None and days_since >= 1):
                     print(f"Skipping WPP notification for {member.telephone}: outside 24h window")
                 else:
-                    await self._send_whatsapp(member.telephone, message)
+                    wa_message = f"📁 *{group_name}*\n\n{message}" if show_group else message
+                    await self._send_whatsapp(member.telephone, wa_message)
 
     def _remove_installments_from_description(self, description: str) -> str:
         """Remove the installment suffix from the description."""
@@ -386,13 +437,18 @@ class NotificationService:
             return f"Equitativo ({', '.join(names)})"
         return "Equitativo"
 
-    def _expense_detail_rows(self, expense: Expense, member_service: MemberService) -> List[Tuple[str, str]]:
+    def _expense_detail_rows(
+        self, expense: Expense, member_service: MemberService, group_name: Optional[str] = None
+    ) -> List[Tuple[str, str]]:
         """Build label/value row pairs for an expense summary."""
         payer = member_service.get_member_name_by_id(expense.payer_id) or "—"
         desc = self._remove_installments_from_description(expense.description)
         cat_name = expense.category.name if expense.category else "—"
         cat_emoji = expense.category.get_category_emoji(cat_name) if expense.category else ""
-        rows: List[Tuple[str, str]] = [
+        rows: List[Tuple[str, str]] = []
+        if group_name:
+            rows.append(("Grupo", group_name))
+        rows += [
             ("Descripción", desc),
             ("Monto", f"${format_amount_es(expense.amount)}"),
             ("Fecha", expense.date.strftime("%d/%m/%Y")),
@@ -456,13 +512,18 @@ class NotificationService:
         )
         return f'<table cellpadding="0" cellspacing="0" width="100%">{rows_html}</table>'
 
-    def _build_html_expense_created(self, expense: Expense, creator: Member, member_service: MemberService) -> str:
+    def _build_html_expense_created(
+        self, expense: Expense, creator: Member, member_service: MemberService, group_name: Optional[str] = None
+    ) -> str:
         """Build HTML for a new-expense or new-loan notification email."""
         payer = member_service.get_member_name_by_id(expense.payer_id) or "—"
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
 
         if is_loan:
-            rows: List[Tuple[str, str]] = [
+            rows: List[Tuple[str, str]] = []
+            if group_name:
+                rows.append(("Grupo", group_name))
+            rows += [
                 ("Prestador", payer),
                 ("Monto", f"${format_amount_es(expense.amount)}"),
                 ("Fecha", expense.date.strftime("%d/%m/%Y")),
@@ -478,15 +539,20 @@ class NotificationService:
                 footer_note="El saldo actualizado está disponible en la app.",
             )
 
-        rows = self._expense_detail_rows(expense, member_service)
+        rows = self._expense_detail_rows(expense, member_service, group_name=group_name)
         intro = (
             f'<p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">'
             f"<strong>{creator.name}</strong> registró un nuevo gasto.</p>"
         )
         return self._html_card("💸", "Nuevo gasto registrado", intro + self._html_detail_table(rows))
 
-    def _build_html_expense_updated(  # pylint: disable=too-many-locals
-        self, old: Expense, new: Expense, actor_name: str, member_service: MemberService
+    def _build_html_expense_updated(  # pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
+        self,
+        old: Expense,
+        new: Expense,
+        actor_name: str,
+        member_service: MemberService,
+        group_name: Optional[str] = None,
     ) -> str:
         """Build HTML for an expense-updated notification email."""
         old_is_loan = old.category and old.category.name.lower() == "prestamo"
@@ -495,16 +561,20 @@ class NotificationService:
         title = "Préstamo actualizado" if is_loan else "Gasto actualizado"
 
         if is_loan:
-            old_rows: List[Tuple[str, str]] = [
+            old_rows: List[Tuple[str, str]] = []
+            new_rows: List[Tuple[str, str]] = []
+            if group_name:
+                old_rows.append(("Grupo", group_name))
+            old_rows += [
                 ("Monto", f"${format_amount_es(old.amount)}"),
                 ("Fecha", old.date.strftime("%d/%m/%Y")),
             ]
-            new_rows: List[Tuple[str, str]] = [
+            new_rows += [
                 ("Monto", f"${format_amount_es(new.amount)}"),
                 ("Fecha", new.date.strftime("%d/%m/%Y")),
             ]
         else:
-            old_rows = self._expense_detail_rows(old, member_service)
+            old_rows = self._expense_detail_rows(old, member_service, group_name=group_name)
             new_rows = self._expense_detail_rows(new, member_service)
 
         kind = "préstamo" if is_loan else "gasto"
@@ -526,7 +596,9 @@ class NotificationService:
         after_box = after_header + self._html_detail_table(new_rows) + "</div>"
         return self._html_card("✏️", title, intro + before_box + after_box)
 
-    def _build_html_expense_deleted(self, expense: Expense, actor_name: str, member_service: MemberService) -> str:
+    def _build_html_expense_deleted(
+        self, expense: Expense, actor_name: str, member_service: MemberService, group_name: Optional[str] = None
+    ) -> str:
         """Build HTML for an expense-deleted notification email."""
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
         title = "Préstamo eliminado" if is_loan else "Gasto eliminado"
@@ -534,13 +606,16 @@ class NotificationService:
 
         if is_loan:
             payer = member_service.get_member_name_by_id(expense.payer_id) or "—"
-            rows: List[Tuple[str, str]] = [
+            rows: List[Tuple[str, str]] = []
+            if group_name:
+                rows.append(("Grupo", group_name))
+            rows += [
                 ("Prestador", payer),
                 ("Monto", f"${format_amount_es(expense.amount)}"),
                 ("Fecha", expense.date.strftime("%d/%m/%Y")),
             ]
         else:
-            rows = self._expense_detail_rows(expense, member_service)
+            rows = self._expense_detail_rows(expense, member_service, group_name=group_name)
 
         intro = (
             f'<p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">'
