@@ -116,6 +116,12 @@ def parse_quick_expense(
         )
 
         raw = response.content[0].text.strip()  # type: ignore[union-attr]
+        # Strip markdown code fences the model sometimes adds despite the prompt
+        if raw.startswith("```"):
+            raw = "\n".join(line for line in raw.splitlines() if not line.startswith("```")).strip()
+        if not raw:
+            logger.warning("Quick expense parsing failed: empty response from LLM")
+            return None
         data: Dict[str, Any] = json.loads(raw)
 
         if not data.get("is_expense"):
