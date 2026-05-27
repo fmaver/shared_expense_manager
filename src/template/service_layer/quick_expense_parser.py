@@ -1,17 +1,17 @@
-"""LLM-based natural language parser for quick expense messages."""
+"""LLM-based natural language parser for quick expense messages and loans."""
 
 import json
 import logging
 import os
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ParsedExpense:
+class ParsedExpense:  # pylint: disable=too-many-instance-attributes
     amount: float
     description: str
     category: str
@@ -19,6 +19,8 @@ class ParsedExpense:
     expense_date: date
     payment_type: str  # "debit" or "credit"
     installments: int
+    is_loan: bool = field(default=False)
+    recipient_id: Optional[int] = field(default=None)
 
 
 def _build_prompt(
@@ -28,6 +30,7 @@ def _build_prompt(
     current_member_id: int,
     today: date,
 ) -> str:
+    yesterday = today - timedelta(days=1)
     member_lines = "\n".join(f"  - id={m['id']}, name={m['name']}" for m in members)
     category_list = ", ".join(categories)
     return f"""You are a parser for an Argentine Spanish expense-tracking WhatsApp bot.
@@ -36,6 +39,7 @@ The user just sent this message:
 "{text}"
 
 Today is {today.isoformat()}.
+Yesterday was {yesterday.isoformat()}.
 The user sending the message has member_id={current_member_id}.
 
 Group members:
@@ -43,43 +47,66 @@ Group members:
 
 Available categories: {category_list}
 
-Your job: decide whether this message describes an expense, and if so extract its fields.
+Your job: decide whether the message is an expense, a loan, or neither.
 
-Rules:
-- "gasté", "pagué", "compré", "fui a", "salí" → payer is the current user (id={current_member_id})
-- "pagó <name>", "<name> pagó", "<name> gastó" → payer is the named member; match name case-insensitively
-- If no date is mentioned → use today ({today.isoformat()})
-- "ayer" → yesterday; "el lunes/martes/..." → most recent past weekday
-- If no payment type is mentioned → "debit"
-- "con tarjeta", "tarjeta", "crédito", "credito" → "credit"
-- If no installments info → 1
-- "en X cuotas" → installments = X
-- Infer the category from the description using common sense (Argentine context):
-  "super", "supermercado", "coto", "dia", "carrefour", "jumbo" → supermercado
-  "farmacia", "médico", "medico", "salud", "doctor" → salud
-  "restaurant", "resto", "comida", "delivery", "pedidos" → comida
-  "uber", "taxi", "colectivo", "tren", "subte", "nafta" → transporte
-  "luz", "gas", "internet", "agua", "expensas", "seguro" → servicios
-  "cine", "teatro", "streaming", "spotify", "netflix" → entretenimiento
-  "viaje", "hotel", "vuelo", "airbnb" → viajes
-  → fallback to "otros" if unclear
-- The description should be a short noun phrase (2-4 words max), not a full sentence.
+--- EXPENSE RULES ---
+Triggered by: "gasté", "pagué", "compré", "fui a", "salí", or a named member paying.
+- "gasté/pagué/compré/fui/salí" → payer is the current user (id={current_member_id})
+- "pagó <name>", "<name> pagó/gastó/compró" → payer is the named member
+- If no date mentioned → use today ({today.isoformat()})
+- "ayer" → use yesterday ({yesterday.isoformat()})
+- "el lunes/martes/miércoles/jueves/viernes" → most recent past occurrence of that weekday
+- If no payment type → "debit"; "tarjeta/crédito/credito" → "credit"
+- If no installments → 1; "en X cuotas" → installments = X
+- Category inference (ONLY use categories from the list above):
+  supermercado → groceries: coto, dia, carrefour, jumbo, verdulería, panadería, pollería, almacén, super
+  salidas      → eating out / delivery: restaurant, resto, bar, pizzería, sushi, delivery, pedidos ya, rappi
+  auto         → car & transport: nafta, peaje, estacionamiento, mecánico, uber, taxi, remis, seguro auto
+  casa         → home: luz, gas, internet, agua, expensas, alquiler, seguro hogar, ferretería, limpieza
+  entretenimiento → leisure: cine, teatro, streaming, spotify, netflix, recital, juego, cancha
+  shopping     → clothes & goods: ropa, zapatillas, zara, mercadolibre, amazon, electrónica, electrodoméstico
+  viajes       → travel: hotel, vuelo, airbnb, excursión, viaje, hospedaje
+  salud        → health: farmacia, médico, doctor, dentista, hospital, óptica, kinesiología
+  mascota      → pets: veterinario, pet shop, alimento mascota, baño mascota
+  otros        → fallback for anything not covered above
+- Description: short noun phrase, 2-4 words max.
+
+--- LOAN RULES ---
+Triggered by: "presté", "le presté", "prestó", "me prestó", "le prestó".
+- "le presté a X" / "presté X pesos a X" → lender = current user, borrower = X
+- "<name> le prestó a <name2>" / "<name> prestó a <name2>" → lender = name, borrower = name2
+- "<name> me prestó" → lender = name, borrower = current user
+- Match names case-insensitively against the member list.
+- Date rules same as expenses ("ayer", weekday names, default today).
+- Description: "préstamo a <borrower name>"
 
 Respond with ONLY a JSON object. No markdown, no explanation.
 
-If the message IS an expense:
+If the message is a regular EXPENSE:
 {{
   "is_expense": true,
+  "is_loan": false,
   "amount": <number>,
   "description": "<short description>",
-  "category": "<one of the available categories>",
-  "payer_id": <member id as integer>,
+  "category": "<one of: {category_list}>",
+  "payer_id": <integer>,
   "date": "<YYYY-MM-DD>",
   "payment_type": "debit" or "credit",
   "installments": <integer, default 1>
 }}
 
-If the message is NOT an expense (it's a question, greeting, or unrelated text):
+If the message is a LOAN:
+{{
+  "is_expense": true,
+  "is_loan": true,
+  "amount": <number>,
+  "description": "<e.g. préstamo a Guadi>",
+  "payer_id": <lender member id>,
+  "recipient_id": <borrower member id>,
+  "date": "<YYYY-MM-DD>"
+}}
+
+If the message is NOT an expense or loan (greeting, question, unrelated):
 {{"is_expense": false}}"""
 
 
@@ -90,10 +117,10 @@ def parse_quick_expense(
     current_member_id: int,
     today: Optional[date] = None,
 ) -> Optional[ParsedExpense]:
-    """Parse a free-form expense message using Claude Haiku.
+    """Parse a free-form expense or loan message using Claude Haiku.
 
-    Returns a ParsedExpense on success, or None if the message is not an expense
-    or if parsing fails for any reason (missing API key, network error, etc.).
+    Returns a ParsedExpense on success, or None if the message is neither an
+    expense nor a loan, or if parsing fails (missing API key, network error, etc.).
     """
     if today is None:
         today = date.today()
@@ -111,28 +138,43 @@ def parse_quick_expense(
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=256,
+            max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )
 
         raw = response.content[0].text.strip()  # type: ignore[union-attr]
-        # Strip markdown code fences the model sometimes adds despite the prompt
         if raw.startswith("```"):
             raw = "\n".join(line for line in raw.splitlines() if not line.startswith("```")).strip()
         if not raw:
             logger.warning("Quick expense parsing failed: empty response from LLM")
             return None
+
         data: Dict[str, Any] = json.loads(raw)
 
         if not data.get("is_expense"):
             return None
+
+        expense_date = date.fromisoformat(str(data["date"]))
+
+        if data.get("is_loan"):
+            return ParsedExpense(
+                amount=float(data["amount"]),
+                description=str(data.get("description", "préstamo")),
+                category="prestamo",
+                payer_id=int(data["payer_id"]),
+                expense_date=expense_date,
+                payment_type="debito",
+                installments=1,
+                is_loan=True,
+                recipient_id=int(data["recipient_id"]) if data.get("recipient_id") is not None else None,
+            )
 
         return ParsedExpense(
             amount=float(data["amount"]),
             description=str(data["description"]),
             category=str(data["category"]),
             payer_id=int(data["payer_id"]),
-            expense_date=date.fromisoformat(str(data["date"])),
+            expense_date=expense_date,
             payment_type=str(data.get("payment_type", "debit")),
             installments=int(data.get("installments", 1)),
         )
