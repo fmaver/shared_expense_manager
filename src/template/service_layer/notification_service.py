@@ -347,7 +347,9 @@ class NotificationService:
             group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
         )
         html = self._build_html_expense_updated(old, new, actor_name, member_service, group_name=html_group)
-        template_params = self._create_expense_updated_template_parameters(old, new, actor_name)
+        template_params = self._create_expense_updated_template_parameters(
+            old, new, actor_name, member_service, members
+        )
         await self._broadcast(
             message,
             recipients,
@@ -450,8 +452,38 @@ class NotificationService:
             return f"{base}/groups/{group_id}"
         return base
 
+    def _split_label(self, expense: Expense, member_service: MemberService, all_members: List[Member]) -> str:
+        """Human-readable split description; includes exclusions for groups of 3+."""
+        strategy = expense.split_strategy
+        if isinstance(strategy, PercentageSplit):
+            parts = [
+                f"{member_service.get_member_name_by_id(int(mid)) or mid}: {pct}%"
+                for mid, pct in strategy.percentages.items()
+            ]
+            return "Porcentajes: " + ", ".join(parts)
+        if isinstance(strategy, ExactAmountsSplit):
+            parts = [
+                f"{member_service.get_member_name_by_id(int(mid)) or mid}: ${amt:.2f}"
+                for mid, amt in strategy.amounts.items()
+            ]
+            return "Exacto: " + ", ".join(parts)
+        if isinstance(strategy, EqualSplit) and strategy.participant_ids:
+            included = [member_service.get_member_name_by_id(mid) or str(mid) for mid in strategy.participant_ids]
+            if len(all_members) > 2:
+                excluded_ids = {m.id for m in all_members} - set(strategy.participant_ids)
+                excluded = [member_service.get_member_name_by_id(mid) or str(mid) for mid in excluded_ids]
+                if excluded:
+                    return f"Equitativo ({', '.join(included)}) | excluye: {', '.join(excluded)}"
+            return f"Equitativo ({', '.join(included)})"
+        return "Equitativo"
+
     def _create_expense_updated_template_parameters(
-        self, old: Expense, new: Expense, actor_name: str
+        self,
+        old: Expense,
+        new: Expense,
+        actor_name: str,
+        member_service: MemberService,
+        members: List[Member],
     ) -> List[Dict[str, str]]:
         """Build template parameters for the expense_updated WhatsApp template."""
         old_desc = self._remove_installments_from_description(old.description)
@@ -468,6 +500,10 @@ class NotificationService:
         new_cat = new.category.name if new.category else "-"
         if old_cat != new_cat:
             changes.append(f"• Categoría: {old_cat} → {new_cat}")
+        old_split = self._split_label(old, member_service, members)
+        new_split = self._split_label(new, member_service, members)
+        if old_split != new_split:
+            changes.append(f"• División: {old_split} → {new_split}")
         cambios = "\n".join(changes) if changes else "Sin cambios detectados"
 
         return [
