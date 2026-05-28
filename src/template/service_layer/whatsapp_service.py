@@ -731,7 +731,7 @@ def handle_greetings(  # pylint: disable=too-many-locals
         "⚡ Escribí directamente, ej: _gasté $500 en el super_\n"
         "📷 O enviá una foto del comprobante o ticket"
     )
-    footer = "💡 Escribí cancelar en cualquier momento para volver al inicio"
+    footer = "💡 Escribí cancelar para volver al inicio"
     options = ["💰 Cargar Gasto", "💸 Prestar Plata", "📊 Generar Balance"]
     if len(groups) > 1:
         options.append("🔄 Cambiar Grupo")
@@ -840,7 +840,7 @@ def send_acknowledgement_settle_accounts(
     fecha = estado_actual_usuario["expense_data"]["date"]
 
     body = f"⚠️ Estás a punto de saldar las cuentas para el mes y año: {fecha}.\n¿Estás seguro?"
-    footer = "💡 Podés reabrir el mes en cualquier momento si cambiás de opinión"
+    footer = "💡 Podés reabrir el mes cuando quieras"
     options = ["✅ Sí", "❌ No"]
 
     reply_button_data = button_reply_message(number, options, body, footer, "sed1")
