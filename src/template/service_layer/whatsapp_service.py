@@ -235,10 +235,9 @@ def group_selector_message(number: str, groups: List[Any]) -> str:
 
 
 def notification_message_with_buttons(number: str, body: str, app_url: str) -> str:
-    """Interactive notification with app URL in body and 'Entendido' quick reply button.
+    """Interactive notification with a CTA URL button pointing to the web app.
 
     Used for expense created/updated/deleted notifications within the 24h window.
-    Replicates the template UX (visit-site link + acknowledge button) for free-form messages.
     """
     return json.dumps(
         {
@@ -247,10 +246,13 @@ def notification_message_with_buttons(number: str, body: str, app_url: str) -> s
             "to": number,
             "type": "interactive",
             "interactive": {
-                "type": "button",
-                "body": {"text": f"{body}\n\n🔗 {app_url}"},
+                "type": "cta_url",
+                "body": {"text": body},
                 "footer": {"text": "⚙️ Jirens Shared Expenses"},
-                "action": {"buttons": [{"type": "reply", "reply": {"id": "notif_ok", "title": "✅ Entendido"}}]},
+                "action": {
+                    "name": "cta_url",
+                    "parameters": {"display_text": "🌐 Ver en la App", "url": app_url},
+                },
             },
         }
     )
