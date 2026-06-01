@@ -199,9 +199,8 @@ async def delete_recurring_income(
         # Has historical snapshots — deactivate only
         updated = income_repo.update_recurring(income_id, active=False)
         return ResponseModel(data=_recurring_to_response(updated))
-    else:
-        income_repo.delete_recurring(income_id)
-        return ResponseModel(data=_recurring_to_response(template))
+    income_repo.delete_recurring(income_id)
+    return ResponseModel(data=_recurring_to_response(template))
 
 
 # ---------------------------------------------------------------------------
