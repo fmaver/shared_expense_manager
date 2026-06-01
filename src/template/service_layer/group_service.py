@@ -39,9 +39,11 @@ class GroupService:
         return self._repo.update_name(group_id, name)
 
     def _assert_not_personal(self, group_id: int) -> None:
-        """Raise ValueError if the group is a personal group (single-member, no sharing allowed)."""
+        """Raise ValueError if the group is personal or does not exist."""
         group = self._repo.get(group_id)
-        if group and group.group_type == GroupType.PERSONAL:
+        if not group:
+            raise ValueError(f"Group {group_id} not found")
+        if group.group_type == GroupType.PERSONAL:
             raise ValueError(f"Operation not allowed on personal group {group_id}")
 
     def close(self, group_id: int) -> Group:
@@ -64,6 +66,7 @@ class GroupService:
 
     def leave(self, group_id: int, member_id: int, member_balance: float) -> None:
         """Remove a member from the group. Blocked if they have a non-zero balance."""
+        self._assert_not_personal(group_id)
         if abs(member_balance) > 0.01:
             raise ValueError("Cannot leave group with an outstanding balance. Settle first.")
         self._repo.remove_member(group_id, member_id)
@@ -86,7 +89,7 @@ class GroupService:
             self._repo.add_member(group.id, member_id)
             return group
         except IntegrityError:
-            # Another concurrent request already created the personal group — return it.
-            # The repository's session is in a bad state after IntegrityError; the commit
-            # inside repo.create() means the session is closed/rolled back already.
+            # Another concurrent request already created the personal group.
+            # Must rollback the aborted transaction before the session can be reused.
+            self._repo.session.rollback()
             return self._repo.get_personal_for_owner(member_id)
