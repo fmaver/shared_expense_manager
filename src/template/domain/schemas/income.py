@@ -63,7 +63,7 @@ class IncomeInstanceResponse(CamelCaseModel):
     id: int
     year: int
     month: int
-    source: str
+    source: Literal["recurring", "variable"]
     recurring_income_id: Optional[int] = None
     label: str
     amount: float
