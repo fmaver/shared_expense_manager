@@ -1,5 +1,7 @@
 """Repository implementations."""
 
+# pylint: disable=too-many-lines
+
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
@@ -12,10 +14,12 @@ from template.adapters.orm import (
     GroupJoinLinkModel,
     GroupMembershipModel,
     GroupModel,
+    IncomeInstanceModel,
     InvitationModel,
     MemberModel,
     MonthlyShareModel,
     ProcessedMessageModel,
+    RecurringIncomeModel,
 )
 from template.domain.models.category import Category
 from template.domain.models.enums import (
@@ -24,6 +28,7 @@ from template.domain.models.enums import (
     NotificationType,
 )
 from template.domain.models.group import Group, GroupStatus, GroupType
+from template.domain.models.income import IncomeInstance, RecurringIncome
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
@@ -617,9 +622,11 @@ class GroupRepository:
         """Initialize group repository."""
         self.session = session
 
-    def create(self, name: str) -> Group:
+    def create(
+        self, name: str, group_type: GroupType = GroupType.REGULAR, owner_member_id: Optional[int] = None
+    ) -> Group:
         """Create a new active group."""
-        model = GroupModel(name=name, status="active", group_type="regular")
+        model = GroupModel(name=name, status="active", group_type=group_type.value, owner_member_id=owner_member_id)
         self.session.add(model)
         self.session.flush()
         self.session.commit()
@@ -630,18 +637,32 @@ class GroupRepository:
         model = self.session.query(GroupModel).filter(GroupModel.id == group_id, GroupModel.status != "deleted").first()
         return self._to_domain(model) if model else None
 
-    def list_for_member(self, member_id: int) -> list[Group]:
+    def get_personal_for_owner(self, member_id: int) -> Optional[Group]:
+        """Return the personal group for the given owner, or None if it doesn't exist yet."""
+        model = (
+            self.session.query(GroupModel)
+            .filter(
+                GroupModel.owner_member_id == member_id,
+                GroupModel.group_type == GroupType.PERSONAL.value,
+                GroupModel.status != "deleted",
+            )
+            .first()
+        )
+        return self._to_domain(model) if model else None
+
+    def list_for_member(self, member_id: int, include_personal: bool = False) -> list[Group]:
         """Return all active groups the member belongs to."""
-        models = (
+        query = (
             self.session.query(GroupModel)
             .join(GroupMembershipModel, GroupModel.id == GroupMembershipModel.group_id)
             .filter(
                 GroupMembershipModel.member_id == member_id,
                 GroupModel.status == "active",
             )
-            .all()
         )
-        return [self._to_domain(m) for m in models]
+        if not include_personal:
+            query = query.filter(GroupModel.group_type != GroupType.PERSONAL.value)
+        return [self._to_domain(m) for m in query.all()]
 
     def update_name(self, group_id: int, name: str) -> Group:
         """Rename a group."""
@@ -665,6 +686,14 @@ class GroupRepository:
 
     def add_member(self, group_id: int, member_id: int) -> None:
         """Add a member to a group (idempotent)."""
+        # Personal groups are single-member — block adding a second member
+        group_model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
+        if group_model and group_model.group_type == GroupType.PERSONAL.value:
+            existing_count = (
+                self.session.query(GroupMembershipModel).filter(GroupMembershipModel.group_id == group_id).count()
+            )
+            if existing_count >= 1:
+                raise ValueError(f"Cannot add a second member to personal group {group_id}")
         existing = (
             self.session.query(GroupMembershipModel)
             .filter(
@@ -846,3 +875,237 @@ class GroupJoinLinkRepository:
     def get_by_token(self, token: str) -> Optional[GroupJoinLinkModel]:
         """Return the join link with this token, or None."""
         return self.session.query(GroupJoinLinkModel).filter(GroupJoinLinkModel.token == token).first()
+
+
+class IncomeRepository:
+    """Manages recurring income templates and income instances for personal groups."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    # --- RecurringIncome (templates) ---
+
+    def create_recurring(
+        self, owner_member_id: int, personal_group_id: int, label: str, amount: float
+    ) -> RecurringIncome:
+        """Create a new recurring income template."""
+        model = RecurringIncomeModel(
+            owner_member_id=owner_member_id,
+            personal_group_id=personal_group_id,
+            label=label,
+            amount=amount,
+            active=True,
+        )
+        self.session.add(model)
+        self.session.flush()
+        self.session.commit()
+        return self._recurring_to_domain(model)
+
+    def list_recurring(self, personal_group_id: int) -> list[RecurringIncome]:
+        """Return all recurring income templates for a personal group."""
+        models = (
+            self.session.query(RecurringIncomeModel)
+            .filter(RecurringIncomeModel.personal_group_id == personal_group_id)
+            .order_by(RecurringIncomeModel.id)
+            .all()
+        )
+        return [self._recurring_to_domain(m) for m in models]
+
+    def get_recurring(self, income_id: int) -> Optional[RecurringIncome]:
+        """Return a recurring income template by ID, or None."""
+        model = self.session.query(RecurringIncomeModel).filter(RecurringIncomeModel.id == income_id).first()
+        return self._recurring_to_domain(model) if model else None
+
+    def update_recurring(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        income_id: int,
+        label: Optional[str] = None,
+        amount: Optional[float] = None,
+        active: Optional[bool] = None,
+    ) -> RecurringIncome:
+        """Update fields on a recurring income template."""
+        model = self.session.query(RecurringIncomeModel).filter(RecurringIncomeModel.id == income_id).first()
+        if not model:
+            raise ValueError(f"RecurringIncome {income_id} not found")
+        if label is not None:
+            model.label = label
+        if amount is not None:
+            model.amount = amount
+        if active is not None:
+            model.active = active
+        self.session.flush()
+        self.session.commit()
+        return self._recurring_to_domain(model)
+
+    def delete_recurring(self, income_id: int) -> None:
+        """Delete a recurring income template. Only allowed when no instances reference it."""
+        instance_count = (
+            self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.recurring_income_id == income_id).count()
+        )
+        if instance_count > 0:
+            raise ValueError(
+                f"Cannot delete RecurringIncome {income_id}: {instance_count} instances reference it. "
+                "Deactivate it instead (set active=False)."
+            )
+        self.session.query(RecurringIncomeModel).filter(RecurringIncomeModel.id == income_id).delete()
+        self.session.commit()
+
+    def has_instances(self, income_id: int) -> bool:
+        """Return True if any income instances reference this template."""
+        count = (
+            self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.recurring_income_id == income_id).count()
+        )
+        return count > 0
+
+    # --- IncomeInstance ---
+
+    def upsert_recurring_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        personal_group_id: int,
+        owner_member_id: int,
+        year: int,
+        month: int,
+        recurring_income_id: int,
+        label: str,
+        amount: float,
+    ) -> IncomeInstance:
+        """Get-or-create a recurring income snapshot for (group, year, month, template).
+
+        Idempotent: if the snapshot already exists, returns it unchanged (forward-only semantics for past months).
+        """
+        existing = (
+            self.session.query(IncomeInstanceModel)
+            .filter(
+                IncomeInstanceModel.personal_group_id == personal_group_id,
+                IncomeInstanceModel.year == year,
+                IncomeInstanceModel.month == month,
+                IncomeInstanceModel.recurring_income_id == recurring_income_id,
+                IncomeInstanceModel.source == "recurring",
+            )
+            .first()
+        )
+        if existing:
+            return self._instance_to_domain(existing)
+        model = IncomeInstanceModel(
+            personal_group_id=personal_group_id,
+            owner_member_id=owner_member_id,
+            year=year,
+            month=month,
+            source="recurring",
+            recurring_income_id=recurring_income_id,
+            label=label,
+            amount=amount,
+        )
+        self.session.add(model)
+        self.session.flush()
+        self.session.commit()
+        return self._instance_to_domain(model)
+
+    def resync_current_month_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        personal_group_id: int,
+        recurring_income_id: int,
+        year: int,
+        month: int,
+        new_label: str,
+        new_amount: float,
+    ) -> None:
+        """Re-sync the current month's recurring snapshot when the template is edited.
+
+        Only updates an existing instance (no-op if not yet materialized).
+        """
+        self.session.query(IncomeInstanceModel).filter(
+            IncomeInstanceModel.personal_group_id == personal_group_id,
+            IncomeInstanceModel.recurring_income_id == recurring_income_id,
+            IncomeInstanceModel.year == year,
+            IncomeInstanceModel.month == month,
+            IncomeInstanceModel.source == "recurring",
+        ).update({"label": new_label, "amount": new_amount})
+        self.session.commit()
+
+    def create_variable_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, personal_group_id: int, owner_member_id: int, year: int, month: int, label: str, amount: float
+    ) -> IncomeInstance:
+        """Create a one-off variable income entry for a specific month."""
+        model = IncomeInstanceModel(
+            personal_group_id=personal_group_id,
+            owner_member_id=owner_member_id,
+            year=year,
+            month=month,
+            source="variable",
+            recurring_income_id=None,
+            label=label,
+            amount=amount,
+        )
+        self.session.add(model)
+        self.session.flush()
+        self.session.commit()
+        return self._instance_to_domain(model)
+
+    def list_instances_for_month(self, personal_group_id: int, year: int, month: int) -> list[IncomeInstance]:
+        """Return all income instances for a group/month, ordered by ID."""
+        models = (
+            self.session.query(IncomeInstanceModel)
+            .filter(
+                IncomeInstanceModel.personal_group_id == personal_group_id,
+                IncomeInstanceModel.year == year,
+                IncomeInstanceModel.month == month,
+            )
+            .order_by(IncomeInstanceModel.id)
+            .all()
+        )
+        return [self._instance_to_domain(m) for m in models]
+
+    def get_instance(self, instance_id: int) -> Optional[IncomeInstance]:
+        """Return an income instance by ID, or None."""
+        model = self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.id == instance_id).first()
+        return self._instance_to_domain(model) if model else None
+
+    def update_instance(
+        self, instance_id: int, label: Optional[str] = None, amount: Optional[float] = None
+    ) -> IncomeInstance:
+        """Update label and/or amount on an income instance."""
+        model = self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.id == instance_id).first()
+        if not model:
+            raise ValueError(f"IncomeInstance {instance_id} not found")
+        if label is not None:
+            model.label = label
+        if amount is not None:
+            model.amount = amount
+        self.session.flush()
+        self.session.commit()
+        return self._instance_to_domain(model)
+
+    def delete_instance(self, instance_id: int) -> None:
+        """Delete an income instance."""
+        self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.id == instance_id).delete()
+        self.session.commit()
+
+    # --- Private helpers ---
+
+    def _recurring_to_domain(self, model: RecurringIncomeModel) -> RecurringIncome:
+        return RecurringIncome(
+            id=model.id,
+            owner_member_id=model.owner_member_id,
+            personal_group_id=model.personal_group_id,
+            label=model.label,
+            amount=model.amount,
+            active=model.active,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
+
+    def _instance_to_domain(self, model: IncomeInstanceModel) -> IncomeInstance:
+        return IncomeInstance(
+            id=model.id,
+            personal_group_id=model.personal_group_id,
+            owner_member_id=model.owner_member_id,
+            year=model.year,
+            month=model.month,
+            source=model.source,
+            recurring_income_id=model.recurring_income_id,
+            label=model.label,
+            amount=model.amount,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
