@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from template.adapters.orm import (
@@ -686,14 +687,29 @@ class GroupRepository:
 
     def add_member(self, group_id: int, member_id: int) -> None:
         """Add a member to a group (idempotent)."""
-        # Personal groups are single-member — block adding a second member
         group_model = self.session.query(GroupModel).filter(GroupModel.id == group_id).first()
         if group_model and group_model.group_type == GroupType.PERSONAL.value:
-            existing_count = (
-                self.session.query(GroupMembershipModel).filter(GroupMembershipModel.group_id == group_id).count()
+            # Idempotency check: if this exact member is already in, return silently
+            existing = (
+                self.session.query(GroupMembershipModel)
+                .filter(
+                    GroupMembershipModel.group_id == group_id,
+                    GroupMembershipModel.member_id == member_id,
+                )
+                .first()
             )
-            if existing_count >= 1:
-                raise ValueError(f"Cannot add a second member to personal group {group_id}")
+            if existing:
+                return
+            # For personal groups, the DB's uq_group_member constraint enforces single-member;
+            # if a race causes a duplicate attempt, re-raise as a domain error
+            try:
+                self.session.add(GroupMembershipModel(group_id=group_id, member_id=member_id))
+                self.session.flush()
+                self.session.commit()
+            except IntegrityError as exc:
+                self.session.rollback()
+                raise ValueError(f"Cannot add a second member to personal group {group_id}") from exc
+            return
         existing = (
             self.session.query(GroupMembershipModel)
             .filter(
@@ -902,7 +918,7 @@ class IncomeRepository:
         return self._recurring_to_domain(model)
 
     def list_recurring(self, personal_group_id: int) -> list[RecurringIncome]:
-        """Return all recurring income templates for a personal group."""
+        """Return all recurring income templates for the group, including inactive ones."""
         models = (
             self.session.query(RecurringIncomeModel)
             .filter(RecurringIncomeModel.personal_group_id == personal_group_id)
@@ -939,12 +955,9 @@ class IncomeRepository:
 
     def delete_recurring(self, income_id: int) -> None:
         """Delete a recurring income template. Only allowed when no instances reference it."""
-        instance_count = (
-            self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.recurring_income_id == income_id).count()
-        )
-        if instance_count > 0:
+        if self.has_instances(income_id):
             raise ValueError(
-                f"Cannot delete RecurringIncome {income_id}: {instance_count} instances reference it. "
+                f"Cannot delete RecurringIncome {income_id}: instances reference it. "
                 "Deactivate it instead (set active=False)."
             )
         self.session.query(RecurringIncomeModel).filter(RecurringIncomeModel.id == income_id).delete()
@@ -996,12 +1009,28 @@ class IncomeRepository:
             label=label,
             amount=amount,
         )
-        self.session.add(model)
-        self.session.flush()
-        self.session.commit()
-        return self._instance_to_domain(model)
+        try:
+            self.session.add(model)
+            self.session.flush()
+            self.session.commit()
+            return self._instance_to_domain(model)
+        except IntegrityError:
+            self.session.rollback()
+            # Another concurrent call already created the instance — return it
+            winner = (
+                self.session.query(IncomeInstanceModel)
+                .filter(
+                    IncomeInstanceModel.personal_group_id == personal_group_id,
+                    IncomeInstanceModel.year == year,
+                    IncomeInstanceModel.month == month,
+                    IncomeInstanceModel.recurring_income_id == recurring_income_id,
+                    IncomeInstanceModel.source == "recurring",
+                )
+                .first()
+            )
+            return self._instance_to_domain(winner)
 
-    def resync_current_month_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def update_recurring_instance_for_month(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         personal_group_id: int,
         recurring_income_id: int,
@@ -1010,9 +1039,10 @@ class IncomeRepository:
         new_label: str,
         new_amount: float,
     ) -> None:
-        """Re-sync the current month's recurring snapshot when the template is edited.
+        """Update an existing recurring income snapshot for the given (group, year, month).
 
-        Only updates an existing instance (no-op if not yet materialized).
+        No-op if no snapshot exists yet. The caller is responsible for ensuring this is only
+        called for the current month.
         """
         self.session.query(IncomeInstanceModel).filter(
             IncomeInstanceModel.personal_group_id == personal_group_id,
