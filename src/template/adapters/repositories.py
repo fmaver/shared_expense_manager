@@ -917,15 +917,14 @@ class IncomeRepository:
         self.session.commit()
         return self._recurring_to_domain(model)
 
-    def list_recurring(self, personal_group_id: int) -> list[RecurringIncome]:
-        """Return all recurring income templates for the group, including inactive ones."""
-        models = (
-            self.session.query(RecurringIncomeModel)
-            .filter(RecurringIncomeModel.personal_group_id == personal_group_id)
-            .order_by(RecurringIncomeModel.id)
-            .all()
+    def list_recurring(self, personal_group_id: int, active_only: bool = False) -> list[RecurringIncome]:
+        """Return recurring income templates for the group. Includes inactive by default."""
+        query = self.session.query(RecurringIncomeModel).filter(
+            RecurringIncomeModel.personal_group_id == personal_group_id
         )
-        return [self._recurring_to_domain(m) for m in models]
+        if active_only:
+            query = query.filter(RecurringIncomeModel.active.is_(True))
+        return [self._recurring_to_domain(m) for m in query.order_by(RecurringIncomeModel.id).all()]
 
     def get_recurring(self, income_id: int) -> Optional[RecurringIncome]:
         """Return a recurring income template by ID, or None."""

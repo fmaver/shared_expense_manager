@@ -4,13 +4,17 @@ from template.adapters.repositories import GroupRepository, IncomeRepository
 from template.domain.models.category import Category
 from template.domain.models.income import IncomeInstance
 from template.domain.models.repository import ExpenseRepository
+from template.domain.models.split import (
+    ExactAmountsSplit,
+    PercentageSplit,
+    SplitStrategy,
+)
 from template.domain.schemas.expense import ExpenseResponse, SplitStrategySchema
 from template.domain.schemas.income import (
     IncomeInstanceResponse,
     MirroredShareItem,
     PersonalLedgerResponse,
 )
-from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit, SplitStrategy
 from template.service_layer.group_service import GroupService
 
 
@@ -48,7 +52,9 @@ class PersonalLedgerService:
         self._expense_repo = expense_repo
         self._income_repo = income_repo
 
-    def get_ledger(self, owner_member_id: int, year: int, month: int) -> PersonalLedgerResponse:
+    def get_ledger(  # pylint: disable=too-many-locals
+        self, owner_member_id: int, year: int, month: int
+    ) -> PersonalLedgerResponse:
         """Compute the personal financial ledger for owner_member_id for (year, month).
 
         Steps:
@@ -101,8 +107,9 @@ class PersonalLedgerService:
         other_groups = self._group_repo.list_for_member(owner_member_id, include_personal=False)
         for source_group in other_groups:
             source_share = self._expense_repo.get_monthly_share(year, month, source_group.id)
-            if not source_share:
+            if not source_share or not source_share.expenses:
                 continue
+            # Only fetch members if there are expenses to process
             members_list = self._group_repo.list_members(source_group.id)
             members_dict = {m.id: m for m in members_list}
             for expense in source_share.expenses:
@@ -110,9 +117,13 @@ class PersonalLedgerService:
                 if Category.is_internal_category(expense.category.name):
                     continue
                 # Compute this owner's share
-                shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
+                try:
+                    shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
+                except ValueError:
+                    # Skip expenses whose stored split data fails validation (e.g., float drift)
+                    continue
                 owner_share = shares.get(owner_member_id, 0.0)
-                if owner_share <= 0.01:
+                if owner_share < 0.005:
                     continue  # owner not a participant in this expense
                 status = "realized" if source_share.is_settled else "pending"
                 mirrored_shares.append(
@@ -159,10 +170,8 @@ class PersonalLedgerService:
 
         Idempotent: existing snapshots are never overwritten (forward-only semantics).
         """
-        templates = self._income_repo.list_recurring(personal_group_id)
+        templates = self._income_repo.list_recurring(personal_group_id, active_only=True)
         for template in templates:
-            if not template.active:
-                continue
             self._income_repo.upsert_recurring_instance(
                 personal_group_id=personal_group_id,
                 owner_member_id=owner_member_id,
