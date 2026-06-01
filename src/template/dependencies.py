@@ -7,6 +7,7 @@ from template.adapters.database import get_db
 from template.adapters.repositories import (
     ChatSessionRepository,
     GroupRepository,
+    IncomeRepository,
     MemberRepository,
     ProcessedMessageRepository,
     SQLAlchemyExpenseRepository,
@@ -15,6 +16,7 @@ from template.domain.models.repository import ExpenseRepository
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
+from template.service_layer.personal_ledger_service import PersonalLedgerService
 from template.service_layer.whatsapp_client import MetaWhatsAppClient, WhatsAppClient
 
 
@@ -69,3 +71,23 @@ def get_chat_session_repository(db: Session = Depends(get_db)) -> ChatSessionRep
 def get_processed_message_repository(db: Session = Depends(get_db)) -> ProcessedMessageRepository:
     """Get processed message repository instance."""
     return ProcessedMessageRepository(db)
+
+
+def get_income_repository(db: Session = Depends(get_db)) -> IncomeRepository:
+    """Get income repository instance."""
+    return IncomeRepository(db)
+
+
+def get_personal_ledger_service(
+    group_service: GroupService = Depends(get_group_service),
+    group_repo: GroupRepository = Depends(get_group_repository),
+    expense_repo: ExpenseRepository = Depends(get_repository),
+    income_repo: IncomeRepository = Depends(get_income_repository),
+) -> PersonalLedgerService:
+    """Get personal ledger service instance."""
+    return PersonalLedgerService(
+        group_service=group_service,
+        group_repo=group_repo,
+        expense_repo=expense_repo,
+        income_repo=income_repo,
+    )

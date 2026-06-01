@@ -17,6 +17,7 @@ from template.entrypoint import (
     member,
     monitor,
     monthly_share,
+    personal,
     whatsapp_bot,
 )
 
@@ -34,4 +35,5 @@ api_router_v1.include_router(member.router)
 api_router_v1.include_router(monthly_share.router)
 api_router_v1.include_router(category.router)
 api_router_v1.include_router(auth.router)
+api_router_v1.include_router(personal.router)
 root_router.include_router(whatsapp_bot.router)
