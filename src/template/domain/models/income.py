@@ -28,6 +28,7 @@ class IncomeInstance(CamelCaseModel):
 
     id: Optional[int] = None
     personal_group_id: int
+    owner_member_id: int
     year: int
     month: int
     source: Literal["recurring", "variable"]
