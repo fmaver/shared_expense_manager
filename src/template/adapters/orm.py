@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -219,10 +220,6 @@ class IncomeInstanceModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
-    owner: Mapped["MemberModel"] = relationship(foreign_keys=[owner_member_id])
-    recurring_income: Mapped[Optional["RecurringIncomeModel"]] = relationship()
-
     __table_args__ = (
         # Idempotency: one snapshot per recurring template per month
         Index(
@@ -236,4 +233,15 @@ class IncomeInstanceModel(Base):
         ),
         # Covering index for ledger queries
         Index("ix_income_instances_group_period", "personal_group_id", "year", "month"),
+        # Enforce that recurring source has a recurring_income_id
+        CheckConstraint(
+            "source != 'recurring' OR recurring_income_id IS NOT NULL",
+            name="ck_income_instance_recurring_has_id",
+        ),
+        # Enforce valid source values
+        CheckConstraint("source IN ('recurring', 'variable')", name="ck_income_instance_source"),
     )
+
+    personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
+    owner: Mapped["MemberModel"] = relationship(foreign_keys=[owner_member_id])
+    recurring_income: Mapped[Optional["RecurringIncomeModel"]] = relationship()
