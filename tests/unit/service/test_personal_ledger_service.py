@@ -10,7 +10,6 @@ from template.domain.models.group import Group, GroupStatus, GroupType
 from template.domain.models.income import IncomeInstance
 from template.service_layer.personal_ledger_service import PersonalLedgerService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -66,9 +65,7 @@ def _make_mock_expense(
     mock_expense.parent_expense_id = None
 
     if owner_share is not None and all_member_ids is not None:
-        shares_dict = {
-            mid: (owner_share if mid == 1 else amount - owner_share) for mid in all_member_ids
-        }
+        shares_dict = {mid: (owner_share if mid == 1 else amount - owner_share) for mid in all_member_ids}
         mock_expense.split_strategy = MagicMock()
         mock_expense.split_strategy.calculate_shares.return_value = shares_dict
     return mock_expense
@@ -170,8 +167,12 @@ def test_mirrored_share_pending():
     """Owner in a 2-member shared group, expense $200 split equally, month unsettled → pending."""
     shared_group = _make_regular_group(group_id=2)
     expense = _make_mock_expense(
-        expense_id=10, amount=200.0, payer_id=2, category_name="salidas",
-        owner_share=100.0, all_member_ids=[1, 2],
+        expense_id=10,
+        amount=200.0,
+        payer_id=2,
+        category_name="salidas",
+        owner_share=100.0,
+        all_member_ids=[1, 2],
     )
     mock_share = MagicMock()
     mock_share.expenses = [expense]
@@ -209,8 +210,12 @@ def test_mirrored_share_realized():
     """Same but source month is_settled=True → status=='realized', realized_balance decreases."""
     shared_group = _make_regular_group(group_id=2)
     expense = _make_mock_expense(
-        expense_id=10, amount=200.0, payer_id=2, category_name="salidas",
-        owner_share=100.0, all_member_ids=[1, 2],
+        expense_id=10,
+        amount=200.0,
+        payer_id=2,
+        category_name="salidas",
+        owner_share=100.0,
+        all_member_ids=[1, 2],
     )
     mock_share = MagicMock()
     mock_share.expenses = [expense]
@@ -247,8 +252,12 @@ def test_owner_payer_status_irrelevant():
     shared_group = _make_regular_group(group_id=2)
     # payer_id=1 (owner pays), but share is still 100
     expense = _make_mock_expense(
-        expense_id=10, amount=200.0, payer_id=1, category_name="supermercado",
-        owner_share=100.0, all_member_ids=[1, 2],
+        expense_id=10,
+        amount=200.0,
+        payer_id=1,
+        category_name="supermercado",
+        owner_share=100.0,
+        all_member_ids=[1, 2],
     )
     mock_share = MagicMock()
     mock_share.expenses = [expense]
@@ -279,8 +288,12 @@ def test_internal_categories_excluded():
     """Expense with category 'balance' → NOT in mirrored shares."""
     shared_group = _make_regular_group(group_id=2)
     expense = _make_mock_expense(
-        expense_id=10, amount=200.0, payer_id=2, category_name="balance",
-        owner_share=100.0, all_member_ids=[1, 2],
+        expense_id=10,
+        amount=200.0,
+        payer_id=2,
+        category_name="balance",
+        owner_share=100.0,
+        all_member_ids=[1, 2],
     )
     mock_share = MagicMock()
     mock_share.expenses = [expense]
@@ -311,8 +324,12 @@ def test_owner_excluded_from_split():
     """EqualSplit with participant_ids=[2] (NOT owner) → owner_share=0, no mirrored share."""
     shared_group = _make_regular_group(group_id=2)
     expense = _make_mock_expense(
-        expense_id=10, amount=200.0, payer_id=2, category_name="salidas",
-        owner_share=0.0, all_member_ids=[1, 2],
+        expense_id=10,
+        amount=200.0,
+        payer_id=2,
+        category_name="salidas",
+        owner_share=0.0,
+        all_member_ids=[1, 2],
     )
     mock_share = MagicMock()
     mock_share.expenses = [expense]
