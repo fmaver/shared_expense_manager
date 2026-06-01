@@ -13,6 +13,7 @@ from template.adapters.repositories import (
     MemberRepository,
 )
 from template.domain.models.enums import InvitationChannel, InvitationStatus
+from template.domain.models.group import GroupType
 from template.domain.models.member import Member
 from template.domain.schemas.group import (
     GroupJoinLinkResponse,
@@ -95,6 +96,8 @@ class InvitationService:
         group = self._group_repo.get(group_id)
         if not group:
             raise ValueError(f"Group {group_id} not found")
+        if group.group_type == GroupType.PERSONAL:
+            raise ValueError(f"Cannot invite members to personal group {group_id}")
 
         inv_channel = InvitationChannel(channel)
         invitee_member, contact = self._resolve_invitee(group_id, inv_channel, name, contact)
@@ -275,6 +278,11 @@ class GroupJoinLinkService:
 
     def get_or_create_link(self, group_id: int, member_id: int) -> GroupJoinLinkResponse:
         """Return the existing join link for a group, creating one if it doesn't exist."""
+        group = self._group_repo.get(group_id)
+        if not group:
+            raise ValueError(f"Group {group_id} not found")
+        if group.group_type == GroupType.PERSONAL:
+            raise ValueError("Join links are not available for personal groups")
         token = secrets.token_urlsafe(32)
         row = self._join_link_repo.get_or_create(group_id, member_id, token)
         return GroupJoinLinkResponse(
@@ -285,6 +293,11 @@ class GroupJoinLinkService:
 
     def rotate_link(self, group_id: int, member_id: int) -> GroupJoinLinkResponse:
         """Invalidate the current join link and issue a new token."""
+        group = self._group_repo.get(group_id)
+        if not group:
+            raise ValueError(f"Group {group_id} not found")
+        if group.group_type == GroupType.PERSONAL:
+            raise ValueError("Join links are not available for personal groups")
         new_token = secrets.token_urlsafe(32)
         row = self._join_link_repo.rotate(group_id, new_token)
         return GroupJoinLinkResponse(
