@@ -76,6 +76,19 @@ class IncomeInstanceResponse(CamelCaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GroupBalanceItem(CamelCaseModel):
+    """Net balance for one group in a given month.
+
+    Positive means the owner is a creditor (will receive money at settlement).
+    Negative means the owner is a debtor (will pay money at settlement).
+    """
+
+    source_group_id: int
+    source_group_name: str
+    net_balance: float
+    is_settled: bool
+
+
 class MirroredShareItem(CamelCaseModel):
     source_group_id: int
     source_group_name: str
@@ -85,6 +98,8 @@ class MirroredShareItem(CamelCaseModel):
     date: date
     share_amount: float
     status: Literal["pending", "realized"]
+    installment_no: int = 1
+    installments: int = 1
 
 
 class PersonalLedgerResponse(CamelCaseModel):
@@ -97,6 +112,9 @@ class PersonalLedgerResponse(CamelCaseModel):
     total_shares_pending: float
     total_shares_realized: float
     mirrored_shares: list[MirroredShareItem]
+    # Per-group net balance for the month (positive = creditor, negative = debtor)
+    group_balances: list[GroupBalanceItem]
     projected_balance: float
     realized_balance: float
+    # Net amount across all unsettled groups: positive = you'll receive, negative = you'll pay
     pending_settlements_total: float
