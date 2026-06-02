@@ -11,6 +11,7 @@ from template.domain.models.split import (
 )
 from template.domain.schemas.expense import ExpenseResponse, SplitStrategySchema
 from template.domain.schemas.income import (
+    GroupBalanceItem,
     IncomeInstanceResponse,
     MirroredShareItem,
     PersonalLedgerResponse,
@@ -102,12 +103,27 @@ class PersonalLedgerService:
                     )
         total_personal_expenses = round(total_personal_expenses, 2)
 
-        # Step E: mirrored shares from OTHER groups
+        # Step E: mirrored shares + net group balances from OTHER groups
         mirrored_shares: list[MirroredShareItem] = []
+        group_balances: list[GroupBalanceItem] = []
         other_groups = self._group_repo.list_for_member(owner_member_id, include_personal=False)
         for source_group in other_groups:
             source_share = self._expense_repo.get_monthly_share(year, month, source_group.id)
-            if not source_share or not source_share.expenses:
+            if not source_share:
+                continue
+
+            # Net group balance for this owner: positive = creditor, negative = debtor
+            net_balance = round(source_share.balances.get(str(owner_member_id), 0.0), 2)
+            group_balances.append(
+                GroupBalanceItem(
+                    source_group_id=source_group.id,
+                    source_group_name=source_group.name,
+                    net_balance=net_balance,
+                    is_settled=source_share.is_settled,
+                )
+            )
+
+            if not source_share.expenses:
                 continue
             # Only fetch members if there are expenses to process
             members_list = self._group_repo.list_members(source_group.id)
@@ -142,13 +158,16 @@ class PersonalLedgerService:
                 )
 
         # Step F: compute balances
+        # projected/realized use GROSS shares (correct — payer credit is implicit in the share math)
         total_shares_pending = round(sum(s.share_amount for s in mirrored_shares if s.status == "pending"), 2)
         total_shares_realized = round(sum(s.share_amount for s in mirrored_shares if s.status == "realized"), 2)
         projected_balance = round(
             total_income - total_personal_expenses - total_shares_pending - total_shares_realized, 2
         )
         realized_balance = round(total_income - total_personal_expenses - total_shares_realized, 2)
-        pending_settlements_total = total_shares_pending
+        # pending_settlements_total = NET group balance across unsettled groups (signed):
+        # positive means you'll receive money at settlement, negative means you'll pay
+        pending_settlements_total = round(sum(gb.net_balance for gb in group_balances if not gb.is_settled), 2)
 
         return PersonalLedgerResponse(
             year=year,
@@ -160,6 +179,7 @@ class PersonalLedgerService:
             total_shares_pending=total_shares_pending,
             total_shares_realized=total_shares_realized,
             mirrored_shares=mirrored_shares,
+            group_balances=group_balances,
             projected_balance=projected_balance,
             realized_balance=realized_balance,
             pending_settlements_total=pending_settlements_total,
