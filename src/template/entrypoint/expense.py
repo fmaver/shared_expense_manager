@@ -42,17 +42,18 @@ async def create_expense(
         group_name = service.get_group_name()
         multi_group_ids = service.get_multi_group_member_ids(members)
 
-        # Add notification task to background tasks
-        background_tasks.add_task(
-            NotificationService().notify_expense_created,
-            expense=expense,
-            members=members,
-            creator=current_member,
-            member_service=member_service,
-            group_name=group_name,
-            multi_group_member_ids=multi_group_ids,
-            group_id=service.group_id,
-        )
+        # Add notification task to background tasks (skip for personal groups)
+        if not service.is_personal_group():
+            background_tasks.add_task(
+                NotificationService().notify_expense_created,
+                expense=expense,
+                members=members,
+                creator=current_member,
+                member_service=member_service,
+                group_name=group_name,
+                multi_group_member_ids=multi_group_ids,
+                group_id=service.group_id,
+            )
 
         # Create response data
         response_data = ExpenseResponse(
@@ -94,21 +95,22 @@ async def update_expense(
 
         updated_expense = service.update_expense(expense_id, expense_data)
 
-        # Schedule notification in background
-        members = MemberRepository(db).list()
-        group_name = service.get_group_name()
-        multi_group_ids = service.get_multi_group_member_ids(members)
-        background_tasks.add_task(
-            NotificationService().notify_expense_updated,
-            old=old_expense,
-            new=updated_expense,
-            actor=current_member,
-            members=members,
-            member_service=member_service,
-            group_name=group_name,
-            multi_group_member_ids=multi_group_ids,
-            group_id=service.group_id,
-        )
+        # Schedule notification in background (skip for personal groups)
+        if not service.is_personal_group():
+            members = MemberRepository(db).list()
+            group_name = service.get_group_name()
+            multi_group_ids = service.get_multi_group_member_ids(members)
+            background_tasks.add_task(
+                NotificationService().notify_expense_updated,
+                old=old_expense,
+                new=updated_expense,
+                actor=current_member,
+                members=members,
+                member_service=member_service,
+                group_name=group_name,
+                multi_group_member_ids=multi_group_ids,
+                group_id=service.group_id,
+            )
 
         response_data = ExpenseResponse(
             id=updated_expense.id,
@@ -148,7 +150,8 @@ async def delete_expense(
 
         service.delete_expense(expense_id)
 
-        if expense_to_delete:
+        # Skip notification for personal groups
+        if expense_to_delete and not service.is_personal_group():
             members = MemberRepository(db).list()
             group_name = service.get_group_name()
             multi_group_ids = service.get_multi_group_member_ids(members)
