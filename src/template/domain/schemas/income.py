@@ -85,6 +85,8 @@ class MirroredShareItem(CamelCaseModel):
     date: date
     share_amount: float
     status: Literal["pending", "realized"]
+    installment_no: int = 1
+    installments: int = 1
 
 
 class PersonalLedgerResponse(CamelCaseModel):

@@ -136,6 +136,8 @@ class PersonalLedgerService:
                         date=expense.date,
                         share_amount=round(owner_share, 2),
                         status=status,
+                        installment_no=expense.installment_no,
+                        installments=expense.installments,
                     )
                 )
 
