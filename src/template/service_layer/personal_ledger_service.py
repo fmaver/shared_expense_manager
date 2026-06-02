@@ -158,16 +158,18 @@ class PersonalLedgerService:
                 )
 
         # Step F: compute balances
-        # projected/realized use GROSS shares (correct — payer credit is implicit in the share math)
+        # Gross shares kept for display context in mirrored shares list
         total_shares_pending = round(sum(s.share_amount for s in mirrored_shares if s.status == "pending"), 2)
         total_shares_realized = round(sum(s.share_amount for s in mirrored_shares if s.status == "realized"), 2)
+        # Net group balance across unsettled groups (signed):
+        # positive = you'll receive at settlement, negative = you'll pay
+        pending_settlements_total = round(sum(gb.net_balance for gb in group_balances if not gb.is_settled), 2)
+        # projected = income − direct − settled_costs + pending_net
+        # Converges to realized when all groups are settled (pending_settlements_total → 0)
         projected_balance = round(
-            total_income - total_personal_expenses - total_shares_pending - total_shares_realized, 2
+            total_income - total_personal_expenses - total_shares_realized + pending_settlements_total, 2
         )
         realized_balance = round(total_income - total_personal_expenses - total_shares_realized, 2)
-        # pending_settlements_total = NET group balance across unsettled groups (signed):
-        # positive means you'll receive money at settlement, negative means you'll pay
-        pending_settlements_total = round(sum(gb.net_balance for gb in group_balances if not gb.is_settled), 2)
 
         return PersonalLedgerResponse(
             year=year,

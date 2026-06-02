@@ -177,6 +177,8 @@ def test_mirrored_share_pending():
     mock_share = MagicMock()
     mock_share.expenses = [expense]
     mock_share.is_settled = False
+    # Owner didn't pay, owes $100 → net balance = -100 (debtor)
+    mock_share.balances = {"1": -100.0, "2": 100.0}
 
     # Build member mocks
     owner_member = MagicMock()
@@ -220,6 +222,8 @@ def test_mirrored_share_realized():
     mock_share = MagicMock()
     mock_share.expenses = [expense]
     mock_share.is_settled = True
+    # Settled — balance is ~0 after settlement; doesn't affect pending_settlements_total
+    mock_share.balances = {"1": -100.0, "2": 100.0}
 
     owner_member = MagicMock()
     owner_member.id = 1
@@ -262,6 +266,8 @@ def test_owner_payer_status_irrelevant():
     mock_share = MagicMock()
     mock_share.expenses = [expense]
     mock_share.is_settled = False
+    # Owner paid $200, share = $100 → net balance = +100 (creditor, owed $100 by other)
+    mock_share.balances = {"1": 100.0, "2": -100.0}
 
     owner_member = MagicMock()
     owner_member.id = 1
@@ -298,6 +304,7 @@ def test_internal_categories_excluded():
     mock_share = MagicMock()
     mock_share.expenses = [expense]
     mock_share.is_settled = False
+    mock_share.balances = {"1": 0.0}
 
     owner_member = MagicMock()
     owner_member.id = 1
@@ -334,6 +341,7 @@ def test_owner_excluded_from_split():
     mock_share = MagicMock()
     mock_share.expenses = [expense]
     mock_share.is_settled = False
+    mock_share.balances = {"1": 0.0}
 
     owner_member = MagicMock()
     owner_member.id = 1
