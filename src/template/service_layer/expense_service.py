@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 from template.domain.models.category import Category
 from template.domain.models.expense_manager import ExpenseManager
+from template.domain.models.group import GroupType
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare, PaymentType
 from template.domain.models.repository import ExpenseRepository
@@ -70,6 +71,11 @@ class ExpenseService:
     def get_multi_group_member_ids(self, members: List[Member]) -> set:
         """Return the set of member IDs that belong to more than one group."""
         return {m.id for m in members if len(self._group_repo.list_for_member(m.id)) > 1}
+
+    def is_personal_group(self) -> bool:
+        """Return True if the expense service is scoped to a personal group."""
+        group = self._group_repo.get(self._group_id)
+        return group is not None and group.group_type == GroupType.PERSONAL
 
     def create_expense(self, expense_data: ExpenseCreate) -> Expense:
         """Create a new expense."""
