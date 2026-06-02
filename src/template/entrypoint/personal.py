@@ -1,6 +1,7 @@
 """Personal API endpoints — personal group, income, and ledger."""
 
 from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -157,29 +158,39 @@ async def create_recurring_income(
 
 
 @router.patch("/income/recurring/{income_id}", response_model=ResponseModel[RecurringIncomeResponse])
-async def update_recurring_income(
+async def update_recurring_income(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     income_id: int,
     data: RecurringIncomeUpdate,
+    viewed_year: Optional[int] = None,
+    viewed_month: Optional[int] = None,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
     income_repo=Depends(get_income_repository),
 ) -> ResponseModel[RecurringIncomeResponse]:
-    """Update a recurring income template. Re-syncs the current month's snapshot."""
+    """Update a recurring income template.
+
+    Re-syncs the current calendar month's snapshot. If the caller passes
+    viewed_year/viewed_month (the month the user is currently looking at),
+    that month's snapshot is also updated so the change is immediately visible.
+    """
     personal_group = group_service.get_or_create_personal_group(current_member.id)
     template = income_repo.get_recurring(income_id)
     if not template or template.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Recurring income not found")
     updated = income_repo.update_recurring(income_id, label=data.label, amount=data.amount, active=data.active)
-    # Re-sync current month's snapshot with the new values
     today = date.today()
-    income_repo.update_recurring_instance_for_month(
-        personal_group_id=personal_group.id,
-        recurring_income_id=income_id,
-        year=today.year,
-        month=today.month,
-        new_label=updated.label,
-        new_amount=updated.amount,
-    )
+    months_to_sync = {(today.year, today.month)}
+    if viewed_year and viewed_month:
+        months_to_sync.add((viewed_year, viewed_month))
+    for yr, mo in months_to_sync:
+        income_repo.update_recurring_instance_for_month(
+            personal_group_id=personal_group.id,
+            recurring_income_id=income_id,
+            year=yr,
+            month=mo,
+            new_label=updated.label,
+            new_amount=updated.amount,
+        )
     return ResponseModel(data=_recurring_to_response(updated))
 
 
@@ -196,8 +207,16 @@ async def delete_recurring_income(
     if not template or template.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Recurring income not found")
     if income_repo.has_instances(income_id):
-        # Has historical snapshots — deactivate only
+        # Has historical snapshots — deactivate to preserve history, but remove
+        # the current month's snapshot so it disappears from the ledger immediately
         updated = income_repo.update_recurring(income_id, active=False)
+        today = date.today()
+        income_repo.delete_recurring_instance_for_month(
+            personal_group_id=personal_group.id,
+            recurring_income_id=income_id,
+            year=today.year,
+            month=today.month,
+        )
         return ResponseModel(data=_recurring_to_response(updated))
     income_repo.delete_recurring(income_id)
     return ResponseModel(data=_recurring_to_response(template))

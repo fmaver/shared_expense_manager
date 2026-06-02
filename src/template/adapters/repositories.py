@@ -1052,6 +1052,19 @@ class IncomeRepository:
         ).update({"label": new_label, "amount": new_amount})
         self.session.commit()
 
+    def delete_recurring_instance_for_month(
+        self, personal_group_id: int, recurring_income_id: int, year: int, month: int
+    ) -> None:
+        """Delete the recurring snapshot for a specific month (used when deactivating a template)."""
+        self.session.query(IncomeInstanceModel).filter(
+            IncomeInstanceModel.personal_group_id == personal_group_id,
+            IncomeInstanceModel.recurring_income_id == recurring_income_id,
+            IncomeInstanceModel.year == year,
+            IncomeInstanceModel.month == month,
+            IncomeInstanceModel.source == "recurring",
+        ).delete()
+        self.session.commit()
+
     def create_variable_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self, personal_group_id: int, owner_member_id: int, year: int, month: int, label: str, amount: float
     ) -> IncomeInstance:
