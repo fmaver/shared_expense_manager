@@ -58,6 +58,8 @@ def _recurring_to_response(template) -> RecurringIncomeResponse:
         label=template.label,
         amount=template.amount,
         active=template.active,
+        start_year=template.start_year,
+        start_month=template.start_month,
         created_at=template.created_at,
         updated_at=template.updated_at,
     )
@@ -142,14 +144,15 @@ async def create_recurring_income(
         personal_group_id=personal_group.id,
         label=data.label,
         amount=data.amount,
+        start_year=data.start_year,
+        start_month=data.start_month,
     )
-    # Immediately snapshot for the current month
-    today = date.today()
+    # Immediately snapshot for the viewed (start) month
     income_repo.upsert_recurring_instance(
         personal_group_id=personal_group.id,
         owner_member_id=current_member.id,
-        year=today.year,
-        month=today.month,
+        year=data.start_year,
+        month=data.start_month,
         recurring_income_id=template.id,
         label=template.label,
         amount=template.amount,
@@ -195,27 +198,34 @@ async def update_recurring_income(  # pylint: disable=too-many-arguments,too-man
 
 
 @router.delete("/income/recurring/{income_id}", response_model=ResponseModel[RecurringIncomeResponse])
-async def delete_recurring_income(
+async def delete_recurring_income(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     income_id: int,
+    viewed_year: Optional[int] = None,
+    viewed_month: Optional[int] = None,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
     income_repo=Depends(get_income_repository),
 ) -> ResponseModel[RecurringIncomeResponse]:
-    """Deactivate a recurring income template (or delete it if no instances reference it)."""
+    """Deactivate a recurring income template from the viewed month onwards.
+
+    Instances before the viewed month are preserved as historical record.
+    All instances from the viewed month forward are deleted.
+    """
     personal_group = group_service.get_or_create_personal_group(current_member.id)
     template = income_repo.get_recurring(income_id)
     if not template or template.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Recurring income not found")
+    today = date.today()
+    del_year = viewed_year or today.year
+    del_month = viewed_month or today.month
     if income_repo.has_instances(income_id):
-        # Has historical snapshots — deactivate to preserve history, but remove
-        # the current month's snapshot so it disappears from the ledger immediately
+        # Deactivate to stop future materialization; delete from viewed month onwards
         updated = income_repo.update_recurring(income_id, active=False)
-        today = date.today()
-        income_repo.delete_recurring_instance_for_month(
+        income_repo.delete_recurring_instances_from_month_onwards(
             personal_group_id=personal_group.id,
             recurring_income_id=income_id,
-            year=today.year,
-            month=today.month,
+            year=del_year,
+            month=del_month,
         )
         return ResponseModel(data=_recurring_to_response(updated))
     income_repo.delete_recurring(income_id)

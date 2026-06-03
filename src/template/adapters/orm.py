@@ -196,6 +196,8 @@ class RecurringIncomeModel(Base):
     label: Mapped[str] = mapped_column(String(255))
     amount: Mapped[float] = mapped_column(Float())
     active: Mapped[bool] = mapped_column(default=True)
+    start_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    start_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

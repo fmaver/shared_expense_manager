@@ -901,16 +901,24 @@ class IncomeRepository:
 
     # --- RecurringIncome (templates) ---
 
-    def create_recurring(
-        self, owner_member_id: int, personal_group_id: int, label: str, amount: float
+    def create_recurring(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        owner_member_id: int,
+        personal_group_id: int,
+        label: str,
+        amount: float,
+        start_year: int,
+        start_month: int,
     ) -> RecurringIncome:
-        """Create a new recurring income template."""
+        """Create a new recurring income template with an explicit start month."""
         model = RecurringIncomeModel(
             owner_member_id=owner_member_id,
             personal_group_id=personal_group_id,
             label=label,
             amount=amount,
             active=True,
+            start_year=start_year,
+            start_month=start_month,
         )
         self.session.add(model)
         self.session.flush()
@@ -1125,6 +1133,23 @@ class IncomeRepository:
 
     # --- Private helpers ---
 
+    def delete_recurring_instances_from_month_onwards(
+        self, personal_group_id: int, recurring_income_id: int, year: int, month: int
+    ) -> None:
+        """Delete all recurring snapshots for this template from (year, month) onwards."""
+        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
+
+        self.session.query(IncomeInstanceModel).filter(
+            IncomeInstanceModel.personal_group_id == personal_group_id,
+            IncomeInstanceModel.recurring_income_id == recurring_income_id,
+            IncomeInstanceModel.source == "recurring",
+            or_(
+                IncomeInstanceModel.year > year,
+                and_(IncomeInstanceModel.year == year, IncomeInstanceModel.month >= month),
+            ),
+        ).delete()
+        self.session.commit()
+
     def _recurring_to_domain(self, model: RecurringIncomeModel) -> RecurringIncome:
         return RecurringIncome(
             id=model.id,
@@ -1133,6 +1158,8 @@ class IncomeRepository:
             label=model.label,
             amount=model.amount,
             active=model.active,
+            start_year=model.start_year,
+            start_month=model.start_month,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )

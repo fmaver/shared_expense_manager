@@ -19,6 +19,8 @@ class RecurringIncome(CamelCaseModel):
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
     active: bool = True
+    start_year: Optional[int] = None
+    start_month: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

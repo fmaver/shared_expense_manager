@@ -196,6 +196,10 @@ class PersonalLedgerService:
         """
         templates = self._income_repo.list_recurring(personal_group_id, active_only=True)
         for template in templates:
+            # Respect the template's start month — don't backfill past months
+            if template.start_year and template.start_month:
+                if (year, month) < (template.start_year, template.start_month):
+                    continue
             self._income_repo.upsert_recurring_instance(
                 personal_group_id=personal_group_id,
                 owner_member_id=owner_member_id,
