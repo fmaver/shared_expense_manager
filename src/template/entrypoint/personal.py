@@ -139,20 +139,23 @@ async def create_recurring_income(
 ) -> ResponseModel[RecurringIncomeResponse]:
     """Create a new recurring income template and immediately materialize it for the current month."""
     personal_group = group_service.get_or_create_personal_group(current_member.id)
+    today = date.today()
+    start_year = data.start_year or today.year
+    start_month = data.start_month or today.month
     template = income_repo.create_recurring(
         owner_member_id=current_member.id,
         personal_group_id=personal_group.id,
         label=data.label,
         amount=data.amount,
-        start_year=data.start_year,
-        start_month=data.start_month,
+        start_year=start_year,
+        start_month=start_month,
     )
     # Immediately snapshot for the viewed (start) month
     income_repo.upsert_recurring_instance(
         personal_group_id=personal_group.id,
         owner_member_id=current_member.id,
-        year=data.start_year,
-        month=data.start_month,
+        year=start_year,
+        month=start_month,
         recurring_income_id=template.id,
         label=template.label,
         amount=template.amount,
