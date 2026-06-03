@@ -18,9 +18,8 @@ from template.domain.schemas.expense import ExpenseResponse
 class RecurringIncomeCreate(CamelCaseModel):
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
-    # If omitted, defaults to the current month on the server side
-    start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
-    start_month: Optional[int] = Field(default=None, ge=1, le=12)
+    start_year: int = Field(..., ge=2000, le=2100)
+    start_month: int = Field(..., ge=1, le=12)
 
 
 class RecurringIncomeUpdate(CamelCaseModel):

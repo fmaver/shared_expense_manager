@@ -147,15 +147,15 @@ async def create_recurring_income(
         personal_group_id=personal_group.id,
         label=data.label,
         amount=data.amount,
-        start_year=start_year,
-        start_month=start_month,
+        start_year=data.start_year,
+        start_month=data.start_month,
     )
     # Immediately snapshot for the viewed (start) month
     income_repo.upsert_recurring_instance(
         personal_group_id=personal_group.id,
         owner_member_id=current_member.id,
-        year=start_year,
-        month=start_month,
+        year=data.start_year,
+        month=data.start_month,
         recurring_income_id=template.id,
         label=template.label,
         amount=template.amount,
