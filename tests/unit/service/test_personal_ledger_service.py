@@ -374,6 +374,8 @@ def test_materialize_recurring_income_called():
     mock_template.id = 5
     mock_template.label = "Sueldo"
     mock_template.amount = 2000.0
+    mock_template.start_year = None
+    mock_template.start_month = None
     income_repo.list_recurring.return_value = [mock_template]
 
     svc.get_ledger(owner_member_id=1, year=2025, month=6)
