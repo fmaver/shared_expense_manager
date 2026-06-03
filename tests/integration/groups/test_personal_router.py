@@ -31,9 +31,10 @@ def test_personal_group_not_in_groups_list(client, auth_headers):
 def test_create_and_list_recurring_income(client, auth_headers):
     """Can create and list a recurring income template."""
     client.get("/api/v1/personal/group", headers=auth_headers)  # ensure personal group exists
+    today = datetime.date.today()
     r = client.post(
         "/api/v1/personal/income/recurring",
-        json={"label": "Sueldo", "amount": 1000.0},
+        json={"label": "Sueldo", "amount": 1000.0, "startYear": today.year, "startMonth": today.month},
         headers=auth_headers,
     )
     assert r.status_code == 201
@@ -51,7 +52,7 @@ def test_ledger_shows_income(client, auth_headers):
     today = datetime.date.today()
     client.post(
         "/api/v1/personal/income/recurring",
-        json={"label": "Sueldo", "amount": 1500.0},
+        json={"label": "Sueldo", "amount": 1500.0, "startYear": today.year, "startMonth": today.month},
         headers=auth_headers,
     )
     r = client.get(f"/api/v1/personal/ledger/{today.year}/{today.month}", headers=auth_headers)
@@ -142,7 +143,7 @@ def test_update_recurring_income(client, auth_headers):
     today = datetime.date.today()
     r = client.post(
         "/api/v1/personal/income/recurring",
-        json={"label": "Old Salary", "amount": 800.0},
+        json={"label": "Old Salary", "amount": 800.0, "startYear": today.year, "startMonth": today.month},
         headers=auth_headers,
     )
     income_id = r.json()["data"]["id"]
