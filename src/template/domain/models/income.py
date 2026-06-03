@@ -39,3 +39,33 @@ class IncomeInstance(CamelCaseModel):
     amount: float = Field(..., gt=0)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class RecurringPersonalExpense(CamelCaseModel):
+    """Template for a recurring personal expense (e.g. rent, subscriptions)."""
+
+    id: Optional[int] = None
+    personal_group_id: int
+    owner_member_id: int
+    label: str = Field(..., min_length=1, max_length=255)
+    amount: float = Field(..., gt=0)
+    category_name: str = Field(..., min_length=1, max_length=50)
+    active: bool = True
+    start_year: Optional[int] = None
+    start_month: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class RecurringPersonalExpenseInstance(CamelCaseModel):
+    """Per-month snapshot of a recurring personal expense."""
+
+    id: Optional[int] = None
+    personal_group_id: int
+    recurring_expense_id: int
+    year: int
+    month: int
+    label: str = Field(..., min_length=1, max_length=255)
+    amount: float = Field(..., gt=0)
+    category_name: str = Field(..., min_length=1, max_length=50)
+    created_at: Optional[datetime] = None

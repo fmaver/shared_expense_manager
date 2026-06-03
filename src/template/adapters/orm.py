@@ -247,3 +247,54 @@ class IncomeInstanceModel(Base):
     personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
     owner: Mapped["MemberModel"] = relationship(foreign_keys=[owner_member_id])
     recurring_income: Mapped[Optional["RecurringIncomeModel"]] = relationship()
+
+
+class RecurringPersonalExpenseModel(Base):
+    __tablename__ = "recurring_personal_expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    personal_group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    owner_member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    label: Mapped[str] = mapped_column(String(255))
+    amount: Mapped[float] = mapped_column(Float())
+    category_name: Mapped[str] = mapped_column(String(50))
+    active: Mapped[bool] = mapped_column(default=True)
+    start_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    start_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
+    owner: Mapped["MemberModel"] = relationship(foreign_keys=[owner_member_id])
+
+
+class RecurringPersonalExpenseInstanceModel(Base):
+    __tablename__ = "recurring_personal_expense_instances"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    personal_group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    recurring_expense_id: Mapped[int] = mapped_column(ForeignKey("recurring_personal_expenses.id", ondelete="CASCADE"))
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    label: Mapped[str] = mapped_column(String(255))
+    amount: Mapped[float] = mapped_column(Float())
+    category_name: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # Idempotency guard: one snapshot per recurring expense per month
+        Index(
+            "uq_recurring_expense_instance_per_month",
+            "personal_group_id",
+            "recurring_expense_id",
+            "year",
+            "month",
+            unique=True,
+        ),
+        # Covering index for ledger queries
+        Index("ix_recurring_expense_instances_group_period", "personal_group_id", "year", "month"),
+        CheckConstraint("amount > 0", name="ck_recurring_expense_instance_amount"),
+    )
+
+    personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
+    recurring_expense: Mapped["RecurringPersonalExpenseModel"] = relationship()

@@ -112,11 +112,16 @@ def _build_service(
     income_repo.list_instances_for_month.return_value = income_instances
     income_repo.list_recurring.return_value = []  # no recurring templates by default
 
+    recurring_expense_repo = MagicMock()
+    recurring_expense_repo.list_for_group.return_value = []  # no recurring expense templates by default
+    recurring_expense_repo.list_instances_for_month.return_value = []
+
     svc = PersonalLedgerService(
         group_service=group_service,
         group_repo=group_repo,
         expense_repo=expense_repo,
         income_repo=income_repo,
+        recurring_expense_repo=recurring_expense_repo,
     )
     return svc, group_service, group_repo, expense_repo, income_repo
 
