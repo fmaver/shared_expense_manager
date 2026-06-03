@@ -1067,6 +1067,33 @@ class IncomeRepository:
         ).update({"label": new_label, "amount": new_amount})
         self.session.commit()
 
+    def update_recurring_instances_from_month_onwards(  # pylint: disable=too-many-arguments,too-many-positional-arguments  # noqa: E501
+        self,
+        personal_group_id: int,
+        recurring_income_id: int,
+        year: int,
+        month: int,
+        new_label: str,
+        new_amount: float,
+    ) -> None:
+        """Bulk-update all existing recurring snapshots from (year, month) onwards.
+
+        Past months (before the given year/month) are left unchanged (forward-only semantics).
+        Not-yet-materialized future months will pick up the new template amount automatically.
+        """
+        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
+
+        self.session.query(IncomeInstanceModel).filter(
+            IncomeInstanceModel.personal_group_id == personal_group_id,
+            IncomeInstanceModel.recurring_income_id == recurring_income_id,
+            IncomeInstanceModel.source == "recurring",
+            or_(
+                IncomeInstanceModel.year > year,
+                and_(IncomeInstanceModel.year == year, IncomeInstanceModel.month >= month),
+            ),
+        ).update({"label": new_label, "amount": new_amount})
+        self.session.commit()
+
     def delete_recurring_instance_for_month(
         self, personal_group_id: int, recurring_income_id: int, year: int, month: int
     ) -> None:

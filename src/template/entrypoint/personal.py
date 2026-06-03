@@ -189,18 +189,19 @@ async def update_recurring_income(  # pylint: disable=too-many-arguments,too-man
         raise HTTPException(status_code=404, detail="Recurring income not found")
     updated = income_repo.update_recurring(income_id, label=data.label, amount=data.amount, active=data.active)
     today = date.today()
-    months_to_sync = {(today.year, today.month)}
-    if viewed_year and viewed_month:
-        months_to_sync.add((viewed_year, viewed_month))
-    for yr, mo in months_to_sync:
-        income_repo.update_recurring_instance_for_month(
-            personal_group_id=personal_group.id,
-            recurring_income_id=income_id,
-            year=yr,
-            month=mo,
-            new_label=updated.label,
-            new_amount=updated.amount,
-        )
+    # Use the viewed month as the start point; fall back to today if not provided
+    start_year = viewed_year or today.year
+    start_month = viewed_month or today.month
+    # Bulk-update ALL existing snapshots from the viewed month onwards so already-materialized
+    # future months also reflect the change (not-yet-materialized months pick it up from the template)
+    income_repo.update_recurring_instances_from_month_onwards(
+        personal_group_id=personal_group.id,
+        recurring_income_id=income_id,
+        year=start_year,
+        month=start_month,
+        new_label=updated.label,
+        new_amount=updated.amount,
+    )
     return ResponseModel(data=_recurring_to_response(updated))
 
 
