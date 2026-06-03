@@ -144,6 +144,8 @@ def test_empty_ledger_all_zeros():
     assert ledger.realized_balance == 0.0
     assert ledger.pending_settlements_total == 0.0
     assert ledger.mirrored_shares == []
+    assert ledger.total_paid_as_payer_unsettled == 0.0
+    assert ledger.current_balance == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +208,8 @@ def test_mirrored_share_pending():
     assert ledger.total_shares_pending == 100.0
     assert ledger.total_shares_realized == 0.0
     assert ledger.projected_balance == -100.0
+    assert ledger.total_paid_as_payer_unsettled == 0.0  # owner didn't pay
+    assert ledger.current_balance == 0.0  # 0 - 0 - 0 = 0
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +292,9 @@ def test_owner_payer_status_irrelevant():
 
     assert len(ledger.mirrored_shares) == 1
     assert ledger.mirrored_shares[0].share_amount == 100.0
+    assert ledger.total_paid_as_payer_unsettled == 200.0  # owner paid $200 upfront
+    assert ledger.current_balance == -200.0  # 0 - 0 - 200 = -200
+    assert ledger.projected_balance == -100.0  # -200 + 100 (net pending) = -100
 
 
 # ---------------------------------------------------------------------------
