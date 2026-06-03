@@ -10,6 +10,7 @@ from template.adapters.repositories import (
     IncomeRepository,
     MemberRepository,
     ProcessedMessageRepository,
+    RecurringPersonalExpenseRepository,
     SQLAlchemyExpenseRepository,
 )
 from template.domain.models.repository import ExpenseRepository
@@ -78,11 +79,17 @@ def get_income_repository(db: Session = Depends(get_db)) -> IncomeRepository:
     return IncomeRepository(db)
 
 
+def get_recurring_expense_repository(db: Session = Depends(get_db)) -> RecurringPersonalExpenseRepository:
+    """Get recurring personal expense repository instance."""
+    return RecurringPersonalExpenseRepository(db)
+
+
 def get_personal_ledger_service(
     group_service: GroupService = Depends(get_group_service),
     group_repo: GroupRepository = Depends(get_group_repository),
     expense_repo: ExpenseRepository = Depends(get_repository),
     income_repo: IncomeRepository = Depends(get_income_repository),
+    recurring_expense_repo: RecurringPersonalExpenseRepository = Depends(get_recurring_expense_repository),
 ) -> PersonalLedgerService:
     """Get personal ledger service instance."""
     return PersonalLedgerService(
@@ -90,4 +97,5 @@ def get_personal_ledger_service(
         group_repo=group_repo,
         expense_repo=expense_repo,
         income_repo=income_repo,
+        recurring_expense_repo=recurring_expense_repo,
     )

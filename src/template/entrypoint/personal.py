@@ -12,6 +12,7 @@ from template.dependencies import (
     get_group_service,
     get_income_repository,
     get_personal_ledger_service,
+    get_recurring_expense_repository,
 )
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.group import GroupMemberResponse, GroupResponse
@@ -21,6 +22,9 @@ from template.domain.schemas.income import (
     RecurringIncomeCreate,
     RecurringIncomeResponse,
     RecurringIncomeUpdate,
+    RecurringPersonalExpenseCreate,
+    RecurringPersonalExpenseResponse,
+    RecurringPersonalExpenseUpdate,
     VariableIncomeCreate,
     VariableIncomeUpdate,
 )
@@ -139,20 +143,23 @@ async def create_recurring_income(
 ) -> ResponseModel[RecurringIncomeResponse]:
     """Create a new recurring income template and immediately materialize it for the current month."""
     personal_group = group_service.get_or_create_personal_group(current_member.id)
+    today = date.today()
+    start_year = data.start_year or today.year
+    start_month = data.start_month or today.month
     template = income_repo.create_recurring(
         owner_member_id=current_member.id,
         personal_group_id=personal_group.id,
         label=data.label,
         amount=data.amount,
-        start_year=data.start_year,
-        start_month=data.start_month,
+        start_year=start_year,
+        start_month=start_month,
     )
     # Immediately snapshot for the viewed (start) month
     income_repo.upsert_recurring_instance(
         personal_group_id=personal_group.id,
         owner_member_id=current_member.id,
-        year=data.start_year,
-        month=data.start_month,
+        year=start_year,
+        month=start_month,
         recurring_income_id=template.id,
         label=template.label,
         amount=template.amount,
@@ -302,3 +309,146 @@ async def delete_variable_income(
     if not instance or instance.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Income entry not found")
     income_repo.delete_instance(instance_id)
+
+
+# ---------------------------------------------------------------------------
+# Recurring personal expense endpoints
+# ---------------------------------------------------------------------------
+
+
+def _recurring_expense_to_response(template) -> RecurringPersonalExpenseResponse:
+    return RecurringPersonalExpenseResponse(
+        id=template.id,
+        personal_group_id=template.personal_group_id,
+        owner_member_id=template.owner_member_id,
+        label=template.label,
+        amount=template.amount,
+        category_name=template.category_name,
+        active=template.active,
+        start_year=template.start_year,
+        start_month=template.start_month,
+        created_at=template.created_at,
+        updated_at=template.updated_at,
+    )
+
+
+@router.get("/expenses/recurring", response_model=ResponseModel[list[RecurringPersonalExpenseResponse]])
+async def list_recurring_expenses(
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+    recurring_expense_repo=Depends(get_recurring_expense_repository),
+) -> ResponseModel[list[RecurringPersonalExpenseResponse]]:
+    """List all recurring personal expense templates (including inactive) for the current member."""
+    personal_group = group_service.get_or_create_personal_group(current_member.id)
+    templates = recurring_expense_repo.list_for_group(personal_group.id)
+    return ResponseModel(data=[_recurring_expense_to_response(t) for t in templates])
+
+
+@router.post("/expenses/recurring", status_code=201, response_model=ResponseModel[RecurringPersonalExpenseResponse])
+async def create_recurring_expense(
+    data: RecurringPersonalExpenseCreate,
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+    recurring_expense_repo=Depends(get_recurring_expense_repository),
+) -> ResponseModel[RecurringPersonalExpenseResponse]:
+    """Create a new recurring personal expense template and immediately materialize it for the start month."""
+    personal_group = group_service.get_or_create_personal_group(current_member.id)
+    today = date.today()
+    start_year = data.start_year or today.year
+    start_month = data.start_month or today.month
+    template = recurring_expense_repo.create(
+        personal_group_id=personal_group.id,
+        owner_member_id=current_member.id,
+        label=data.label,
+        amount=data.amount,
+        category_name=data.category_name,
+        start_year=start_year,
+        start_month=start_month,
+    )
+    # Immediately snapshot for the start month
+    recurring_expense_repo.upsert_instance(
+        personal_group_id=personal_group.id,
+        recurring_expense_id=template.id,
+        year=start_year,
+        month=start_month,
+        label=template.label,
+        amount=template.amount,
+        category_name=template.category_name,
+    )
+    return ResponseModel(data=_recurring_expense_to_response(template))
+
+
+@router.patch("/expenses/recurring/{expense_id}", response_model=ResponseModel[RecurringPersonalExpenseResponse])
+async def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    expense_id: int,
+    data: RecurringPersonalExpenseUpdate,
+    viewed_year: Optional[int] = None,
+    viewed_month: Optional[int] = None,
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+    recurring_expense_repo=Depends(get_recurring_expense_repository),
+) -> ResponseModel[RecurringPersonalExpenseResponse]:
+    """Update a recurring personal expense template.
+
+    Re-syncs the current calendar month's instances. If the caller passes
+    viewed_year/viewed_month (the month the user is currently looking at),
+    instances from that month onwards are also updated.
+    """
+    personal_group = group_service.get_or_create_personal_group(current_member.id)
+    template = recurring_expense_repo.get(expense_id)
+    if not template or template.personal_group_id != personal_group.id:
+        raise HTTPException(status_code=404, detail="Recurring expense not found")
+    updated = recurring_expense_repo.update(
+        expense_id, label=data.label, amount=data.amount, category_name=data.category_name, active=data.active
+    )
+    today = date.today()
+    months_to_sync = {(today.year, today.month)}
+    if viewed_year and viewed_month:
+        months_to_sync.add((viewed_year, viewed_month))
+    for yr, mo in months_to_sync:
+        recurring_expense_repo.update_instances_from_month_onwards(
+            personal_group_id=personal_group.id,
+            recurring_expense_id=expense_id,
+            year=yr,
+            month=mo,
+            new_label=updated.label,
+            new_amount=updated.amount,
+            new_category_name=updated.category_name,
+        )
+    return ResponseModel(data=_recurring_expense_to_response(updated))
+
+
+@router.delete("/expenses/recurring/{expense_id}", response_model=ResponseModel[RecurringPersonalExpenseResponse])
+async def delete_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    expense_id: int,
+    viewed_year: Optional[int] = None,
+    viewed_month: Optional[int] = None,
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+    recurring_expense_repo=Depends(get_recurring_expense_repository),
+) -> ResponseModel[RecurringPersonalExpenseResponse]:
+    """Deactivate a recurring personal expense template from the viewed month onwards.
+
+    Instances before the viewed month are preserved as historical record.
+    All instances from the viewed month forward are deleted.
+    If the template has no instances at all, it is hard-deleted.
+    """
+    personal_group = group_service.get_or_create_personal_group(current_member.id)
+    template = recurring_expense_repo.get(expense_id)
+    if not template or template.personal_group_id != personal_group.id:
+        raise HTTPException(status_code=404, detail="Recurring expense not found")
+    today = date.today()
+    del_year = viewed_year or today.year
+    del_month = viewed_month or today.month
+    if recurring_expense_repo.has_instances(expense_id):
+        # Deactivate to stop future materialization; delete from viewed month onwards
+        updated = recurring_expense_repo.update(expense_id, active=False)
+        recurring_expense_repo.delete_instances_from_month_onwards(
+            personal_group_id=personal_group.id,
+            recurring_expense_id=expense_id,
+            year=del_year,
+            month=del_month,
+        )
+        return ResponseModel(data=_recurring_expense_to_response(updated))
+    recurring_expense_repo.hard_delete(expense_id)
+    return ResponseModel(data=_recurring_expense_to_response(template))

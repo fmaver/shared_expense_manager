@@ -1,8 +1,15 @@
 """PersonalLedgerService — computes a member's personal financial ledger for a given month."""
 
-from template.adapters.repositories import GroupRepository, IncomeRepository
+from template.adapters.repositories import (
+    GroupRepository,
+    IncomeRepository,
+    RecurringPersonalExpenseRepository,
+)
 from template.domain.models.category import Category
-from template.domain.models.income import IncomeInstance
+from template.domain.models.income import (
+    IncomeInstance,
+    RecurringPersonalExpenseInstance,
+)
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import (
     ExactAmountsSplit,
@@ -15,6 +22,7 @@ from template.domain.schemas.income import (
     IncomeInstanceResponse,
     MirroredShareItem,
     PersonalLedgerResponse,
+    RecurringPersonalExpenseInstanceResponse,
 )
 from template.service_layer.group_service import GroupService
 
@@ -41,17 +49,19 @@ class PersonalLedgerService:
     - Mirrored shares from the member's other (regular) groups
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         group_service: GroupService,
         group_repo: GroupRepository,
         expense_repo: ExpenseRepository,
         income_repo: IncomeRepository,
+        recurring_expense_repo: RecurringPersonalExpenseRepository,
     ):
         self._group_service = group_service
         self._group_repo = group_repo
         self._expense_repo = expense_repo
         self._income_repo = income_repo
+        self._recurring_expense_repo = recurring_expense_repo
 
     def get_ledger(  # pylint: disable=too-many-locals
         self, owner_member_id: int, year: int, month: int
@@ -71,6 +81,8 @@ class PersonalLedgerService:
 
         # Step B: materialize recurring income for this month
         self._materialize_recurring_income(personal_group.id, owner_member_id, year, month)
+        # Step B2: materialize recurring personal expenses for this month
+        self._materialize_recurring_expenses(personal_group.id, owner_member_id, year, month)
 
         # Step C: load income instances
         income_instances = self._income_repo.list_instances_for_month(personal_group.id, year, month)
@@ -101,6 +113,10 @@ class PersonalLedgerService:
                             parent_expense_id=exp.parent_expense_id,
                         )
                     )
+        # Load recurring personal expense instances for this month
+        recurring_exp_instances = self._recurring_expense_repo.list_instances_for_month(personal_group.id, year, month)
+        total_personal_expenses += sum(i.amount for i in recurring_exp_instances)
+        recurring_exp_response = [self._recurring_exp_instance_to_response(i) for i in recurring_exp_instances]
         total_personal_expenses = round(total_personal_expenses, 2)
 
         # Step E: mirrored shares + net group balances from OTHER groups
@@ -181,6 +197,7 @@ class PersonalLedgerService:
             total_shares_pending=total_shares_pending,
             total_shares_realized=total_shares_realized,
             mirrored_shares=mirrored_shares,
+            recurring_personal_expenses=recurring_exp_response,
             group_balances=group_balances,
             projected_balance=projected_balance,
             realized_balance=realized_balance,
@@ -210,6 +227,29 @@ class PersonalLedgerService:
                 amount=template.amount,
             )
 
+    def _materialize_recurring_expenses(
+        self, personal_group_id: int, owner_member_id: int, year: int, month: int  # pylint: disable=unused-argument
+    ) -> None:
+        """Ensure all active recurring expense templates have a snapshot for (group, year, month).
+
+        Idempotent: existing snapshots are never overwritten (forward-only semantics).
+        """
+        templates = self._recurring_expense_repo.list_for_group(personal_group_id, active_only=True)
+        for template in templates:
+            # Respect the template's start month — don't backfill past months
+            if template.start_year and template.start_month:
+                if (year, month) < (template.start_year, template.start_month):
+                    continue
+            self._recurring_expense_repo.upsert_instance(
+                personal_group_id=personal_group_id,
+                recurring_expense_id=template.id,
+                year=year,
+                month=month,
+                label=template.label,
+                amount=template.amount,
+                category_name=template.category_name,
+            )
+
     @staticmethod
     def _income_instance_to_response(instance: IncomeInstance) -> IncomeInstanceResponse:
         return IncomeInstanceResponse(
@@ -222,4 +262,19 @@ class PersonalLedgerService:
             recurring_income_id=instance.recurring_income_id,
             label=instance.label,
             amount=instance.amount,
+        )
+
+    @staticmethod
+    def _recurring_exp_instance_to_response(
+        instance: RecurringPersonalExpenseInstance,
+    ) -> RecurringPersonalExpenseInstanceResponse:
+        return RecurringPersonalExpenseInstanceResponse(
+            id=instance.id,
+            personal_group_id=instance.personal_group_id,
+            recurring_expense_id=instance.recurring_expense_id,
+            year=instance.year,
+            month=instance.month,
+            label=instance.label,
+            amount=instance.amount,
+            category_name=instance.category_name,
         )

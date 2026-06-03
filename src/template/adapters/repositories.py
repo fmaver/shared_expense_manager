@@ -21,6 +21,8 @@ from template.adapters.orm import (
     MonthlyShareModel,
     ProcessedMessageModel,
     RecurringIncomeModel,
+    RecurringPersonalExpenseInstanceModel,
+    RecurringPersonalExpenseModel,
 )
 from template.domain.models.category import Category
 from template.domain.models.enums import (
@@ -29,7 +31,12 @@ from template.domain.models.enums import (
     NotificationType,
 )
 from template.domain.models.group import Group, GroupStatus, GroupType
-from template.domain.models.income import IncomeInstance, RecurringIncome
+from template.domain.models.income import (
+    IncomeInstance,
+    RecurringIncome,
+    RecurringPersonalExpense,
+    RecurringPersonalExpenseInstance,
+)
 from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
@@ -1177,4 +1184,253 @@ class IncomeRepository:
             amount=model.amount,
             created_at=model.created_at,
             updated_at=model.updated_at,
+        )
+
+
+class RecurringPersonalExpenseRepository:
+    """Manages recurring personal expense templates and their monthly instances."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    # --- Templates ---
+
+    def create(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        personal_group_id: int,
+        owner_member_id: int,
+        label: str,
+        amount: float,
+        category_name: str,
+        start_year: Optional[int],
+        start_month: Optional[int],
+    ) -> RecurringPersonalExpense:
+        """Create a new recurring personal expense template."""
+        model = RecurringPersonalExpenseModel(
+            personal_group_id=personal_group_id,
+            owner_member_id=owner_member_id,
+            label=label,
+            amount=amount,
+            category_name=category_name,
+            active=True,
+            start_year=start_year,
+            start_month=start_month,
+        )
+        self.session.add(model)
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(model)
+
+    def list_for_group(self, personal_group_id: int, active_only: bool = False) -> list[RecurringPersonalExpense]:
+        """Return recurring expense templates for the group. Includes inactive by default."""
+        query = self.session.query(RecurringPersonalExpenseModel).filter(
+            RecurringPersonalExpenseModel.personal_group_id == personal_group_id
+        )
+        if active_only:
+            query = query.filter(RecurringPersonalExpenseModel.active.is_(True))
+        return [self._to_domain(m) for m in query.order_by(RecurringPersonalExpenseModel.id).all()]
+
+    def get(self, expense_id: int) -> Optional[RecurringPersonalExpense]:
+        """Return a recurring expense template by ID, or None."""
+        model = (
+            self.session.query(RecurringPersonalExpenseModel)
+            .filter(RecurringPersonalExpenseModel.id == expense_id)
+            .first()
+        )
+        return self._to_domain(model) if model else None
+
+    def update(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        expense_id: int,
+        label: Optional[str] = None,
+        amount: Optional[float] = None,
+        category_name: Optional[str] = None,
+        active: Optional[bool] = None,
+    ) -> RecurringPersonalExpense:
+        """Update fields on a recurring expense template."""
+        model = (
+            self.session.query(RecurringPersonalExpenseModel)
+            .filter(RecurringPersonalExpenseModel.id == expense_id)
+            .first()
+        )
+        if not model:
+            raise ValueError(f"RecurringPersonalExpense {expense_id} not found")
+        if label is not None:
+            model.label = label
+        if amount is not None:
+            model.amount = amount
+        if category_name is not None:
+            model.category_name = category_name
+        if active is not None:
+            model.active = active
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(model)
+
+    def has_instances(self, expense_id: int) -> bool:
+        """Return True if any instances reference this template."""
+        count = (
+            self.session.query(RecurringPersonalExpenseInstanceModel)
+            .filter(RecurringPersonalExpenseInstanceModel.recurring_expense_id == expense_id)
+            .count()
+        )
+        return count > 0
+
+    def hard_delete(self, expense_id: int) -> None:
+        """Delete the template entirely. Only call when no instances reference it."""
+        self.session.query(RecurringPersonalExpenseModel).filter(
+            RecurringPersonalExpenseModel.id == expense_id
+        ).delete()
+        self.session.commit()
+
+    # --- Instances ---
+
+    def upsert_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        personal_group_id: int,
+        recurring_expense_id: int,
+        year: int,
+        month: int,
+        label: str,
+        amount: float,
+        category_name: str,
+    ) -> RecurringPersonalExpenseInstance:
+        """Get-or-create a recurring expense snapshot for (group, year, month, template).
+
+        Idempotent: if the snapshot already exists, returns it unchanged (forward-only semantics).
+        """
+        existing = (
+            self.session.query(RecurringPersonalExpenseInstanceModel)
+            .filter(
+                RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
+                RecurringPersonalExpenseInstanceModel.recurring_expense_id == recurring_expense_id,
+                RecurringPersonalExpenseInstanceModel.year == year,
+                RecurringPersonalExpenseInstanceModel.month == month,
+            )
+            .first()
+        )
+        if existing:
+            return self._instance_to_domain(existing)
+        model = RecurringPersonalExpenseInstanceModel(
+            personal_group_id=personal_group_id,
+            recurring_expense_id=recurring_expense_id,
+            year=year,
+            month=month,
+            label=label,
+            amount=amount,
+            category_name=category_name,
+        )
+        try:
+            self.session.add(model)
+            self.session.flush()
+            self.session.commit()
+            return self._instance_to_domain(model)
+        except IntegrityError:
+            self.session.rollback()
+            # Another concurrent call already created the instance — return it
+            winner = (
+                self.session.query(RecurringPersonalExpenseInstanceModel)
+                .filter(
+                    RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
+                    RecurringPersonalExpenseInstanceModel.recurring_expense_id == recurring_expense_id,
+                    RecurringPersonalExpenseInstanceModel.year == year,
+                    RecurringPersonalExpenseInstanceModel.month == month,
+                )
+                .first()
+            )
+            return self._instance_to_domain(winner)
+
+    def list_instances_for_month(
+        self, personal_group_id: int, year: int, month: int
+    ) -> list[RecurringPersonalExpenseInstance]:
+        """Return all recurring expense instances for a group/month, ordered by ID."""
+        models = (
+            self.session.query(RecurringPersonalExpenseInstanceModel)
+            .filter(
+                RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
+                RecurringPersonalExpenseInstanceModel.year == year,
+                RecurringPersonalExpenseInstanceModel.month == month,
+            )
+            .order_by(RecurringPersonalExpenseInstanceModel.id)
+            .all()
+        )
+        return [self._instance_to_domain(m) for m in models]
+
+    def update_instances_from_month_onwards(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        personal_group_id: int,
+        recurring_expense_id: int,
+        year: int,
+        month: int,
+        new_label: str,
+        new_amount: float,
+        new_category_name: str,
+    ) -> None:
+        """Bulk-update label/amount/category_name for all instances from (year, month) onwards."""
+        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
+
+        self.session.query(RecurringPersonalExpenseInstanceModel).filter(
+            RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
+            RecurringPersonalExpenseInstanceModel.recurring_expense_id == recurring_expense_id,
+            or_(
+                RecurringPersonalExpenseInstanceModel.year > year,
+                and_(
+                    RecurringPersonalExpenseInstanceModel.year == year,
+                    RecurringPersonalExpenseInstanceModel.month >= month,
+                ),
+            ),
+        ).update({"label": new_label, "amount": new_amount, "category_name": new_category_name})
+        self.session.commit()
+
+    def delete_instances_from_month_onwards(
+        self,
+        personal_group_id: int,
+        recurring_expense_id: int,
+        year: int,
+        month: int,
+    ) -> None:
+        """Delete all instances for this template from (year, month) onwards."""
+        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
+
+        self.session.query(RecurringPersonalExpenseInstanceModel).filter(
+            RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
+            RecurringPersonalExpenseInstanceModel.recurring_expense_id == recurring_expense_id,
+            or_(
+                RecurringPersonalExpenseInstanceModel.year > year,
+                and_(
+                    RecurringPersonalExpenseInstanceModel.year == year,
+                    RecurringPersonalExpenseInstanceModel.month >= month,
+                ),
+            ),
+        ).delete()
+        self.session.commit()
+
+    # --- Private helpers ---
+
+    def _to_domain(self, model: RecurringPersonalExpenseModel) -> RecurringPersonalExpense:
+        return RecurringPersonalExpense(
+            id=model.id,
+            personal_group_id=model.personal_group_id,
+            owner_member_id=model.owner_member_id,
+            label=model.label,
+            amount=model.amount,
+            category_name=model.category_name,
+            active=model.active,
+            start_year=model.start_year,
+            start_month=model.start_month,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
+
+    def _instance_to_domain(self, model: RecurringPersonalExpenseInstanceModel) -> RecurringPersonalExpenseInstance:
+        return RecurringPersonalExpenseInstance(
+            id=model.id,
+            personal_group_id=model.personal_group_id,
+            recurring_expense_id=model.recurring_expense_id,
+            year=model.year,
+            month=model.month,
+            label=model.label,
+            amount=model.amount,
+            category_name=model.category_name,
+            created_at=model.created_at,
         )

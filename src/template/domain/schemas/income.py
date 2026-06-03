@@ -76,6 +76,51 @@ class IncomeInstanceResponse(CamelCaseModel):
 
 
 # ---------------------------------------------------------------------------
+# RecurringPersonalExpense CRUD
+# ---------------------------------------------------------------------------
+
+
+class RecurringPersonalExpenseCreate(CamelCaseModel):
+    label: str = Field(..., min_length=1, max_length=255)
+    amount: float = Field(..., gt=0)
+    category_name: str = Field(..., min_length=1, max_length=50)
+    start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
+    start_month: Optional[int] = Field(default=None, ge=1, le=12)
+
+
+class RecurringPersonalExpenseUpdate(CamelCaseModel):
+    label: Optional[str] = None
+    amount: Optional[float] = Field(default=None, gt=0)
+    category_name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    active: Optional[bool] = None
+
+
+class RecurringPersonalExpenseResponse(CamelCaseModel):
+    id: int
+    personal_group_id: int
+    owner_member_id: int
+    label: str
+    amount: float
+    category_name: str
+    active: bool
+    start_year: Optional[int] = None
+    start_month: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class RecurringPersonalExpenseInstanceResponse(CamelCaseModel):
+    id: int
+    personal_group_id: int
+    recurring_expense_id: int
+    year: int
+    month: int
+    label: str
+    amount: float
+    category_name: str
+
+
+# ---------------------------------------------------------------------------
 # Ledger
 # ---------------------------------------------------------------------------
 
@@ -116,6 +161,7 @@ class PersonalLedgerResponse(CamelCaseModel):
     total_shares_pending: float
     total_shares_realized: float
     mirrored_shares: list[MirroredShareItem]
+    recurring_personal_expenses: list[RecurringPersonalExpenseInstanceResponse] = []
     # Per-group net balance for the month (positive = creditor, negative = debtor)
     group_balances: list[GroupBalanceItem]
     projected_balance: float
