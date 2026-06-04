@@ -164,7 +164,11 @@ class PersonalLedgerResponse(CamelCaseModel):
     recurring_personal_expenses: list[RecurringPersonalExpenseInstanceResponse] = []
     # Per-group net balance for the month (positive = creditor, negative = debtor)
     group_balances: list[GroupBalanceItem]
+    # Money already paid out-of-pocket as payer in unsettled groups
+    total_paid_as_payer_unsettled: float
     projected_balance: float
     realized_balance: float
+    # Actual cash position right now (before pending settlements clear)
+    current_balance: float
     # Net amount across all unsettled groups: positive = you'll receive, negative = you'll pay
     pending_settlements_total: float

@@ -122,6 +122,7 @@ class PersonalLedgerService:
         # Step E: mirrored shares + net group balances from OTHER groups
         mirrored_shares: list[MirroredShareItem] = []
         group_balances: list[GroupBalanceItem] = []
+        total_paid_as_payer_unsettled: float = 0.0
         other_groups = self._group_repo.list_for_member(owner_member_id, include_personal=False)
         for source_group in other_groups:
             source_share = self._expense_repo.get_monthly_share(year, month, source_group.id)
@@ -144,47 +145,32 @@ class PersonalLedgerService:
             # Only fetch members if there are expenses to process
             members_list = self._group_repo.list_members(source_group.id)
             members_dict = {m.id: m for m in members_list}
-            for expense in source_share.expenses:
-                # Skip internal categories (balance/prestamo)
-                if Category.is_internal_category(expense.category.name):
-                    continue
-                # Compute this owner's share
-                try:
-                    shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
-                except ValueError:
-                    # Skip expenses whose stored split data fails validation (e.g., float drift)
-                    continue
-                owner_share = shares.get(owner_member_id, 0.0)
-                if owner_share < 0.005:
-                    continue  # owner not a participant in this expense
-                status = "realized" if source_share.is_settled else "pending"
-                mirrored_shares.append(
-                    MirroredShareItem(
-                        source_group_id=source_group.id,
-                        source_group_name=source_group.name,
-                        source_expense_id=expense.id,
-                        description=expense.description,
-                        category=expense.category.name,
-                        date=expense.date,
-                        share_amount=round(owner_share, 2),
-                        status=status,
-                        installment_no=expense.installment_no,
-                        installments=expense.installments,
-                    )
-                )
+            paid, new_shares = self._process_group_expenses(
+                source_group.id,
+                source_group.name,
+                source_share,
+                members_dict,
+                owner_member_id,
+            )
+            total_paid_as_payer_unsettled += paid
+            mirrored_shares.extend(new_shares)
 
         # Step F: compute balances
         # Gross shares kept for display context in mirrored shares list
         total_shares_pending = round(sum(s.share_amount for s in mirrored_shares if s.status == "pending"), 2)
         total_shares_realized = round(sum(s.share_amount for s in mirrored_shares if s.status == "realized"), 2)
+        total_paid_as_payer_unsettled = round(total_paid_as_payer_unsettled, 2)
         # Net group balance across unsettled groups (signed):
         # positive = you'll receive at settlement, negative = you'll pay
         pending_settlements_total = round(sum(gb.net_balance for gb in group_balances if not gb.is_settled), 2)
-        # projected = income − direct − settled_costs + pending_net
-        # Converges to realized when all groups are settled (pending_settlements_total → 0)
-        projected_balance = round(
-            total_income - total_personal_expenses - total_shares_realized + pending_settlements_total, 2
+        # current_balance: actual cash in pocket right now
+        #   = income - direct - money already paid upfront as payer (unsettled) - realized group costs
+        current_balance = round(
+            total_income - total_personal_expenses - total_paid_as_payer_unsettled - total_shares_realized, 2
         )
+        # projected_balance: current + what pending settlements will add/subtract
+        projected_balance = round(current_balance + pending_settlements_total, 2)
+        # realized_balance: position considering only fully settled groups
         realized_balance = round(total_income - total_personal_expenses - total_shares_realized, 2)
 
         return PersonalLedgerResponse(
@@ -199,10 +185,55 @@ class PersonalLedgerService:
             mirrored_shares=mirrored_shares,
             recurring_personal_expenses=recurring_exp_response,
             group_balances=group_balances,
+            total_paid_as_payer_unsettled=total_paid_as_payer_unsettled,
+            current_balance=current_balance,
             projected_balance=projected_balance,
             realized_balance=realized_balance,
             pending_settlements_total=pending_settlements_total,
         )
+
+    @staticmethod
+    def _process_group_expenses(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        source_group_id: int,
+        source_group_name: str,
+        source_share,  # MonthlyShare domain object
+        members_dict: dict,
+        owner_member_id: int,
+    ) -> tuple[float, list[MirroredShareItem]]:
+        """Process expenses in a single group share for one owner.
+
+        Returns (total_paid_as_payer, list_of_mirrored_share_items).
+        """
+        paid = 0.0
+        shares_out: list[MirroredShareItem] = []
+        status = "realized" if source_share.is_settled else "pending"
+        for expense in source_share.expenses:
+            if Category.is_internal_category(expense.category.name):
+                continue
+            if not source_share.is_settled and expense.payer_id == owner_member_id:
+                paid += expense.amount
+            try:
+                shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
+            except ValueError:
+                continue
+            owner_share = shares.get(owner_member_id, 0.0)
+            if owner_share < 0.005:
+                continue
+            shares_out.append(
+                MirroredShareItem(
+                    source_group_id=source_group_id,
+                    source_group_name=source_group_name,
+                    source_expense_id=expense.id,
+                    description=expense.description,
+                    category=expense.category.name,
+                    date=expense.date,
+                    share_amount=round(owner_share, 2),
+                    status=status,
+                    installment_no=expense.installment_no,
+                    installments=expense.installments,
+                )
+            )
+        return paid, shares_out
 
     def _materialize_recurring_income(
         self, personal_group_id: int, owner_member_id: int, year: int, month: int
