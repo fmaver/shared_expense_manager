@@ -231,6 +231,8 @@ class PersonalLedgerService:
                     status=status,
                     installment_no=expense.installment_no,
                     installments=expense.installments,
+                    # payer_amount: full expense amount if owner paid upfront, else 0
+                    payer_amount=round(expense.amount, 2) if expense.payer_id == owner_member_id else 0.0,
                 )
             )
         return paid, shares_out

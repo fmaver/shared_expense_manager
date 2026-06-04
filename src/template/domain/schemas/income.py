@@ -149,6 +149,8 @@ class MirroredShareItem(CamelCaseModel):
     status: Literal["pending", "realized"]
     installment_no: int = 1
     installments: int = 1
+    # Full amount paid by the owner as payer (0 when someone else paid)
+    payer_amount: float = 0.0
 
 
 class PersonalLedgerResponse(CamelCaseModel):
