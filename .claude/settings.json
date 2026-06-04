@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/pre-push-lint.sh",
+            "timeout": 120,
+            "statusMessage": "Running lint before push..."
+          }
+        ]
+      }
+    ]
+  }
+}
