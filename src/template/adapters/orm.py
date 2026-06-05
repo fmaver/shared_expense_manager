@@ -119,6 +119,9 @@ class ExpenseModel(Base):
     parent_expense_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("expenses.id", ondelete="CASCADE"), nullable=True
     )
+    recurring_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("recurring_group_expenses.id", ondelete="SET NULL"), nullable=True
+    )
 
     payer: Mapped[MemberModel] = relationship(back_populates="expenses")
     monthly_share: Mapped[MonthlyShareModel] = relationship(back_populates="expenses")
@@ -298,3 +301,42 @@ class RecurringPersonalExpenseInstanceModel(Base):
 
     personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
     recurring_expense: Mapped["RecurringPersonalExpenseModel"] = relationship()
+
+
+class RecurringGroupExpenseModel(Base):
+    __tablename__ = "recurring_group_expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    description: Mapped[str] = mapped_column(String(255))
+    amount: Mapped[float] = mapped_column(Float())
+    category: Mapped[str] = mapped_column(String(50))
+    payer_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    payment_type: Mapped[str] = mapped_column(String(20))
+    split_strategy: Mapped[dict] = mapped_column(JSON)
+    start_year: Mapped[int] = mapped_column(Integer)
+    start_month: Mapped[int] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class RecurringGroupExpenseInstanceModel(Base):
+    __tablename__ = "recurring_group_expense_instances"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recurring_expense_id: Mapped[int] = mapped_column(
+        ForeignKey("recurring_group_expenses.id", ondelete="CASCADE")
+    )
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+
+    __table_args__ = (
+        # Idempotency guard: one instance per recurring template per group per month
+        UniqueConstraint(
+            "group_id",
+            "recurring_expense_id",
+            "year",
+            "month",
+            name="uq_recurring_group_expense_instance",
+        ),
+    )
