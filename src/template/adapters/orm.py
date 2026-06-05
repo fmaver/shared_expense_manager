@@ -312,7 +312,7 @@ class RecurringGroupExpenseModel(Base):
     amount: Mapped[float] = mapped_column(Float())
     category: Mapped[str] = mapped_column(String(50))
     payer_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
-    payment_type: Mapped[PaymentType] = mapped_column(Enum(PaymentType))
+    payment_type: Mapped[PaymentType] = mapped_column(Enum(PaymentType, native_enum=False))
     split_strategy: Mapped[dict] = mapped_column(JSON)
     start_year: Mapped[int] = mapped_column(Integer)
     start_month: Mapped[int] = mapped_column(Integer)

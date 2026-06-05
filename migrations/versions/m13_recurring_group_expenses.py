@@ -31,7 +31,7 @@ def upgrade() -> None:
                 payer_id INTEGER NOT NULL REFERENCES members(id),
                 payment_type VARCHAR(20) NOT NULL,
                 split_strategy JSON NOT NULL,
-                start_year INTEGER NOT NULL,
+                start_year INTEGER NOT NULL CHECK (start_year BETWEEN 2000 AND 2100),
                 start_month INTEGER NOT NULL CHECK (start_month BETWEEN 1 AND 12),
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -87,5 +87,5 @@ def downgrade() -> None:
     conn.execute(
         sa.text("DROP INDEX IF EXISTS ix_recurring_group_expense_instances_group_period")
     )
-    conn.execute(sa.text("DROP TABLE IF EXISTS recurring_group_expense_instances"))
-    conn.execute(sa.text("DROP TABLE IF EXISTS recurring_group_expenses"))
+    conn.execute(sa.text("DROP TABLE IF EXISTS recurring_group_expense_instances CASCADE"))
+    conn.execute(sa.text("DROP TABLE IF EXISTS recurring_group_expenses CASCADE"))
