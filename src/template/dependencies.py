@@ -14,6 +14,7 @@ from template.adapters.repositories import (
     RecurringPersonalExpenseRepository,
     SQLAlchemyExpenseRepository,
 )
+from template.domain.models.expense_manager import ExpenseManager
 from template.domain.models.repository import ExpenseRepository
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.group_service import GroupService
@@ -105,3 +106,36 @@ def get_personal_ledger_service(
         income_repo=income_repo,
         recurring_expense_repo=recurring_expense_repo,
     )
+
+
+def get_recurring_group_expense_materializer(
+    group_id: int,
+    db: Session = Depends(get_db),
+    group_repo: GroupRepository = Depends(get_group_repository),
+):
+    """Return a pre-wired callable that materializes recurring group expenses for a given period.
+
+    Usage in a route::
+
+        materializer = Depends(get_recurring_group_expense_materializer)
+        materializer(year, month)
+    """
+    from template.service_layer.recurring_group_expense_service import (  # pylint: disable=import-outside-toplevel
+        materialize_recurring_group_expenses,
+    )
+
+    expense_repo = SQLAlchemyExpenseRepository(db)
+    recurring_repo = RecurringGroupExpenseRepository(db)
+    expense_manager = ExpenseManager(expense_repo, group_id, group_repo)
+
+    def _materialize(year: int, month: int) -> None:
+        materialize_recurring_group_expenses(
+            group_id=group_id,
+            year=year,
+            month=month,
+            recurring_repo=recurring_repo,
+            expense_repo=expense_repo,
+            expense_manager=expense_manager,
+        )
+
+    return _materialize

@@ -471,6 +471,14 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         self.session.commit()
         print(f"Successfully updated expense with ID: {expense.id}")
 
+    def set_recurring_template_id(self, expense_id: int, template_id: int) -> None:
+        """Tag an expense row with the recurring group expense template that produced it."""
+        db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
+        if not db_expense:
+            raise ValueError(f"Expense with ID {expense_id} not found.")
+        db_expense.recurring_template_id = template_id
+        self.session.commit()
+
     def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int, group_id: int) -> None:
         """Move an expense to the monthly share identified by group/year/month."""
         db_expense = self.session.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
@@ -1500,9 +1508,7 @@ class RecurringGroupExpenseRepository:
 
     def list_for_group(self, group_id: int, active_only: bool = True) -> List[RecurringGroupExpenseResponse]:
         """List recurring expense templates for a group."""
-        query = self.session.query(RecurringGroupExpenseModel).filter(
-            RecurringGroupExpenseModel.group_id == group_id
-        )
+        query = self.session.query(RecurringGroupExpenseModel).filter(RecurringGroupExpenseModel.group_id == group_id)
         if active_only:
             query = query.filter(RecurringGroupExpenseModel.active.is_(True))
         return [self._to_schema(m) for m in query.order_by(RecurringGroupExpenseModel.id).all()]
@@ -1510,18 +1516,14 @@ class RecurringGroupExpenseRepository:
     def get(self, template_id: int) -> Optional[RecurringGroupExpenseResponse]:
         """Get a template by id."""
         model = (
-            self.session.query(RecurringGroupExpenseModel)
-            .filter(RecurringGroupExpenseModel.id == template_id)
-            .first()
+            self.session.query(RecurringGroupExpenseModel).filter(RecurringGroupExpenseModel.id == template_id).first()
         )
         return self._to_schema(model) if model else None
 
     def update(self, template_id: int, data: RecurringGroupExpenseUpdate) -> Optional[RecurringGroupExpenseResponse]:
         """Update template fields (patch semantics — only non-None fields are updated)."""
         model = (
-            self.session.query(RecurringGroupExpenseModel)
-            .filter(RecurringGroupExpenseModel.id == template_id)
-            .first()
+            self.session.query(RecurringGroupExpenseModel).filter(RecurringGroupExpenseModel.id == template_id).first()
         )
         if not model:
             return None
@@ -1560,9 +1562,7 @@ class RecurringGroupExpenseRepository:
     def deactivate(self, template_id: int) -> None:
         """Set active=False on the template (soft delete — keeps historical expense rows)."""
         model = (
-            self.session.query(RecurringGroupExpenseModel)
-            .filter(RecurringGroupExpenseModel.id == template_id)
-            .first()
+            self.session.query(RecurringGroupExpenseModel).filter(RecurringGroupExpenseModel.id == template_id).first()
         )
         if model:
             model.active = False
@@ -1571,9 +1571,7 @@ class RecurringGroupExpenseRepository:
 
     def hard_delete(self, template_id: int) -> None:
         """Delete the template row entirely (cascades to instances, sets NULL on expenses)."""
-        self.session.query(RecurringGroupExpenseModel).filter(
-            RecurringGroupExpenseModel.id == template_id
-        ).delete()
+        self.session.query(RecurringGroupExpenseModel).filter(RecurringGroupExpenseModel.id == template_id).delete()
         self.session.commit()
 
     # --- Instances ---
