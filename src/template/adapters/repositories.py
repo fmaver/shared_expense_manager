@@ -20,6 +20,8 @@ from template.adapters.orm import (
     MemberModel,
     MonthlyShareModel,
     ProcessedMessageModel,
+    RecurringGroupExpenseInstanceModel,
+    RecurringGroupExpenseModel,
     RecurringIncomeModel,
     RecurringPersonalExpenseInstanceModel,
     RecurringPersonalExpenseModel,
@@ -41,6 +43,12 @@ from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
+from template.domain.schemas.expense import (
+    RecurringGroupExpenseCreate,
+    RecurringGroupExpenseResponse,
+    RecurringGroupExpenseUpdate,
+    SplitStrategySchema,
+)
 from template.domain.schemas.member import MemberUpdate
 
 
@@ -1460,4 +1468,215 @@ class RecurringPersonalExpenseRepository:
             amount=model.amount,
             category_name=model.category_name,
             created_at=model.created_at,
+        )
+
+
+class RecurringGroupExpenseRepository:
+    """Manages recurring group expense templates and their monthly idempotency instances."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    # --- Templates ---
+
+    def create(self, group_id: int, data: RecurringGroupExpenseCreate) -> RecurringGroupExpenseResponse:
+        """Create a new recurring group expense template."""
+        model = RecurringGroupExpenseModel(
+            group_id=group_id,
+            description=data.description,
+            amount=data.amount,
+            category=data.category,
+            payer_id=data.payer_id,
+            payment_type=data.payment_type,
+            split_strategy=self._serialize_split_strategy(data.split_strategy),
+            start_year=data.start_year,
+            start_month=data.start_month,
+            active=True,
+        )
+        self.session.add(model)
+        self.session.flush()
+        self.session.commit()
+        return self._to_schema(model)
+
+    def list_for_group(self, group_id: int, active_only: bool = True) -> List[RecurringGroupExpenseResponse]:
+        """List recurring expense templates for a group."""
+        query = self.session.query(RecurringGroupExpenseModel).filter(
+            RecurringGroupExpenseModel.group_id == group_id
+        )
+        if active_only:
+            query = query.filter(RecurringGroupExpenseModel.active.is_(True))
+        return [self._to_schema(m) for m in query.order_by(RecurringGroupExpenseModel.id).all()]
+
+    def get(self, template_id: int) -> Optional[RecurringGroupExpenseResponse]:
+        """Get a template by id."""
+        model = (
+            self.session.query(RecurringGroupExpenseModel)
+            .filter(RecurringGroupExpenseModel.id == template_id)
+            .first()
+        )
+        return self._to_schema(model) if model else None
+
+    def update(self, template_id: int, data: RecurringGroupExpenseUpdate) -> Optional[RecurringGroupExpenseResponse]:
+        """Update template fields (patch semantics — only non-None fields are updated)."""
+        model = (
+            self.session.query(RecurringGroupExpenseModel)
+            .filter(RecurringGroupExpenseModel.id == template_id)
+            .first()
+        )
+        if not model:
+            return None
+        if data.description is not None:
+            model.description = data.description
+        if data.amount is not None:
+            model.amount = data.amount
+        if data.category is not None:
+            model.category = data.category
+        if data.payer_id is not None:
+            model.payer_id = data.payer_id
+        if data.payment_type is not None:
+            model.payment_type = data.payment_type
+        if data.split_strategy is not None:
+            model.split_strategy = self._serialize_split_strategy(data.split_strategy)
+        if data.start_year is not None:
+            model.start_year = data.start_year
+        if data.start_month is not None:
+            model.start_month = data.start_month
+        if data.active is not None:
+            model.active = data.active
+        model.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.session.flush()
+        self.session.commit()
+        return self._to_schema(model)
+
+    def has_instances(self, template_id: int) -> bool:
+        """True if any instance records exist for this template."""
+        count = (
+            self.session.query(RecurringGroupExpenseInstanceModel)
+            .filter(RecurringGroupExpenseInstanceModel.recurring_expense_id == template_id)
+            .count()
+        )
+        return count > 0
+
+    def deactivate(self, template_id: int) -> None:
+        """Set active=False on the template (soft delete — keeps historical expense rows)."""
+        model = (
+            self.session.query(RecurringGroupExpenseModel)
+            .filter(RecurringGroupExpenseModel.id == template_id)
+            .first()
+        )
+        if model:
+            model.active = False
+            self.session.flush()
+            self.session.commit()
+
+    def hard_delete(self, template_id: int) -> None:
+        """Delete the template row entirely (cascades to instances, sets NULL on expenses)."""
+        self.session.query(RecurringGroupExpenseModel).filter(
+            RecurringGroupExpenseModel.id == template_id
+        ).delete()
+        self.session.commit()
+
+    # --- Instances ---
+
+    def upsert_instance(self, template_id: int, group_id: int, year: int, month: int) -> bool:
+        """Idempotent create of an instance record.
+
+        Returns True if newly created, False if already existed.
+        Uses IntegrityError catch on the unique constraint (uq_recurring_group_expense_instance).
+        """
+        existing = (
+            self.session.query(RecurringGroupExpenseInstanceModel)
+            .filter(
+                RecurringGroupExpenseInstanceModel.recurring_expense_id == template_id,
+                RecurringGroupExpenseInstanceModel.group_id == group_id,
+                RecurringGroupExpenseInstanceModel.year == year,
+                RecurringGroupExpenseInstanceModel.month == month,
+            )
+            .first()
+        )
+        if existing:
+            return False
+        model = RecurringGroupExpenseInstanceModel(
+            recurring_expense_id=template_id,
+            group_id=group_id,
+            year=year,
+            month=month,
+        )
+        try:
+            self.session.add(model)
+            self.session.flush()
+            self.session.commit()
+            return True
+        except IntegrityError:
+            self.session.rollback()
+            return False
+
+    def update_instances_from_month_onwards(
+        self, template_id: int, year: int, month: int, data: RecurringGroupExpenseUpdate
+    ) -> None:
+        """Instances are pure idempotency guards with no updateable data.
+
+        When a template is edited, delete instances from the edited month onwards so they
+        re-materialize with updated values on next read.
+        """
+        self.delete_instances_from_month_onwards(template_id, year, month)
+
+    def delete_instances_from_month_onwards(self, template_id: int, year: int, month: int) -> None:
+        """Delete instance records for this template from (year, month) onwards.
+
+        Uses: year > given_year OR (year == given_year AND month >= given_month).
+        This causes those months to re-materialize on the next read.
+        """
+        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
+
+        self.session.query(RecurringGroupExpenseInstanceModel).filter(
+            RecurringGroupExpenseInstanceModel.recurring_expense_id == template_id,
+            or_(
+                RecurringGroupExpenseInstanceModel.year > year,
+                and_(
+                    RecurringGroupExpenseInstanceModel.year == year,
+                    RecurringGroupExpenseInstanceModel.month >= month,
+                ),
+            ),
+        ).delete()
+        self.session.commit()
+
+    # --- Private helpers ---
+
+    @staticmethod
+    def _serialize_split_strategy(strategy: SplitStrategySchema) -> dict:
+        """Convert SplitStrategySchema to a JSON-serializable dict for storage."""
+        payload: dict = {"type": strategy.type}
+        if strategy.type == "equal" and strategy.participant_ids is not None:
+            payload["participant_ids"] = strategy.participant_ids
+        elif strategy.type == "percentage" and strategy.percentages is not None:
+            payload["percentages"] = strategy.percentages
+        elif strategy.type == "exact" and strategy.amounts is not None:
+            payload["amounts"] = strategy.amounts
+        return payload
+
+    @staticmethod
+    def _deserialize_split_strategy(data: dict) -> SplitStrategySchema:
+        """Convert a stored JSON dict back to a SplitStrategySchema."""
+        return SplitStrategySchema(
+            type=data["type"],
+            participant_ids=data.get("participant_ids"),
+            percentages=data.get("percentages"),
+            amounts=data.get("amounts"),
+        )
+
+    def _to_schema(self, model: RecurringGroupExpenseModel) -> RecurringGroupExpenseResponse:
+        """Convert an ORM model to a RecurringGroupExpenseResponse schema."""
+        return RecurringGroupExpenseResponse(
+            id=model.id,
+            group_id=model.group_id,
+            description=model.description,
+            amount=model.amount,
+            category=model.category,
+            payer_id=model.payer_id,
+            payment_type=model.payment_type,
+            split_strategy=self._deserialize_split_strategy(model.split_strategy),
+            start_year=model.start_year,
+            start_month=model.start_month,
+            active=model.active,
         )
