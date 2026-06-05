@@ -4,11 +4,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from template.adapters.orm import Base, RecurringGroupExpenseInstanceModel, RecurringGroupExpenseModel
+from template.adapters.orm import (
+    Base,
+    RecurringGroupExpenseInstanceModel,
+    RecurringGroupExpenseModel,
+)
 from template.adapters.repositories import RecurringGroupExpenseRepository
 from template.domain.models.enums import NotificationType, PaymentType
-from template.domain.schemas.expense import RecurringGroupExpenseCreate, SplitStrategySchema
-
+from template.domain.schemas.expense import (
+    RecurringGroupExpenseCreate,
+    SplitStrategySchema,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -58,8 +64,7 @@ def _create_template(repo, group_id: int, payer_id: int, start_year: int = 2026,
         category="entretenimiento",
         payer_id=payer_id,
         payment_type=PaymentType.DEBIT,
-        # participant_ids=[] is required: _serialize_split_strategy raises for equal+None participant_ids
-        split_strategy=SplitStrategySchema(type="equal", participant_ids=[]),
+        split_strategy=SplitStrategySchema(type="equal"),
         start_year=start_year,
         start_month=start_month,
     )
@@ -123,8 +128,8 @@ def test_delete_instances_from_month_onwards_future_year(populated_session):
     repo = RecurringGroupExpenseRepository(session)
     template = _create_template(repo, group_id, member_id)
 
-    _add_instance(session, template.id, group_id, 2026, 5)   # same year, same month → deleted
-    _add_instance(session, template.id, group_id, 2027, 1)   # future year, January → deleted
+    _add_instance(session, template.id, group_id, 2026, 5)  # same year, same month → deleted
+    _add_instance(session, template.id, group_id, 2027, 1)  # future year, January → deleted
     _add_instance(session, template.id, group_id, 2027, 12)  # future year, December → deleted
 
     repo.delete_instances_from_month_onwards(template.id, year=2026, month=5)

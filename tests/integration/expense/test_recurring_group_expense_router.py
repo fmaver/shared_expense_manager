@@ -6,7 +6,6 @@ Fixtures: client, auth_headers, primary_member_id, primary_group_id, clean_table
 
 import datetime
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -96,9 +95,7 @@ def test_list_recurring_expenses(client, auth_headers, primary_member_id, primar
 # ---------------------------------------------------------------------------
 
 
-def test_recurring_expense_materializes_in_monthly_share(
-    client, auth_headers, primary_member_id, primary_group_id
-):
+def test_recurring_expense_materializes_in_monthly_share(client, auth_headers, primary_member_id, primary_group_id):
     """After creating a template starting this month, GET the monthly share materializes it."""
     template = _create_recurring(client, auth_headers, primary_group_id, primary_member_id)
     template_id = template["id"]
@@ -137,9 +134,7 @@ def test_recurring_expense_materializes_in_monthly_share(
 # ---------------------------------------------------------------------------
 
 
-def test_update_recurring_expense_affects_future_months(
-    client, auth_headers, primary_member_id, primary_group_id
-):
+def test_update_recurring_expense_affects_future_months(client, auth_headers, primary_member_id, primary_group_id):
     """PATCH with a new amount and viewed_month=current month, then GET materializes
     with updated amount."""
     template = _create_recurring(client, auth_headers, primary_group_id, primary_member_id)
@@ -164,9 +159,7 @@ def test_update_recurring_expense_affects_future_months(
     # Trigger first materialization
     r1 = _get_monthly_share(client, auth_headers, primary_group_id, YEAR, MONTH)
     assert r1.status_code == 200, r1.text
-    original_amounts = [
-        e["amount"] for e in r1.json()["data"]["expenses"] if e["description"] == "Internet"
-    ]
+    original_amounts = [e["amount"] for e in r1.json()["data"]["expenses"] if e["description"] == "Internet"]
     assert original_amounts == [500.0]
 
     # PATCH the template amount and invalidate current month so it re-materializes
@@ -182,9 +175,7 @@ def test_update_recurring_expense_affects_future_months(
     # GET the share again — should now include the re-materialized expense at 750.0
     r2 = _get_monthly_share(client, auth_headers, primary_group_id, YEAR, MONTH)
     assert r2.status_code == 200, r2.text
-    updated_amounts = [
-        e["amount"] for e in r2.json()["data"]["expenses"] if e["description"] == "Internet"
-    ]
+    updated_amounts = [e["amount"] for e in r2.json()["data"]["expenses"] if e["description"] == "Internet"]
     assert updated_amounts == [750.0], f"Expected 750.0, got {updated_amounts}"
 
 
@@ -245,10 +236,7 @@ def test_delete_recurring_expense_deactivates_and_cleans_future(
     # (materialization is skipped because the template is inactive)
     r_share = _get_monthly_share(client, auth_headers, primary_group_id, YEAR, MONTH)
     assert r_share.status_code == 200
-    internet_expenses = [
-        e for e in r_share.json()["data"]["expenses"]
-        if e.get("recurringTemplateId") == template_id
-    ]
+    internet_expenses = [e for e in r_share.json()["data"]["expenses"] if e.get("recurringTemplateId") == template_id]
     assert len(internet_expenses) == 0, "Deactivated recurring expense should not re-materialize"
 
 
@@ -257,9 +245,7 @@ def test_delete_recurring_expense_deactivates_and_cleans_future(
 # ---------------------------------------------------------------------------
 
 
-def test_settled_month_is_skipped_during_materialization(
-    client, auth_headers, primary_member_id, primary_group_id
-):
+def test_settled_month_is_skipped_during_materialization(client, auth_headers, primary_member_id, primary_group_id):
     """Materialization is a no-op for a settled month — no error, no duplicate."""
     template = _create_recurring(client, auth_headers, primary_group_id, primary_member_id)
 
@@ -282,7 +268,6 @@ def test_settled_month_is_skipped_during_materialization(
     # Trigger first materialization before settling
     r1 = _get_monthly_share(client, auth_headers, primary_group_id, YEAR, MONTH)
     assert r1.status_code == 200, r1.text
-    expense_count_before = len(r1.json()["data"]["expenses"])
 
     # Settle the month
     r_settle = client.post(
@@ -298,10 +283,7 @@ def test_settled_month_is_skipped_during_materialization(
     assert r2.json()["data"]["isSettled"] is True
 
     # Count recurring-tagged expenses; no duplicates should have been created
-    recurring_expenses = [
-        e for e in r2.json()["data"]["expenses"]
-        if e.get("recurringTemplateId") == template["id"]
-    ]
-    assert len(recurring_expenses) <= 1, (
-        f"Expected at most 1 recurring expense in settled month, found {len(recurring_expenses)}"
-    )
+    recurring_expenses = [e for e in r2.json()["data"]["expenses"] if e.get("recurringTemplateId") == template["id"]]
+    assert (
+        len(recurring_expenses) == 1
+    ), f"Expected exactly 1 recurring expense in settled month, found {len(recurring_expenses)}"

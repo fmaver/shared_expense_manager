@@ -5,8 +5,9 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from template.domain.schemas.expense import SplitStrategySchema
-from template.service_layer.recurring_group_expense_service import materialize_recurring_group_expenses
-
+from template.service_layer.recurring_group_expense_service import (
+    materialize_recurring_group_expenses,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -163,6 +164,9 @@ def test_materialize_creates_expense_for_new_instance():
 
     recurring_repo.upsert_instance.assert_called_once_with(42, 1, 2026, 5)
     expense_manager._add_to_monthly_share.assert_called_once()  # pylint: disable=protected-access
+    call_args = expense_manager._add_to_monthly_share.call_args  # pylint: disable=protected-access
+    expense_arg = call_args[0][0]
+    assert expense_arg.amount == template.amount
     expense_repo.set_recurring_template_id.assert_called_once_with(99, 42)
 
 

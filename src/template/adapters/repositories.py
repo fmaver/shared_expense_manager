@@ -1645,15 +1645,18 @@ class RecurringGroupExpenseRepository:
     def _serialize_split_strategy(strategy: SplitStrategySchema) -> dict:
         """Convert SplitStrategySchema to a JSON-serializable dict for storage."""
         payload: dict = {"type": strategy.type}
-        if strategy.type == "equal" and strategy.participant_ids is not None:
-            payload["participant_ids"] = strategy.participant_ids
-        elif strategy.type == "percentage" and strategy.percentages is not None:
+        if strategy.type == "equal":
+            # participant_ids=None means all members; a non-None list means a subset
+            if strategy.participant_ids is not None:
+                payload["participant_ids"] = strategy.participant_ids
+            return payload
+        if strategy.type == "percentage" and strategy.percentages is not None:
             payload["percentages"] = strategy.percentages
-        elif strategy.type == "exact" and strategy.amounts is not None:
+            return payload
+        if strategy.type == "exact" and strategy.amounts is not None:
             payload["amounts"] = strategy.amounts
-        else:
-            raise ValueError(f"Cannot serialize split strategy: type='{strategy.type}' with missing required data")
-        return payload
+            return payload
+        raise ValueError(f"Cannot serialize split strategy: type='{strategy.type}' with missing required data")
 
     @staticmethod
     def _deserialize_split_strategy(data: dict) -> SplitStrategySchema:
