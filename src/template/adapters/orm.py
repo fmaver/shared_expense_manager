@@ -338,9 +338,7 @@ class RecurringGroupExpenseInstanceModel(Base):
     __tablename__ = "recurring_group_expense_instances"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    recurring_expense_id: Mapped[int] = mapped_column(
-        ForeignKey("recurring_group_expenses.id", ondelete="CASCADE")
-    )
+    recurring_expense_id: Mapped[int] = mapped_column(ForeignKey("recurring_group_expenses.id", ondelete="CASCADE"))
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     year: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)

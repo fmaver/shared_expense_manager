@@ -2,7 +2,10 @@
 
 from datetime import date
 
-from template.adapters.repositories import RecurringGroupExpenseRepository, SQLAlchemyExpenseRepository
+from template.adapters.repositories import (
+    RecurringGroupExpenseRepository,
+    SQLAlchemyExpenseRepository,
+)
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
 from template.domain.models.expense_manager import ExpenseManager
@@ -10,7 +13,7 @@ from template.domain.models.models import Expense
 from template.service_layer.expense_service import _build_split_strategy
 
 
-def materialize_recurring_group_expenses(
+def materialize_recurring_group_expenses(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: int,
     year: int,
     month: int,

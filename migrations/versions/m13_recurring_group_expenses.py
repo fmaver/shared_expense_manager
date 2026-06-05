@@ -84,8 +84,6 @@ def downgrade() -> None:
     conn = op.get_bind()
 
     conn.execute(sa.text("ALTER TABLE expenses DROP COLUMN IF EXISTS recurring_template_id"))
-    conn.execute(
-        sa.text("DROP INDEX IF EXISTS ix_recurring_group_expense_instances_group_period")
-    )
+    conn.execute(sa.text("DROP INDEX IF EXISTS ix_recurring_group_expense_instances_group_period"))
     conn.execute(sa.text("DROP TABLE IF EXISTS recurring_group_expense_instances CASCADE"))
     conn.execute(sa.text("DROP TABLE IF EXISTS recurring_group_expenses CASCADE"))
