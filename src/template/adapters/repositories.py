@@ -1653,6 +1653,8 @@ class RecurringGroupExpenseRepository:
             payload["percentages"] = strategy.percentages
         elif strategy.type == "exact" and strategy.amounts is not None:
             payload["amounts"] = strategy.amounts
+        else:
+            raise ValueError(f"Cannot serialize split strategy: type='{strategy.type}' with missing required data")
         return payload
 
     @staticmethod
