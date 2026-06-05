@@ -24,22 +24,22 @@ def materialize_recurring_group_expenses(
 
     For each active template whose start date is on or before (year, month):
     - Checks the idempotency guard; skips if already materialized.
-    - Skips settled months (checks is_settled BEFORE upserting the instance guard).
     - Creates a real Expense row via ExpenseManager and tags it with the template id.
 
     Idempotent: safe to call multiple times for the same (group_id, year, month).
+    Skips settled months entirely: returns early if the month is settled.
     """
+    # Check if the month is settled before processing any templates.
+    # get_monthly_balance returns None when no share exists yet (unsettled by definition).
+    existing_share = expense_manager.get_monthly_balance(year, month)
+    if existing_share is not None and existing_share.is_settled:
+        return
+
     templates = recurring_repo.list_for_group(group_id, active_only=True)
 
     for template in templates:
         # Skip templates that haven't started yet
         if (template.start_year, template.start_month) > (year, month):
-            continue
-
-        # Check if the month is settled before creating the instance record.
-        # get_monthly_share returns None when no share exists yet (unsettled by definition).
-        existing_share = expense_manager.get_monthly_balance(year, month)
-        if existing_share is not None and existing_share.is_settled:
             continue
 
         # Idempotency guard: try to insert the instance record.
