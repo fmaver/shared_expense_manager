@@ -307,28 +307,44 @@ class RecurringGroupExpenseModel(Base):
     __tablename__ = "recurring_group_expenses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     description: Mapped[str] = mapped_column(String(255))
     amount: Mapped[float] = mapped_column(Float())
     category: Mapped[str] = mapped_column(String(50))
     payer_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
-    payment_type: Mapped[str] = mapped_column(String(20))
+    payment_type: Mapped[PaymentType] = mapped_column(Enum(PaymentType))
     split_strategy: Mapped[dict] = mapped_column(JSON)
     start_year: Mapped[int] = mapped_column(Integer)
     start_month: Mapped[int] = mapped_column(Integer)
     active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    group: Mapped["GroupModel"] = relationship(foreign_keys=[group_id])
+    payer: Mapped["MemberModel"] = relationship(foreign_keys=[payer_id])
 
 
 class RecurringGroupExpenseInstanceModel(Base):
+    """Idempotency guard for group recurring expense generation.
+
+    This table acts as a pure idempotency guard — it records that a recurring template
+    has already been processed for a given (group, year, month) period.  There are no
+    snapshot columns here because the actual expense data lives in the ExpenseModel rows
+    tagged with recurring_template_id.  This is intentionally different from the personal
+    pattern (RecurringPersonalExpenseInstanceModel), which stores a denormalised snapshot
+    of the expense for ledger display without needing to join expenses.
+    """
+
     __tablename__ = "recurring_group_expense_instances"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     recurring_expense_id: Mapped[int] = mapped_column(
         ForeignKey("recurring_group_expenses.id", ondelete="CASCADE")
     )
-    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     year: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         # Idempotency guard: one instance per recurring template per group per month
@@ -339,4 +355,9 @@ class RecurringGroupExpenseInstanceModel(Base):
             "month",
             name="uq_recurring_group_expense_instance",
         ),
+        # Covering index for period queries
+        Index("ix_recurring_group_expense_instances_group_period", "group_id", "year", "month"),
     )
+
+    recurring_expense: Mapped["RecurringGroupExpenseModel"] = relationship()
+    group: Mapped["GroupModel"] = relationship(foreign_keys=[group_id])
