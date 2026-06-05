@@ -65,6 +65,7 @@ class ExpenseResponse(CamelCaseModel):
     installment_no: int = 1
     split_strategy: SplitStrategySchema
     parent_expense_id: Optional[int] = None
+    recurring_template_id: Optional[int] = None
 
 
 class MonthlyBalanceResponse(CamelCaseModel):
@@ -73,3 +74,45 @@ class MonthlyBalanceResponse(CamelCaseModel):
     expenses: list[ExpenseResponse]
     balances: Dict[int, float]
     is_settled: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Recurring group expense schemas
+# ---------------------------------------------------------------------------
+
+
+class RecurringGroupExpenseCreate(CamelCaseModel):
+    description: str = Field(..., min_length=1, max_length=255)
+    amount: float = Field(..., gt=0)
+    category: str = Field(..., min_length=1, max_length=50)
+    payer_id: int
+    payment_type: PaymentType
+    split_strategy: SplitStrategySchema
+    start_year: int = Field(..., ge=2000, le=2100)
+    start_month: int = Field(..., ge=1, le=12)
+
+
+class RecurringGroupExpenseUpdate(CamelCaseModel):
+    description: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    amount: Optional[float] = Field(default=None, gt=0)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    payer_id: Optional[int] = None
+    payment_type: Optional[PaymentType] = None
+    split_strategy: Optional[SplitStrategySchema] = None
+    start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
+    start_month: Optional[int] = Field(default=None, ge=1, le=12)
+    active: Optional[bool] = None
+
+
+class RecurringGroupExpenseResponse(CamelCaseModel):
+    id: int
+    group_id: int
+    description: str
+    amount: float
+    category: str
+    payer_id: int
+    payment_type: PaymentType
+    split_strategy: SplitStrategySchema
+    start_year: int
+    start_month: int
+    active: bool
