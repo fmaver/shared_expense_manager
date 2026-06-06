@@ -344,6 +344,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
                 installments=db_expense.installments,
                 installment_no=db_expense.installment_no,
                 split_strategy=split_strategy,
+                recurring_template_id=db_expense.recurring_template_id,
             )
             monthly_share.expenses.append(expense)
 
@@ -517,6 +518,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             installment_no=db_expense.installment_no,
             split_strategy=split_strategy,
             parent_expense_id=db_expense.parent_expense_id,
+            recurring_template_id=db_expense.recurring_template_id,
         )
 
     def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
@@ -1620,12 +1622,13 @@ class RecurringGroupExpenseRepository:
         self.delete_instances_from_month_onwards(template_id, year, month)
 
     def delete_instances_from_month_onwards(self, template_id: int, year: int, month: int) -> None:
-        """Delete instance records for this template from (year, month) onwards.
+        """Delete instance records and their materialized expense rows from (year, month) onwards.
 
         Uses: year > given_year OR (year == given_year AND month >= given_month).
-        This causes those months to re-materialize on the next read.
+        Deletes both the idempotency instance rows and the corresponding Expense rows so the
+        materializer re-creates them with up-to-date data on the next monthly share read.
         """
-        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
+        from sqlalchemy import and_, extract  # pylint: disable=import-outside-toplevel
 
         self.session.query(RecurringGroupExpenseInstanceModel).filter(
             RecurringGroupExpenseInstanceModel.recurring_expense_id == template_id,
@@ -1637,6 +1640,19 @@ class RecurringGroupExpenseRepository:
                 ),
             ),
         ).delete()
+
+        # Also remove the materialized expense rows so they re-materialize with fresh data.
+        self.session.query(ExpenseModel).filter(
+            ExpenseModel.recurring_template_id == template_id,
+            or_(
+                extract("year", ExpenseModel.date) > year,
+                and_(
+                    extract("year", ExpenseModel.date) == year,
+                    extract("month", ExpenseModel.date) >= month,
+                ),
+            ),
+        ).delete(synchronize_session=False)
+
         self.session.commit()
 
     # --- Private helpers ---
