@@ -545,6 +545,7 @@ def administrar_chatbot(
     recurring_repo: Optional["RecurringGroupExpenseRepository"] = None,
 ) -> Dict[str, Any]:  # noqa: C901
     """logica del bot"""
+    # pylint: disable=too-many-locals
     groups = groups or []
     user_responses = []
     print("mensaje del usuario: ", text)
@@ -802,7 +803,7 @@ def administrar_chatbot(
     return estado_actual_usuario  # noqa: C901
 
 
-def create_expense(  # pylint: disable=too-many-locals
+def create_expense(
     number: str,
     estado_actual_usuario: Dict[str, Any],
     service: ExpenseService,
@@ -811,6 +812,7 @@ def create_expense(  # pylint: disable=too-many-locals
     recurring_repo: Optional["RecurringGroupExpenseRepository"] = None,
 ):
     """create expense"""
+    # pylint: disable=too-many-locals
     payment_type = (
         PaymentType.CREDIT
         if estado_actual_usuario["expense_data"]["payment_type"] in ("credito", "crédito")
