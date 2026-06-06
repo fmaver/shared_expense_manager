@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from template.domain.models.enums import NotificationType
-from template.domain.models.formatters import format_amount_es
+from template.domain.models.formatters import format_amount_es, month_name_es
 from template.domain.models.member import Member
 from template.domain.models.models import Expense
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
@@ -100,6 +100,43 @@ class NotificationService:
             app_url = self._build_app_url(group_id, is_multi)
             print("Sending regular message")
             await self._send_whatsapp(member.telephone, message, app_url=app_url)
+
+    async def notify_settlement(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        year: int,
+        month: int,
+        actor_member_id: int,
+        members: List[Member],
+        member_service: MemberService,
+        group_name: str,
+        group_id: Optional[int] = None,
+    ) -> None:
+        """Notify all group members (except the settler) that a month has been settled."""
+        time_now = datetime.now(timezone.utc)
+        for member in members:
+            if member.id == actor_member_id:
+                continue
+            if member.notification_preference != NotificationType.WHATSAPP or not member.telephone:
+                continue
+
+            last_interacted = member_service.get_last_wpp_chat_time(member)
+            if last_interacted and not last_interacted.tzinfo:
+                last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+
+            if last_interacted is None or (time_now - last_interacted).days >= 1:
+                parameters = [
+                    {"type": "text", "parameter_name": "group_name", "text": group_name},
+                    {"type": "text", "parameter_name": "month", "text": month_name_es(month)},
+                    {"type": "text", "parameter_name": "year", "text": str(year)},
+                ]
+                await self._send_whatsapp_template(member.telephone, "balance_mensual", parameters)
+            else:
+                message = (
+                    f"💰 *{group_name}* — Las cuentas de *{month_name_es(month)} {year}* fueron saldadas ✅\n\n"
+                    "Podés ver el resumen de balances en la app."
+                )
+                app_url = self._build_app_url(group_id, is_multi=False)
+                await self._send_whatsapp(member.telephone, message, app_url=app_url)
 
     def send_invitation_email(self, to_email: str, inviter_name: str, group_name: str, claim_url: str) -> None:
         """Send a group invitation email via Brevo."""
