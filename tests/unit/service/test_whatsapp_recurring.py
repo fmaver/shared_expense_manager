@@ -179,9 +179,7 @@ class TestHandleWaitingForRecurringDeleteConfirmationYes:
         ms.get_member_name_by_id.return_value = "Alice"
 
         estado = _base_delete_estado(template_id=42)
-        _, new = handle_waiting_for_recurring_delete_confirmation(
-            "549123", estado, "", "sed_recur_del_btn_1", repo, ms
-        )
+        _, new = handle_waiting_for_recurring_delete_confirmation("549123", estado, "", "sed_recur_del_btn_1", repo, ms)
 
         repo.deactivate.assert_called_once_with(42)
         repo.delete_instances_from_month_onwards.assert_called_once()
@@ -206,9 +204,7 @@ class TestHandleWaitingForRecurringDeleteConfirmationYes:
         ms = MagicMock()
 
         estado = _base_delete_estado(template_id=42)
-        _, new = handle_waiting_for_recurring_delete_confirmation(
-            "549123", estado, "", "sed_recur_del_btn_1", repo, ms
-        )
+        _, new = handle_waiting_for_recurring_delete_confirmation("549123", estado, "", "sed_recur_del_btn_1", repo, ms)
 
         # State should be reset (clean_estado_usuario sets many fields to None)
         assert new["estado"] == "inicial"
