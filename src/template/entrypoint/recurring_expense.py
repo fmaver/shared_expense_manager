@@ -37,14 +37,14 @@ async def create_recurring_expense(
     group_repo: GroupRepository = Depends(get_group_repository),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[RecurringGroupExpenseResponse]:
-    """Create a new recurring group expense template and immediately materialize it for the start month.
+    """Create a new recurring group expense template.
 
-    Notification is not sent at template creation time — notifications fire when the recurring
-    expense materializes as a real Expense row during the monthly share view.
+    The first Expense row is created lazily by the materializer when the monthly share
+    is first viewed. No instance record is created here — the materializer is the sole
+    writer of instance records so idempotency is maintained correctly.
     """
     _assert_group_membership(group_id, current_member, group_repo)
     template = repo.create(group_id, data)
-    repo.upsert_instance(template.id, group_id, data.start_year, data.start_month)
     return ResponseModel(data=template)
 
 
