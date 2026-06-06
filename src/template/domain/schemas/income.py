@@ -151,6 +151,8 @@ class MirroredShareItem(CamelCaseModel):
     installments: int = 1
     # Full amount paid by the owner as payer (0 when someone else paid)
     payer_amount: float = 0.0
+    payer_id: int = 0
+    payer_name: str = ""
 
 
 class PersonalLedgerResponse(CamelCaseModel):

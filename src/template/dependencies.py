@@ -91,12 +91,13 @@ def get_recurring_group_expense_repository(db: Session = Depends(get_db)) -> Rec
     return RecurringGroupExpenseRepository(db)
 
 
-def get_personal_ledger_service(
+def get_personal_ledger_service(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_service: GroupService = Depends(get_group_service),
     group_repo: GroupRepository = Depends(get_group_repository),
     expense_repo: ExpenseRepository = Depends(get_repository),
     income_repo: IncomeRepository = Depends(get_income_repository),
     recurring_expense_repo: RecurringPersonalExpenseRepository = Depends(get_recurring_expense_repository),
+    recurring_group_repo: RecurringGroupExpenseRepository = Depends(get_recurring_group_expense_repository),
 ) -> PersonalLedgerService:
     """Get personal ledger service instance."""
     return PersonalLedgerService(
@@ -105,6 +106,7 @@ def get_personal_ledger_service(
         expense_repo=expense_repo,
         income_repo=income_repo,
         recurring_expense_repo=recurring_expense_repo,
+        recurring_group_repo=recurring_group_repo,
     )
 
 
