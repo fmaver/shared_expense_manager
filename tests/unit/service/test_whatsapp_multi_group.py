@@ -39,17 +39,17 @@ def _initial_estado(group_id=None):
 
 
 class TestGreetingsSingleGroup:
-    def test_uses_button_reply_for_single_group(self):
+    def test_uses_list_reply_for_single_group(self):
         groups = [_make_group(1, "Casa")]
         responses, _ = handle_greetings("54111", _initial_estado(1), _make_member_service(), groups)
         msg = _decode(responses[0])
-        assert msg["interactive"]["type"] == "button"
+        assert msg["interactive"]["type"] == "list"
 
-    def test_shows_three_options_for_single_group(self):
+    def test_shows_four_options_for_single_group(self):
         groups = [_make_group(1, "Casa")]
         responses, _ = handle_greetings("54111", _initial_estado(1), _make_member_service(), groups)
-        buttons = _decode(responses[0])["interactive"]["action"]["buttons"]
-        assert len(buttons) == 3
+        rows = _decode(responses[0])["interactive"]["action"]["sections"][0]["rows"]
+        assert len(rows) == 4
 
     def test_greeting_includes_active_group_name(self):
         groups = [_make_group(1, "Casa")]
@@ -60,8 +60,8 @@ class TestGreetingsSingleGroup:
     def test_no_cambiar_grupo_option_for_single_group(self):
         groups = [_make_group(1, "Casa")]
         responses, _ = handle_greetings("54111", _initial_estado(1), _make_member_service(), groups)
-        buttons = _decode(responses[0])["interactive"]["action"]["buttons"]
-        titles = [b["reply"]["title"] for b in buttons]
+        rows = _decode(responses[0])["interactive"]["action"]["sections"][0]["rows"]
+        titles = [r["title"] for r in rows]
         assert not any("Cambiar" in t for t in titles)
 
 
@@ -77,11 +77,11 @@ class TestGreetingsMultipleGroups:
         msg = _decode(responses[0])
         assert msg["interactive"]["type"] == "list"
 
-    def test_shows_four_options_for_multiple_groups(self):
+    def test_shows_five_options_for_multiple_groups(self):
         groups = [_make_group(1, "Casa"), _make_group(2, "Trabajo")]
         responses, _ = handle_greetings("54111", _initial_estado(1), _make_member_service(), groups)
         rows = _decode(responses[0])["interactive"]["action"]["sections"][0]["rows"]
-        assert len(rows) == 4
+        assert len(rows) == 5
 
     def test_cambiar_grupo_is_fourth_option(self):
         groups = [_make_group(1, "Casa"), _make_group(2, "Trabajo")]
