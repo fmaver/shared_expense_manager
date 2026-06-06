@@ -2,7 +2,7 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from template.adapters.repositories import (
     GroupRepository,
@@ -10,6 +10,7 @@ from template.adapters.repositories import (
 )
 from template.dependencies import (
     get_group_repository,
+    get_member_service,
     get_recurring_group_expense_repository,
 )
 from template.domain.schema_model import ResponseModel
@@ -19,6 +20,8 @@ from template.domain.schemas.expense import (
     RecurringGroupExpenseUpdate,
 )
 from template.service_layer.auth_service import get_current_member
+from template.service_layer.member_service import MemberService
+from template.service_layer.notification_service import NotificationService
 
 router = APIRouter(prefix="/groups/{group_id}/expenses/recurring", tags=["RecurringExpenses"])
 
@@ -30,11 +33,13 @@ def _assert_group_membership(group_id: int, current_member, group_repo: GroupRep
 
 
 @router.post("/", status_code=201, response_model=ResponseModel[RecurringGroupExpenseResponse])
-async def create_recurring_expense(
+async def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: int,
     data: RecurringGroupExpenseCreate,
+    background_tasks: BackgroundTasks,
     repo: RecurringGroupExpenseRepository = Depends(get_recurring_group_expense_repository),
     group_repo: GroupRepository = Depends(get_group_repository),
+    member_service: MemberService = Depends(get_member_service),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[RecurringGroupExpenseResponse]:
     """Create a new recurring group expense template.
@@ -45,6 +50,19 @@ async def create_recurring_expense(
     """
     _assert_group_membership(group_id, current_member, group_repo)
     template = repo.create(group_id, data)
+
+    members = group_repo.list_members(group_id)
+    group = group_repo.get(group_id)
+    background_tasks.add_task(
+        NotificationService().notify_recurring_template_created,
+        template=template,
+        members=members,
+        creator=current_member,
+        member_service=member_service,
+        group_name=group.name if group else None,
+        group_id=group_id,
+    )
+
     return ResponseModel(data=template)
 
 

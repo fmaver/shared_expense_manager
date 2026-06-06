@@ -305,6 +305,64 @@ class NotificationService:
             return strategy.percentages.get(member_id, 0.0) > 0
         return True
 
+    def _is_involved_in_template(self, split_strategy: Any, member_id: int) -> bool:
+        """Return True if a member has a non-zero share in a recurring template's split strategy schema."""
+        if split_strategy.type == "equal":
+            if not split_strategy.participant_ids:
+                return True
+            return member_id in split_strategy.participant_ids
+        if split_strategy.type == "exact":
+            return (split_strategy.amounts or {}).get(str(member_id), 0.0) > 0
+        if split_strategy.type == "percentage":
+            return (split_strategy.percentages or {}).get(str(member_id), 0.0) > 0
+        return True
+
+    async def notify_recurring_template_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
+        self,
+        template: Any,
+        members: List[Member],
+        creator: Member,
+        member_service: MemberService,
+        group_name: Optional[str] = None,
+        group_id: Optional[int] = None,
+    ) -> None:
+        """Notify group members about a new recurring expense template created from the web app."""
+        # pylint: disable=import-outside-toplevel
+        from template.domain.models.category import Category
+
+        payer_name = member_service.get_member_name_by_id(template.payer_id) or str(template.payer_id)
+        cat_emoji = Category.get_category_emoji(template.category)
+        message_body = (
+            f"🔁 *Gasto Recurrente* creado por {creator.name}:\n\n"
+            f"💬 Descripción: {template.description}\n"
+            f"💰 Monto: ${format_amount_es(template.amount)}\n"
+            f"📂 Categoría: {template.category} {cat_emoji}\n"
+            f"👤 Pagador: {payer_name}\n"
+            f"📅 Desde: {month_name_es(template.start_month)} {template.start_year}"
+        )
+        subject = "🔁 Nuevo gasto recurrente"
+
+        for member in members:
+            if member.id == creator.id:
+                continue
+            if not self._is_involved_in_template(template.split_strategy, member.id):
+                continue
+
+            message = f"📁 *{group_name}*\n\n{message_body}" if group_name else message_body
+
+            if member.notification_preference == NotificationType.EMAIL:
+                self._send_email(member.email, subject, message)
+            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+                last_interacted = member_service.get_last_wpp_chat_time(member)
+                time_now = datetime.now(timezone.utc)
+                if last_interacted and not last_interacted.tzinfo:
+                    last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+                if last_interacted is None or (time_now - last_interacted).days >= 1:
+                    continue  # outside 24h window; no recurring-specific template exists
+                app_url = self._build_app_url(group_id, is_multi=False)
+                intro = "🔁 Nuevo gasto recurrente\nA continuación puede ver un resumen👇\n\n"
+                await self._send_whatsapp(member.telephone, intro + message, app_url=app_url)
+
     def _create_expense_message(  # pylint: disable=too-many-branches
         self, expense: Expense, creator: Member, member_service: MemberService, is_recurring: bool = False
     ) -> str:
