@@ -27,6 +27,7 @@ from template.domain.schemas.expense import (
     CategorySchema,
     ExpenseCreate,
     RecurringGroupExpenseCreate,
+    RecurringGroupExpenseUpdate,
     SplitStrategySchema,
 )
 from template.service_layer.expense_service import ExpenseService
@@ -377,6 +378,18 @@ def handle_cancel(
     return [cancel_notice] + responses, estado_actual_usuario
 
 
+def _split_strategy_to_dict(strategy: "SplitStrategySchema") -> Dict[str, Any]:
+    """Convert a SplitStrategySchema to the plain dict that expense_data['split_strategy'] uses."""
+    payload: Dict[str, Any] = {"type": strategy.type}
+    if strategy.type == "equal" and strategy.participant_ids is not None:
+        payload["participant_ids"] = strategy.participant_ids
+    elif strategy.type == "percentage" and strategy.percentages is not None:
+        payload["percentages"] = strategy.percentages
+    elif strategy.type == "exact" and strategy.amounts is not None:
+        payload["amounts"] = strategy.amounts
+    return payload
+
+
 def handle_gastos_recurrentes(
     number: str,
     estado_actual_usuario: Dict[str, Any],
@@ -453,7 +466,7 @@ def handle_waiting_for_recurring_selection(
     return [msg], estado_actual_usuario
 
 
-def handle_waiting_for_recurring_action(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def handle_waiting_for_recurring_action(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     number: str,
     estado_actual_usuario: Dict[str, Any],
     text: str,
@@ -484,12 +497,39 @@ def handle_waiting_for_recurring_action(  # pylint: disable=too-many-arguments,t
         estado_actual_usuario["estado"] = "esperando_confirmacion_eliminar_recurrente"
         return [msg], estado_actual_usuario
 
-    # Edit: not fully implemented in step-by-step for recurring templates yet;
-    # inform the user and return to initial
-    estado_actual_usuario["estado"] = "inicial"
-    return [
-        text_message(number, "✏️ Para editar un gasto recurrente, usá la app web. ¡Próximamente por acá también!")
-    ], estado_actual_usuario
+    # Edit: load template data into expense_data and enter the field-edit flow
+    template_id = estado_actual_usuario["expense_data"].get("selected_recurring_id")
+    template = recurring_repo.get(template_id) if template_id is not None else None
+    if template is None:
+        estado_actual_usuario["estado"] = "inicial"
+        return [text_message(number, "❌ No se encontró el gasto recurrente. Volvé al inicio.")], estado_actual_usuario
+
+    # Populate expense_data from the template so the normal edit-field handlers work
+    split_dict = _split_strategy_to_dict(template.split_strategy)
+    payment_type_str = "credito" if template.payment_type == PaymentType.CREDIT else "debito"
+    # Use start_year/start_month as a representative date for display
+    import calendar as _calendar  # pylint: disable=import-outside-toplevel
+
+    last_day = _calendar.monthrange(template.start_year, template.start_month)[1]
+    representative_date = date(template.start_year, template.start_month, last_day).isoformat()
+
+    estado_actual_usuario["expense_data"].update(
+        {
+            "service": "cargar gasto",
+            "description": template.description,
+            "amount": template.amount,
+            "date": representative_date,
+            "category": template.category,
+            "payer_id": template.payer_id,
+            "payment_type": payment_type_str,
+            "installments": 1,
+            "split_strategy": split_dict,
+            "is_recurring": True,
+            "is_recurring_edit": True,
+        }
+    )
+    estado_actual_usuario["estado"] = "esperando_campo_a_editar"
+    return [_field_edit_menu(number)], estado_actual_usuario
 
 
 def handle_waiting_for_recurring_delete_confirmation(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -2406,14 +2446,19 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
     if header_prefix:
         summary = f"{header_prefix}\n\n{summary}"
 
+    is_recurring_edit = expense_data.get("is_recurring_edit", False)
+
     if is_loan:
         body = f"{summary}\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
+    elif is_recurring_edit:
+        body = f"{summary}\n\n¿Guardás los cambios en el gasto recurrente?"
+        options = ["✅ Sí, guardar cambios", "❌ No, cancelar", "✏️ Editar campo"]
     else:
         body = f"{summary}\n\n¿Confirmas que los datos son correctos?"
         options = ["✅ Sí, crear gasto", "❌ No, cancelar"]
 
-    if not is_loan:
+    if not is_loan and not is_recurring_edit:
         options.append("✏️ Editar campo")
 
     msg = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
@@ -2450,6 +2495,41 @@ def handle_waiting_for_duplicate_confirmation(
     return user_responses, estado_actual_usuario
 
 
+def _save_recurring_edit(
+    estado_actual_usuario: Dict[str, Any],
+    template_id: int,
+    recurring_repo: "RecurringGroupExpenseRepository",
+) -> None:
+    """Persist expense_data edits back to the recurring template and clear future instances."""
+    expense_data = estado_actual_usuario["expense_data"]
+    payment_type = (
+        PaymentType.CREDIT if expense_data.get("payment_type") in ("credito", "crédito") else PaymentType.DEBIT
+    )
+    split_dict = expense_data.get("split_strategy") or {"type": "equal"}
+    split_strategy = SplitStrategySchema(**split_dict)
+
+    # Derive start_year/start_month from the representative date stored during edit setup
+    try:
+        rep_date = date.fromisoformat(str(expense_data.get("date", date.today().isoformat())))
+    except ValueError:
+        rep_date = date.today()
+
+    update_data = RecurringGroupExpenseUpdate(
+        description=expense_data.get("description"),
+        amount=expense_data.get("amount"),
+        category=expense_data.get("category"),
+        payer_id=expense_data.get("payer_id"),
+        payment_type=payment_type,
+        split_strategy=split_strategy,
+        start_year=rep_date.year,
+        start_month=rep_date.month,
+    )
+    recurring_repo.update(template_id, update_data)
+    # Invalidate any future pre-materialised instances so they regenerate with new data
+    today = date.today()
+    recurring_repo.delete_instances_from_month_onwards(template_id, today.year, today.month)
+
+
 def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals
     number: str,
     estado_actual_usuario: Dict[str, Any],
@@ -2467,39 +2547,57 @@ def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals
         estado_actual_usuario["estado"] = "esperando_campo_a_editar"
         return [_field_edit_menu(number)], estado_actual_usuario
 
-    if "crear" in text.lower():  # Confirmed
-        split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
-        try:
-            create_expense(
-                number,
-                estado_actual_usuario,
-                service,
-                split_strategy_dict=split_strategy,
-                member_service=member_service,
-                recurring_repo=recurring_repo,
-            )
+    is_recurring_edit = estado_actual_usuario["expense_data"].get("is_recurring_edit", False)
+    text_lower = text.lower()
+    confirmed = "crear" in text_lower or "guardar" in text_lower or interactive_id == "sed1_btn_1"
+
+    if confirmed:
+        if is_recurring_edit:
+            # Save changes back to the recurring template instead of creating a new expense
+            template_id = estado_actual_usuario["expense_data"].get("selected_recurring_id")
+            if template_id is not None and recurring_repo is not None:
+                try:
+                    _save_recurring_edit(estado_actual_usuario, template_id, recurring_repo)
+                except Exception as exc:  # pylint: disable=broad-except
+                    print(f"Failed to save recurring template edit {template_id}: {exc}")
             clean_estado_usuario(estado_actual_usuario)
-            body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
+            body = "✅ ¡Gasto recurrente actualizado correctamente!\n\n¿Deseas realizar otra operación?"
             options = ["🏠 Ir al Inicio", "👋 No gracias"]
-            footer = "⚙️ Admin Gastos Compartidos ⚙️"
-            reply_button_data = button_reply_message(number, options, body, footer, "sed1")
+            reply_button_data = button_reply_message(number, options, body, "⚙️ Admin Gastos Compartidos ⚙️", "sed1")
             user_responses.append(reply_button_data)
-        except ValueError as exc:
-            if "está saldado" in str(exc):
-                expense_date = date.fromisoformat(estado_actual_usuario["expense_data"]["date"])
-                month_str = month_name_es(expense_date.month)
-                estado_actual_usuario["estado"] = "esperando_respuesta_mes_saldado"
-                body = f"⚠️ El balance de *{month_str} {expense_date.year}* está saldado.\n\n" "¿Qué querés hacer?"
-                reply_button_data = button_reply_message(
+        else:
+            split_strategy = estado_actual_usuario["expense_data"]["split_strategy"]
+            try:
+                create_expense(
                     number,
-                    ["🔓 Reabrir el mes", "📅 Cambiar la fecha"],
-                    body,
-                    "⚙️ Admin Gastos Compartidos ⚙️",
-                    "sed_settled",
+                    estado_actual_usuario,
+                    service,
+                    split_strategy_dict=split_strategy,
+                    member_service=member_service,
+                    recurring_repo=recurring_repo,
                 )
+                clean_estado_usuario(estado_actual_usuario)
+                body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
+                options = ["🏠 Ir al Inicio", "👋 No gracias"]
+                footer = "⚙️ Admin Gastos Compartidos ⚙️"
+                reply_button_data = button_reply_message(number, options, body, footer, "sed1")
                 user_responses.append(reply_button_data)
-            else:
-                raise
+            except ValueError as exc:
+                if "está saldado" in str(exc):
+                    expense_date = date.fromisoformat(estado_actual_usuario["expense_data"]["date"])
+                    month_str = month_name_es(expense_date.month)
+                    estado_actual_usuario["estado"] = "esperando_respuesta_mes_saldado"
+                    body = f"⚠️ El balance de *{month_str} {expense_date.year}* está saldado.\n\n¿Qué querés hacer?"
+                    reply_button_data = button_reply_message(
+                        number,
+                        ["🔓 Reabrir el mes", "📅 Cambiar la fecha"],
+                        body,
+                        "⚙️ Admin Gastos Compartidos ⚙️",
+                        "sed_settled",
+                    )
+                    user_responses.append(reply_button_data)
+                else:
+                    raise
 
     else:  # Cancelled
         body = "Gasto cancelado. ¿Deseas realizar otra operación?"
