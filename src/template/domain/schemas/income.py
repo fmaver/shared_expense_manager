@@ -153,6 +153,7 @@ class MirroredShareItem(CamelCaseModel):
     payer_amount: float = 0.0
     payer_id: int = 0
     payer_name: str = ""
+    is_recurring: bool = False
 
 
 class PersonalLedgerResponse(CamelCaseModel):

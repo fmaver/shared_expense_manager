@@ -118,6 +118,7 @@ class PersonalLedgerService:
                             installment_no=exp.installment_no,
                             split_strategy=_strategy_to_schema(exp.split_strategy),
                             parent_expense_id=exp.parent_expense_id,
+                            recurring_template_id=exp.recurring_template_id,
                         )
                     )
         # Load recurring personal expense instances for this month
@@ -260,6 +261,7 @@ class PersonalLedgerService:
                     payer_amount=round(expense.amount, 2) if expense.payer_id == owner_member_id else 0.0,
                     payer_id=expense.payer_id,
                     payer_name=payer.name if payer else str(expense.payer_id),
+                    is_recurring=expense.recurring_template_id is not None,
                 )
             )
         return paid, shares_out
