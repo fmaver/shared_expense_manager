@@ -4,11 +4,12 @@ import io
 from datetime import datetime
 from typing import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
 from fastapi.responses import StreamingResponse
 
 from template.dependencies import (
     get_expense_service,
+    get_member_service,
     get_recurring_group_expense_materializer,
 )
 from template.domain.models.pdf_builder import build_monthly_report
@@ -16,6 +17,8 @@ from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import MonthlyBalanceResponse
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
+from template.service_layer.member_service import MemberService
+from template.service_layer.notification_service import NotificationService
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
 
@@ -67,10 +70,13 @@ async def get_monthly_balance(
 
 
 @router.post("/settle/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
-async def settle_monthly_share(
+async def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-many-arguments
+    background_tasks: BackgroundTasks,
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
+    member_service: MemberService = Depends(get_member_service),
+    current_member=Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Settle the monthly share for a specific month."""
     try:
@@ -89,6 +95,20 @@ async def settle_monthly_share(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No expenses found for {year}-{month:02d}",
+            )
+
+        if not service.is_personal_group():
+            members = service.get_members()
+            group_name = service.get_group_name() or ""
+            background_tasks.add_task(
+                NotificationService().notify_settlement,
+                year=year,
+                month=month,
+                actor_member_id=current_member.id,
+                members=members,
+                member_service=member_service,
+                group_name=group_name,
+                group_id=service.group_id,
             )
 
         return ResponseModel(

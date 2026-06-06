@@ -632,7 +632,7 @@ def administrar_chatbot(
 
     elif estado_actual_usuario["estado"] == "esperando_confirmacion_saldar_cuentas":
         responses, estado_actual_usuario = handle_settle_accounts(
-            number, estado_actual_usuario, message_id, service, text
+            number, estado_actual_usuario, message_id, service, text, member_service=member_service
         )
         user_responses.extend(responses)
 
@@ -1118,7 +1118,12 @@ def send_acknowledgement_settle_accounts(
 
 
 def handle_settle_accounts(
-    number: str, estado_actual_usuario: Dict[str, Any], message_id: str, service: ExpenseService, text: str
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    message_id: str,
+    service: ExpenseService,
+    text: str,
+    member_service: Optional[MemberService] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle settle shares"""
     user_responses = []
@@ -1140,6 +1145,25 @@ def handle_settle_accounts(
     try:
         monthly_share_settled = service.settle_monthly_share(month_year.year, month_year.month)
         print(f"monthly_share_settled with balance: {monthly_share_settled.balances}")
+
+        if member_service and not service.is_personal_group():
+            # pylint: disable=C0415  # Import outside toplevel
+            from template.service_layer.notification_service import NotificationService
+
+            settler = member_service.get_member_by_phone(number)
+            members = service.get_members()
+            group_name = service.get_group_name() or ""
+            asyncio.run(
+                NotificationService().notify_settlement(
+                    year=month_year.year,
+                    month=month_year.month,
+                    actor_member_id=settler.id if settler else -1,
+                    members=members,
+                    member_service=member_service,
+                    group_name=group_name,
+                    group_id=service.group_id,
+                )
+            )
 
         body = "✨ ¡Cuentas saldadas!\n\n¿Te gustaría hacer algo más? 🤔"
         options = ["🏠 Ir al Inicio", "👋 No gracias", "📄 Obtener Documento"]
