@@ -26,6 +26,7 @@ class Expense(CamelCaseModel):
     payment_type: PaymentType
     split_strategy: SplitStrategy
     parent_expense_id: Optional[int] = None
+    recurring_template_id: Optional[int] = None
 
     @field_validator("installment_no")
     def validate_installment_no(cls, v: int, info: ValidationInfo) -> int:
