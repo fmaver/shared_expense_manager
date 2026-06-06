@@ -129,6 +129,16 @@ class PersonalLedgerService:
             if not source_share:
                 continue
 
+            # Load members upfront so we can recalculate balances from current expense rows.
+            # The DB-stored balance JSON can be stale (e.g. if recurring group expenses were
+            # materialised after the last recalculation), while source_share.expenses always
+            # reflects the current DB state.
+            members_list = self._group_repo.list_members(source_group.id)
+            members_dict = {m.id: m for m in members_list}
+
+            if source_share.expenses:
+                source_share.recalculate_balances(members_dict)
+
             # Net group balance for this owner: positive = creditor, negative = debtor
             net_balance = round(source_share.balances.get(str(owner_member_id), 0.0), 2)
             group_balances.append(
@@ -142,9 +152,6 @@ class PersonalLedgerService:
 
             if not source_share.expenses:
                 continue
-            # Only fetch members if there are expenses to process
-            members_list = self._group_repo.list_members(source_group.id)
-            members_dict = {m.id: m for m in members_list}
             paid, new_shares = self._process_group_expenses(
                 source_group.id,
                 source_group.name,
