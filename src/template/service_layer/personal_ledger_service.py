@@ -3,9 +3,11 @@
 from template.adapters.repositories import (
     GroupRepository,
     IncomeRepository,
+    RecurringGroupExpenseRepository,
     RecurringPersonalExpenseRepository,
 )
 from template.domain.models.category import Category
+from template.domain.models.expense_manager import ExpenseManager
 from template.domain.models.income import (
     IncomeInstance,
     RecurringPersonalExpenseInstance,
@@ -25,6 +27,9 @@ from template.domain.schemas.income import (
     RecurringPersonalExpenseInstanceResponse,
 )
 from template.service_layer.group_service import GroupService
+from template.service_layer.recurring_group_expense_service import (
+    materialize_recurring_group_expenses,
+)
 
 
 def _strategy_to_schema(strategy: SplitStrategy) -> SplitStrategySchema:
@@ -56,12 +61,14 @@ class PersonalLedgerService:
         expense_repo: ExpenseRepository,
         income_repo: IncomeRepository,
         recurring_expense_repo: RecurringPersonalExpenseRepository,
+        recurring_group_repo: RecurringGroupExpenseRepository | None = None,
     ):
         self._group_service = group_service
         self._group_repo = group_repo
         self._expense_repo = expense_repo
         self._income_repo = income_repo
         self._recurring_expense_repo = recurring_expense_repo
+        self._recurring_group_repo = recurring_group_repo
 
     def get_ledger(  # pylint: disable=too-many-locals
         self, owner_member_id: int, year: int, month: int
@@ -125,6 +132,16 @@ class PersonalLedgerService:
         total_paid_as_payer_unsettled: float = 0.0
         other_groups = self._group_repo.list_for_member(owner_member_id, include_personal=False)
         for source_group in other_groups:
+            if self._recurring_group_repo is not None:
+                expense_manager = ExpenseManager(self._expense_repo, source_group.id, self._group_repo)
+                materialize_recurring_group_expenses(
+                    source_group.id,
+                    year,
+                    month,
+                    self._recurring_group_repo,
+                    self._expense_repo,  # type: ignore[arg-type]
+                    expense_manager,
+                )
             source_share = self._expense_repo.get_monthly_share(year, month, source_group.id)
             if not source_share:
                 continue
@@ -226,6 +243,7 @@ class PersonalLedgerService:
             owner_share = shares.get(owner_member_id, 0.0)
             if owner_share < 0.005:
                 continue
+            payer = members_dict.get(expense.payer_id)
             shares_out.append(
                 MirroredShareItem(
                     source_group_id=source_group_id,
@@ -240,6 +258,8 @@ class PersonalLedgerService:
                     installments=expense.installments,
                     # payer_amount: full expense amount if owner paid upfront, else 0
                     payer_amount=round(expense.amount, 2) if expense.payer_id == owner_member_id else 0.0,
+                    payer_id=expense.payer_id,
+                    payer_name=payer.name if payer else str(expense.payer_id),
                 )
             )
         return paid, shares_out
