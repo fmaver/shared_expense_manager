@@ -29,7 +29,7 @@ class NotificationService:
         self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
         self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
 
-    async def notify_expense_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def notify_expense_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
         self,
         expense: Expense,
         members: List[Member],
@@ -38,10 +38,16 @@ class NotificationService:
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
         group_id: Optional[int] = None,
+        is_recurring: bool = False,
     ) -> None:
         """Notify members about a new expense based on their notification preferences."""
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
-        subject = "💰 Nuevo préstamo" if is_loan else "💸 Nuevo gasto registrado"
+        if is_loan:
+            subject = "💰 Nuevo préstamo"
+        elif is_recurring:
+            subject = "🔁 Nuevo gasto recurrente"
+        else:
+            subject = "💸 Nuevo gasto registrado"
 
         for member in members:
             if member.id == creator.id:
@@ -54,7 +60,7 @@ class NotificationService:
             effective_group = group_name if (group_name and is_multi) else None
 
             if member.notification_preference == NotificationType.EMAIL:
-                message = self._create_expense_message(expense, creator, member_service)
+                message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
                 if effective_group:
                     message = f"📁 *{effective_group}*\n\n{message}"
                 html = self._build_html_expense_created(expense, creator, member_service, group_name=effective_group)
@@ -62,7 +68,14 @@ class NotificationService:
 
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 await self._send_wpp_expense_notification(
-                    member, expense, creator, member_service, effective_group, group_id=group_id, is_multi=is_multi
+                    member,
+                    expense,
+                    creator,
+                    member_service,
+                    effective_group,
+                    group_id=group_id,
+                    is_multi=is_multi,
+                    is_recurring=is_recurring,
                 )
 
             else:
@@ -77,6 +90,7 @@ class NotificationService:
         effective_group: Optional[str],
         group_id: Optional[int] = None,
         is_multi: bool = False,
+        is_recurring: bool = False,
     ) -> None:
         print(f"Sending WhatsApp notification to {member.telephone}")
         last_interacted = member_service.get_last_wpp_chat_time(member)
@@ -93,10 +107,15 @@ class NotificationService:
                 self._create_expense_template_parameters(expense, creator, member_service),
             )
         else:
-            message = self._create_expense_message(expense, creator, member_service)
+            message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
             if effective_group:
                 message = f"📁 *{effective_group}*\n\n{message}"
-            message = "📝 Notamos un nuevo Gasto\nA continuación puede ver un resumen👇\n\n" + message
+            intro = (
+                "🔁 Nuevo gasto recurrente\nA continuación puede ver un resumen👇\n\n"
+                if is_recurring
+                else "📝 Notamos un nuevo Gasto\nA continuación puede ver un resumen👇\n\n"
+            )
+            message = intro + message
             app_url = self._build_app_url(group_id, is_multi)
             print("Sending regular message")
             await self._send_whatsapp(member.telephone, message, app_url=app_url)
@@ -286,7 +305,9 @@ class NotificationService:
             return strategy.percentages.get(member_id, 0.0) > 0
         return True
 
-    def _create_expense_message(self, expense: Expense, creator: Member, member_service: MemberService) -> str:
+    def _create_expense_message(  # pylint: disable=too-many-branches
+        self, expense: Expense, creator: Member, member_service: MemberService, is_recurring: bool = False
+    ) -> str:
         """Create a plain-text message summarizing the expense."""
         payer = member_service.get_member_name_by_id(expense.payer_id)
 
@@ -299,19 +320,26 @@ class NotificationService:
 
         description = self._remove_installments_from_description(expense.description)
 
+        if is_recurring:
+            header = f"🔁 *Gasto Recurrente* creado por {creator.name}:\n"
+        else:
+            header = f"📝 Resumen del gasto creado por {creator.name}:\n"
+
         summary = [
-            f"📝 Resumen del gasto creado por {creator.name}:\n",
+            header,
             f"💬 Descripción: {description}",
             f"💰 Monto: ${expense.amount * expense.installments:.2f}",
             f"📅 Fecha: {expense.date.strftime('%d/%m/%Y')}",
             f"📂 Categoría: {expense.category.name} {expense.category.get_category_emoji(expense.category.name)}",
             f"👤 Pagador: {payer}",
-            f"💳 Método de pago: {expense.payment_type}",
         ]
 
-        if expense.installments > 1:
+        if not is_recurring:
+            summary.append(f"💳 Método de pago: {expense.payment_type}")
+
+        if not is_recurring and expense.installments > 1:
             summary.append(f"📅 Cuotas: {expense.installments}")
-        else:
+        elif not is_recurring:
             summary.append("📅 Cuotas: -")
 
         if isinstance(expense.split_strategy, PercentageSplit):
