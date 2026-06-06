@@ -508,7 +508,9 @@ def handle_waiting_for_recurring_delete_confirmation(  # pylint: disable=too-man
         template_id = estado_actual_usuario["expense_data"].get("selected_recurring_id")
         if template_id is not None:
             try:
+                today = date.today()
                 recurring_repo.deactivate(template_id)
+                recurring_repo.delete_instances_from_month_onwards(template_id, today.year, today.month)
             except Exception as exc:  # pylint: disable=broad-except
                 print(f"Failed to deactivate recurring template {template_id}: {exc}")
         estado_actual_usuario = clean_estado_usuario(estado_actual_usuario)
@@ -745,16 +747,22 @@ def administrar_chatbot(
         user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_accion_recurrente":
-        responses, estado_actual_usuario = handle_waiting_for_recurring_action(
-            number, estado_actual_usuario, text, interactive_id, recurring_repo, member_service, groups
-        )
-        user_responses.extend(responses)
+        if recurring_repo is None:
+            user_responses.append(text_message(number, "This feature requires a database connection."))
+        else:
+            responses, estado_actual_usuario = handle_waiting_for_recurring_action(
+                number, estado_actual_usuario, text, interactive_id, recurring_repo, member_service, groups
+            )
+            user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_confirmacion_eliminar_recurrente":
-        responses, estado_actual_usuario = handle_waiting_for_recurring_delete_confirmation(
-            number, estado_actual_usuario, text, interactive_id, recurring_repo, member_service, groups
-        )
-        user_responses.extend(responses)
+        if recurring_repo is None:
+            user_responses.append(text_message(number, "This feature requires a database connection."))
+        else:
+            responses, estado_actual_usuario = handle_waiting_for_recurring_delete_confirmation(
+                number, estado_actual_usuario, text, interactive_id, recurring_repo, member_service, groups
+            )
+            user_responses.extend(responses)
 
     elif estado_actual_usuario["estado"] == "esperando_confirmacion":
         update_member_last_chat(number, member_service)
