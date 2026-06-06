@@ -22,6 +22,7 @@ class ParsedExpense:  # pylint: disable=too-many-instance-attributes
     is_loan: bool = field(default=False)
     recipient_id: Optional[int] = field(default=None)
     split_strategy: Optional[Dict[str, Any]] = field(default=None)
+    is_recurring: bool = field(default=False)
 
 
 def _build_prompt(
@@ -76,6 +77,11 @@ Triggered by: "gasté", "pagué", "compré", "fui a", "salí", or a named member
   "tarjeta", "crédito", "credito", "cuotas", "en cuotas", "X cuotas", "pague en X" → "credit"
 - "en X cuotas" → installments = X; "en cuotas" with no number → installments = 1; default → 1
 
+--- RECURRING EXPENSE RULES ---
+If the message mentions that the expense repeats every month (words like "todos los meses",
+"mensualmente", "cada mes", "siempre pago", "todos los meses pago", "pago todos los meses"),
+set "is_recurring": true in the result. Otherwise omit it or set it to false.
+
 --- SPLIT STRATEGY RULES ---
 - If no split is mentioned → omit "split_strategy" from the JSON (the app defaults to equal among all)
 - If a split IS explicitly stated, include a "split_strategy" object:
@@ -112,7 +118,8 @@ If the message is a regular EXPENSE:
   "date": "<YYYY-MM-DD>",
   "payment_type": "debit" or "credit",
   "installments": <integer, default 1>,
-  "split_strategy": <object or omit if default equal>
+  "split_strategy": <object or omit if default equal>,
+  "is_recurring": false
 }}
 
 If the message is a LOAN:
@@ -199,6 +206,7 @@ def parse_quick_expense(
             payment_type=str(data.get("payment_type", "debit")),
             installments=int(data.get("installments", 1)),
             split_strategy=raw_strategy,
+            is_recurring=bool(data.get("is_recurring", False)),
         )
 
     except Exception as exc:  # pylint: disable=broad-except

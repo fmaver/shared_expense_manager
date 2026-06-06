@@ -2,11 +2,15 @@
 
 import io
 from datetime import datetime
+from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import StreamingResponse
 
-from template.dependencies import get_expense_service
+from template.dependencies import (
+    get_expense_service,
+    get_recurring_group_expense_materializer,
+)
 from template.domain.models.pdf_builder import build_monthly_report
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import MonthlyBalanceResponse
@@ -21,11 +25,15 @@ async def get_monthly_balance(
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
+    materialize: Callable[[int, int], None] = Depends(get_recurring_group_expense_materializer),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Get the monthly balance for a specific month."""
     try:
         # Validate date
         datetime(year, month, 1)
+
+        # Lazily materialize any recurring group expenses for this period.
+        materialize(year, month)
 
         # Get expenses from service
         expenses = service.get_monthly_expenses(year, month)

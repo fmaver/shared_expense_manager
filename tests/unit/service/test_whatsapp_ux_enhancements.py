@@ -484,7 +484,7 @@ class TestHandleWaitingForSplitStrategy:
     def test_partes_iguales_2_members_goes_to_confirmation(self):
         ms = self._ms_2()
         _, new = handle_waiting_for_split_strategy("549123", self._estado(), "msg1", "⚖️ Partes iguales", ms)
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
         assert new["expense_data"]["split_strategy"]["type"] == "equal"
 
     def test_partes_iguales_4_members_goes_to_definicion_participantes(self):
@@ -497,7 +497,7 @@ class TestHandleWaitingForSplitStrategy:
         _, new = handle_waiting_for_split_strategy(
             "549123", self._estado(), "msg1", "", ms, interactive_id="sed_split_btn_1"
         )
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
 
     def test_porcentajes_via_button_id(self):
         ms = self._ms_4()
@@ -553,7 +553,7 @@ class TestHandleWaitingForParticipantsDefinition:
     def test_todos_goes_to_confirmation_with_equal_all(self):
         ms = self._ms_4()
         _, new = handle_waiting_for_participants_definition("549123", self._estado(), "👥 Todos participan", ms)
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
         assert new["expense_data"]["split_strategy"] == {"type": "equal"}
 
     def test_todos_via_button_id(self):
@@ -561,7 +561,7 @@ class TestHandleWaitingForParticipantsDefinition:
         _, new = handle_waiting_for_participants_definition(
             "549123", self._estado(), "", ms, interactive_id="sed_part_btn_1"
         )
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
 
     def test_excluir_via_button_id_enters_excluidos(self):
         ms = self._ms_4()
@@ -620,7 +620,7 @@ class TestHandleWaitingForExcludedMembers:
         ms = self._ms_4()
         estado = self._estado(excluded=[2])
         _, new = handle_waiting_for_excluded_members("549123", estado, ms, interactive_id="exc_done")
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
         strategy = new["expense_data"]["split_strategy"]
         assert strategy["type"] == "equal"
         assert 2 not in strategy["participant_ids"]
@@ -629,7 +629,7 @@ class TestHandleWaitingForExcludedMembers:
     def test_listo_with_no_exclusions_stores_equal_all(self):
         ms = self._ms_4()
         _, new = handle_waiting_for_excluded_members("549123", self._estado(), ms, interactive_id="exc_done")
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
         assert new["expense_data"]["split_strategy"] == {"type": "equal"}
 
     def test_excluding_everyone_re_prompts_with_error(self):
@@ -694,7 +694,7 @@ class TestHandleWaitingForAmountForMember:
         ms = self._ms()
         estado = self._estado(remaining=[3], pending={2: 300.0})
         _, new = handle_waiting_for_amount_for_member("549123", estado, "250", "msg1", ms)
-        assert new["estado"] == "esperando_confirmacion"
+        assert new["estado"] == "esperando_recurrencia"
         strategy = new["expense_data"]["split_strategy"]
         assert strategy["type"] == "exact"
         assert strategy["amounts"][1] == 450.0  # payer remainder

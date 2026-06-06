@@ -151,6 +151,7 @@ class ExpenseService:
                 payment_type=expense.payment_type,
                 split_strategy=_strategy_to_schema(expense.split_strategy),
                 parent_expense_id=expense.parent_expense_id,
+                recurring_template_id=expense.recurring_template_id,
             )
             for expense in monthly_share.expenses
         ]
