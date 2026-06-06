@@ -17,6 +17,7 @@ from template.adapters.repositories import (
     InvitationRepository,
     MemberRepository,
     ProcessedMessageRepository,
+    RecurringGroupExpenseRepository,
     SQLAlchemyExpenseRepository,
 )
 from template.dependencies import get_processed_message_repository, get_whatsapp_client
@@ -324,6 +325,7 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             group_id=group_id,
             group_repo=GroupRepository(db),
         )
+        recurring_repo = RecurringGroupExpenseRepository(db)
 
         # Group was just picked — replay a saved quick-expense message if present,
         # otherwise synthesise a greeting so the user lands on the main menu.
@@ -352,7 +354,16 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             return
 
         nuevo_estado = administrar_chatbot(
-            text, number, message_id, estado, expense_service, member_service, wpp_client, interactive_id, groups=groups
+            text,
+            number,
+            message_id,
+            estado,
+            expense_service,
+            member_service,
+            wpp_client,
+            interactive_id,
+            groups=groups,
+            recurring_repo=recurring_repo,
         )
         session_repo.save(number, nuevo_estado)
 

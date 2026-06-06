@@ -209,7 +209,7 @@ class TestHandleWaitingForPercentageForMember:
         }
         _, new_estado = handle_waiting_for_percentage_for_member("549123", estado, "35", "msg1", member_service)
 
-        assert new_estado["estado"] == "esperando_confirmacion"
+        assert new_estado["estado"] == "esperando_recurrencia"
         split = new_estado["expense_data"]["split_strategy"]
         assert split["percentages"][1] == 25.0  # 100 - 40 - 35
         assert split["percentages"][2] == 40.0
@@ -267,4 +267,4 @@ class TestHandleWaitingForPercentageTwoMember:
         split = new_estado["expense_data"]["split_strategy"]
         assert split["percentages"][3] == 60.0
         assert split["percentages"][7] == 40.0
-        assert new_estado["estado"] == "esperando_confirmacion"
+        assert new_estado["estado"] == "esperando_recurrencia"
