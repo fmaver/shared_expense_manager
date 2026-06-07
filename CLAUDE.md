@@ -175,6 +175,18 @@ Incoming Meta webhooks send numbers as `549XXXXXXXXXX`; the `replace_start()` he
 ### Group-aware chatbot
 When a user belongs to multiple groups, the chatbot prompts them to select a group at session start via `get_multi_group_member_ids`. The chosen `group_id` is stored in `ChatSession.expense_data` and attached to every expense created during that session.
 
+`list_for_member` is called with `include_personal=True` in the webhook, so personal groups appear in the selector alongside shared groups.
+
+### Personal group flows
+When the active group is `GroupType.PERSONAL`, `administrar_chatbot` sets `is_personal = service.is_personal_group()` and adapts all flows:
+
+- **Greetings menu**: shows `["💸 Cargar Gasto", "🔁 Gasto Recurrente", "💰 Cargar Ingreso"]` — hides "Prestar Plata", "Generar Balance", "Saldar Cuentas".
+- **Regular personal expense** (`cargar gasto`): payer auto-set to current member, split auto-set to equal; confirmation summary omits Pagador and División lines; `edit_pagador` is filtered from the edit menu.
+- **Personal recurring expense** (`gasto recurrente personal`): separate flow, no payment type, no payer, no split. Steps: amount → description → category → start month (MM/AAAA) → confirm. Saves via `RecurringPersonalExpenseRepository.create` + `upsert_instance`. State: `esperando_mes_inicio_recurrente_personal` → `esperando_confirmacion_recurrente_personal`.
+- **Income** (`cargar ingreso`): variable (one-time, current month) or recurring (with start month). Saves via `IncomeRepository.create_variable_instance` or `create_recurring` + `upsert_recurring_instance`. States: `esperando_tipo_ingreso` → `esperando_monto_ingreso` → `esperando_descripcion_ingreso` → [`esperando_mes_inicio_ingreso`] → `esperando_confirmacion_ingreso`.
+
+Notifications are already suppressed for personal groups throughout the codebase (`is_personal_group()` checks in `notification_service.py` and the WhatsApp chatbot).
+
 ### Quick-expense parser (LLM)
 Free-text messages like "gasté 500 en comida" bypass the step-by-step flow. `service_layer/quick_expense_parser.py::parse_quick_expense` sends the message to the Claude API and returns a `ParsedExpense` dataclass (amount, description, category, payer_id, date, payment_type, installments, optional is_loan / split_strategy). If parsing succeeds, the chatbot skips to the confirmation step.
 

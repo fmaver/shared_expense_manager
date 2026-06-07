@@ -14,10 +14,12 @@ from template.adapters.database import SessionLocal, get_db
 from template.adapters.repositories import (
     ChatSessionRepository,
     GroupRepository,
+    IncomeRepository,
     InvitationRepository,
     MemberRepository,
     ProcessedMessageRepository,
     RecurringGroupExpenseRepository,
+    RecurringPersonalExpenseRepository,
     SQLAlchemyExpenseRepository,
 )
 from template.dependencies import get_processed_message_repository, get_whatsapp_client
@@ -228,7 +230,7 @@ def _process_image_message(  # pylint: disable=too-many-locals
     session_repo.save(number, nuevo_estado)
 
 
-def _process_message(  # pylint: disable=too-many-locals,too-many-return-statements
+def _process_message(  # pylint: disable=too-many-locals,too-many-return-statements,too-many-statements
     text: str,
     number: str,
     message_id: str,
@@ -288,7 +290,7 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             session_repo.save(number, estado)
             return
 
-        groups = GroupRepository(db).list_for_member(member.id)
+        groups = GroupRepository(db).list_for_member(member.id, include_personal=True)
         if not groups:
             # Registered member not yet assigned to any group
             wpp_client.send_message(
@@ -328,6 +330,8 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             group_repo=GroupRepository(db),
         )
         recurring_repo = RecurringGroupExpenseRepository(db)
+        income_repo = IncomeRepository(db)
+        recurring_personal_repo = RecurringPersonalExpenseRepository(db)
 
         # Group was just picked — replay a saved quick-expense message if present,
         # otherwise synthesise a greeting so the user lands on the main menu.
@@ -366,6 +370,8 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             interactive_id,
             groups=groups,
             recurring_repo=recurring_repo,
+            income_repo=income_repo,
+            recurring_personal_repo=recurring_personal_repo,
         )
         session_repo.save(number, nuevo_estado)
 
