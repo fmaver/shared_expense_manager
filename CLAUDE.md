@@ -261,6 +261,8 @@ All routes under `/api/v1` except monitor and webhook.
 - **DB tables created on startup AND Alembic migrations both exist** — they coexist by design. The Alembic baseline is `baseline_baseline_20250318.py`. Migration chain: `m3_add_chat_sessions_and_processed_messages` → `m4_reconcile_schema` → `m5_rename_compras_to_supermercado` → `m6_add_groups_schema` → `m7_migrate_to_default_group` → `m8_drop_old_monthly_shares_unique` → `m9_invitations_and_stubs` → `m10_personal_groups_income` → `m11_recurring_income_start_month` → `m12_recurring_personal_expenses` → `m13_recurring_group_expenses` (latest).
 - **Default members re-seeded every startup** — safe because `InitializationService` checks for existence first.
 - **`get_expense` raises `ValueError` for missing IDs** — the expense endpoint catches this as HTTP 400, not 404. Integration tests should assert `status_code in (400, 404)` for the not-found case.
+- **`group_type` from `list_for_member` is a plain string**, not a `GroupType` enum. Never call `.value` on it directly — use `getattr(gt, "value", gt)` or compare with the string `"personal"` directly. See `handle_greetings` in `whatsapp_service.py` for the canonical pattern.
+- **`ChatSession` top-level state keys** — the session DB column only stores `expense_data` and `estado`. Any extra top-level key (e.g. `group_id`, `group_name`) must be listed in `_SESSION_TOPLEVEL_KEYS` in `repositories.py` to survive across requests; they are serialised with a `_sess_` prefix and unpacked on load. Currently: `group_id`, `group_name`, `known_group_ids`, `pending_invitation_token`. New persistent session fields must be added there.
 
 ---
 
