@@ -2,7 +2,7 @@
 
 import re
 from datetime import date
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 
@@ -12,6 +12,30 @@ from template.domain.models.split import PercentageSplit
 from .enums import PaymentType
 from .models import Expense, Member, MonthlyShare
 from .repository import ExpenseRepository
+
+
+def compute_debt_transfers(balances: Dict[str, float]) -> List[Tuple[int, int, float]]:
+    """Return the minimum list of (debtor_id, creditor_id, amount) transfers to clear all balances."""
+    epsilon = 0.01
+    remaining_credit: Dict[int, float] = {int(mid): amt for mid, amt in balances.items() if amt > epsilon}
+    remaining_debt: Dict[int, float] = {int(mid): -amt for mid, amt in balances.items() if amt < -epsilon}
+    result: List[Tuple[int, int, float]] = []
+
+    while remaining_credit and remaining_debt:
+        creditor_id = max(remaining_credit, key=lambda k: remaining_credit[k])
+        debtor_id = max(remaining_debt, key=lambda k: remaining_debt[k])
+        pay = round(min(remaining_credit[creditor_id], remaining_debt[debtor_id]), 2)
+        if pay < epsilon:
+            break
+        result.append((debtor_id, creditor_id, pay))
+        remaining_credit[creditor_id] -= pay
+        remaining_debt[debtor_id] -= pay
+        if remaining_credit[creditor_id] < epsilon:
+            del remaining_credit[creditor_id]
+        if remaining_debt[debtor_id] < epsilon:
+            del remaining_debt[debtor_id]
+
+    return result
 
 
 class ExpenseManager:
@@ -146,25 +170,10 @@ class ExpenseManager:
 
     def _generate_balancing_expenses(self, monthly_share: MonthlyShare, year: int, month: int) -> None:
         """Greedy debt reduction: emit one Expense per (debtor -> creditor) pair."""
-        epsilon = 0.01
-        remaining_credit: Dict[int, float] = {
-            int(mid): amt for mid, amt in monthly_share.balances.items() if amt > epsilon
-        }
-        remaining_debt: Dict[int, float] = {
-            int(mid): -amt for mid, amt in monthly_share.balances.items() if amt < -epsilon
-        }
-
         category = Category()
         category.name = "balance"
 
-        while remaining_credit and remaining_debt:
-            creditor_id = max(remaining_credit, key=lambda k: remaining_credit[k])
-            debtor_id = max(remaining_debt, key=lambda k: remaining_debt[k])
-            pay = round(min(remaining_credit[creditor_id], remaining_debt[debtor_id]), 2)
-
-            if pay < epsilon:
-                break
-
+        for debtor_id, creditor_id, pay in compute_debt_transfers(monthly_share.balances):
             balancing_expense = Expense(
                 description="Balancing Expense",
                 amount=pay,
@@ -176,13 +185,6 @@ class ExpenseManager:
                 split_strategy=PercentageSplit({debtor_id: 0.0, creditor_id: 100.0}),
             )
             self.create_and_add_expense(balancing_expense)
-
-            remaining_credit[creditor_id] -= pay
-            remaining_debt[debtor_id] -= pay
-            if remaining_credit[creditor_id] < epsilon:
-                del remaining_credit[creditor_id]
-            if remaining_debt[debtor_id] < epsilon:
-                del remaining_debt[debtor_id]
 
     def add_member(self, member: Member) -> None:
         """Adds a new member and recalculates all active monthly shares"""
