@@ -529,7 +529,9 @@ def handle_waiting_for_recurring_action(  # pylint: disable=too-many-arguments,t
         }
     )
     estado_actual_usuario["estado"] = "esperando_campo_a_editar"
-    return [_field_edit_menu(number, estado_actual_usuario.get("expense_data"))], estado_actual_usuario
+    return [
+        _field_edit_menu(number, estado_actual_usuario.get("expense_data"), is_multi_group=len(groups or []) > 1)
+    ], estado_actual_usuario
 
 
 def handle_waiting_for_recurring_delete_confirmation(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -744,7 +746,13 @@ def administrar_chatbot(
 
     elif estado_actual_usuario["estado"] == "esperando_campo_a_editar":
         responses, estado_actual_usuario = handle_waiting_for_field_selection(
-            number, estado_actual_usuario, interactive_id, member_service
+            number, estado_actual_usuario, interactive_id, member_service, groups
+        )
+        user_responses.extend(responses)
+
+    elif estado_actual_usuario["estado"] == "esperando_grupo_edicion":
+        responses, estado_actual_usuario = handle_waiting_for_group_edit(
+            number, estado_actual_usuario, interactive_id, groups, service, member_service
         )
         user_responses.extend(responses)
 
@@ -811,7 +819,7 @@ def administrar_chatbot(
     elif estado_actual_usuario["estado"] == "esperando_confirmacion":
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_waiting_for_confirmation(
-            number, estado_actual_usuario, text, service, member_service, interactive_id, recurring_repo
+            number, estado_actual_usuario, text, service, member_service, interactive_id, recurring_repo, groups
         )
         user_responses.extend(responses)
 
@@ -1594,7 +1602,7 @@ def parse_user_date(text: str) -> date:
 
 
 def get_expense_summary(  # pylint: disable=too-many-locals
-    expense_data: Dict[str, Any], member_service: MemberService
+    expense_data: Dict[str, Any], member_service: MemberService, group_name: str = ""
 ) -> str:
     """Generate a summary of the expense for confirmation."""
     is_loan = expense_data.get("service") == "prestar plata"
@@ -1613,6 +1621,10 @@ def get_expense_summary(  # pylint: disable=too-many-locals
 
     summary = [
         header,
+    ]
+    if group_name:
+        summary.append(f"🏠 Grupo: {group_name}")
+    summary += [
         f"💬 Descripción: {expense_data.get('description', '')}",
         f"💰 Monto: ${format_amount_es(expense_data.get('amount', 0))}",
         f"📅 Fecha: {format_date_es(expense_data.get('date', ''))}",
@@ -2166,13 +2178,19 @@ _EDITABLE_FIELDS = [
     ("edit_categoria", "📂 Categoría"),
     ("edit_pagador", "👤 Pagador"),
     ("edit_tipo_pago", "💳 Tipo de pago"),
+    ("edit_grupo", "🏠 Grupo"),
 ]
 
 
-def _field_edit_menu(number: str, expense_data: Optional[Dict[str, Any]] = None) -> str:
+def _field_edit_menu(number: str, expense_data: Optional[Dict[str, Any]] = None, is_multi_group: bool = False) -> str:
     """Return a list-reply message with the editable expense fields."""
     is_recurring = bool(expense_data and expense_data.get("is_recurring"))
-    fields = [(fid, label) for fid, label in _EDITABLE_FIELDS if not (is_recurring and fid == "edit_tipo_pago")]
+    fields = [
+        (fid, label)
+        for fid, label in _EDITABLE_FIELDS
+        if not (is_recurring and fid == "edit_tipo_pago")
+        if not (not is_multi_group and fid == "edit_grupo")
+    ]
     rows = [{"id": fid, "title": label, "description": ""} for fid, label in fields]
     return json.dumps(
         {
@@ -2190,11 +2208,12 @@ def _field_edit_menu(number: str, expense_data: Optional[Dict[str, Any]] = None)
     )
 
 
-def handle_waiting_for_field_selection(
+def handle_waiting_for_field_selection(  # pylint: disable=too-many-return-statements
     number: str,
     estado_actual_usuario: Dict[str, Any],
     interactive_id: Optional[str],
     member_service: MemberService,
+    groups: Optional[List[Any]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """User picked which field to edit from the edit menu."""
     if not interactive_id or not interactive_id.startswith("edit_"):
@@ -2242,6 +2261,11 @@ def handle_waiting_for_field_selection(
         estado_actual_usuario["estado"] = "esperando_nueva_recurrencia_edicion"
         return [msg], estado_actual_usuario
 
+    if field_id == "edit_grupo":
+        groups = groups or []
+        estado_actual_usuario["estado"] = "esperando_grupo_edicion"
+        return [group_selector_message(number, groups)], estado_actual_usuario
+
     # Free-text fields: monto, descripcion, fecha
     prompts = {
         "edit_monto": "💰 Ingresá el nuevo monto:\n\n✨ Ejemplo: 1500 o 1500,50",
@@ -2254,6 +2278,29 @@ def handle_waiting_for_field_selection(
     estado_actual_usuario["expense_data"]["_editing_field"] = field_id
     estado_actual_usuario["estado"] = "esperando_nuevo_valor_campo"
     return [text_message(number, prompt_text)], estado_actual_usuario
+
+
+def handle_waiting_for_group_edit(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    number: str,
+    estado_actual_usuario: Dict[str, Any],
+    interactive_id: Optional[str],
+    groups: List[Any],
+    service: Optional["ExpenseService"],
+    member_service: MemberService,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """User selected a new group from the edit-group selector."""
+    if interactive_id and interactive_id.startswith("grp_"):
+        try:
+            selected_id = int(interactive_id.split("_")[1])
+            group = next((g for g in groups if g.id == selected_id), None)
+            if group:
+                estado_actual_usuario["group_id"] = group.id
+                estado_actual_usuario["group_name"] = group.name
+                return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
+        except (ValueError, IndexError):
+            pass
+    msg = text_message(number, "Por favor seleccioná un grupo de la lista.")
+    return [msg], estado_actual_usuario
 
 
 def _apply_field_edit_and_confirm(
@@ -2511,7 +2558,8 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
             estado_actual_usuario["estado"] = "esperando_confirmacion_duplicado"
             return [dup_msg], estado_actual_usuario
 
-    summary = get_expense_summary(expense_data, member_service)
+    group_name = estado_actual_usuario.get("group_name", "")
+    summary = get_expense_summary(expense_data, member_service, group_name=group_name)
     if header_prefix:
         summary = f"{header_prefix}\n\n{summary}"
 
@@ -2599,7 +2647,7 @@ def _save_recurring_edit(
     recurring_repo.delete_instances_from_month_onwards(template_id, today.year, today.month)
 
 
-def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals
+def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
     number: str,
     estado_actual_usuario: Dict[str, Any],
     text: str,
@@ -2607,6 +2655,7 @@ def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals
     member_service: MemberService,
     interactive_id: Optional[str] = None,
     recurring_repo: Optional["RecurringGroupExpenseRepository"] = None,
+    groups: Optional[List[Any]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for confirmation"""
     user_responses = []
@@ -2614,7 +2663,9 @@ def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals
     is_edit = interactive_id == "sed1_btn_3" or "editar" in text.lower()
     if is_edit:
         estado_actual_usuario["estado"] = "esperando_campo_a_editar"
-        return [_field_edit_menu(number, estado_actual_usuario.get("expense_data"))], estado_actual_usuario
+        return [
+            _field_edit_menu(number, estado_actual_usuario.get("expense_data"), is_multi_group=len(groups or []) > 1)
+        ], estado_actual_usuario
 
     is_recurring_edit = estado_actual_usuario["expense_data"].get("is_recurring_edit", False)
     text_lower = text.lower()

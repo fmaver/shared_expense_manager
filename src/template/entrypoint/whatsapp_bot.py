@@ -71,6 +71,7 @@ def _resolve_group_id(
 
     if len(groups) == 1:
         estado["group_id"] = groups[0].id
+        estado["group_name"] = groups[0].name
         return groups[0].id
 
     # Multiple groups — selection required
@@ -81,6 +82,7 @@ def _resolve_group_id(
                 group = next((g for g in groups if g.id == selected_id), None)
                 if group:
                     estado["group_id"] = group.id
+                    estado["group_name"] = group.name
                     estado["estado"] = "inicial"
                     return group.id
             except (ValueError, IndexError):
