@@ -12,9 +12,10 @@ from template.dependencies import (
     get_member_service,
     get_recurring_group_expense_materializer,
 )
+from template.domain.models.expense_manager import compute_debt_transfers
 from template.domain.models.pdf_builder import build_monthly_report
 from template.domain.schema_model import ResponseModel
-from template.domain.schemas.expense import MonthlyBalanceResponse
+from template.domain.schemas.expense import DebtTransfer, MonthlyBalanceResponse
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
@@ -55,6 +56,10 @@ async def get_monthly_balance(
         for member_id, balance in monthly_share.balances.items():
             print(f"Member {member_id}: {balance}")
 
+        transfers = [
+            DebtTransfer(from_member_id=d, to_member_id=c, amount=a)
+            for d, c, a in compute_debt_transfers(monthly_share.balances)
+        ]
         return ResponseModel(
             data=MonthlyBalanceResponse(
                 year=year,
@@ -62,6 +67,7 @@ async def get_monthly_balance(
                 expenses=expenses,
                 balances=monthly_share.balances,
                 is_settled=monthly_share.is_settled,
+                transfers=transfers,
             )
         )
 
@@ -111,6 +117,10 @@ async def settle_monthly_share(  # pylint: disable=too-many-positional-arguments
                 group_id=service.group_id,
             )
 
+        transfers = [
+            DebtTransfer(from_member_id=d, to_member_id=c, amount=a)
+            for d, c, a in compute_debt_transfers(monthly_share.balances)
+        ]
         return ResponseModel(
             data=MonthlyBalanceResponse(
                 year=year,
@@ -118,6 +128,7 @@ async def settle_monthly_share(  # pylint: disable=too-many-positional-arguments
                 expenses=expenses,
                 balances=monthly_share.balances,
                 is_settled=monthly_share.is_settled,
+                transfers=transfers,
             )
         )
 
@@ -154,14 +165,19 @@ async def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many
 
         monthly_share = service.get_monthly_balance(year, month)
         expenses = service.get_monthly_expenses(year, month)
+        balances = monthly_share.balances if monthly_share else {}
+        transfers = [
+            DebtTransfer(from_member_id=d, to_member_id=c, amount=a) for d, c, a in compute_debt_transfers(balances)
+        ]
 
         return ResponseModel(
             data=MonthlyBalanceResponse(
                 year=year,
                 month=month,
                 expenses=expenses or [],
-                balances=monthly_share.balances if monthly_share else {},
+                balances=balances,
                 is_settled=False,
+                transfers=transfers,
             )
         )
 
@@ -195,6 +211,10 @@ async def recalculate_monthly_share(
                 detail=f"No expenses found for {year}-{month:02d}",
             )
 
+        transfers = [
+            DebtTransfer(from_member_id=d, to_member_id=c, amount=a)
+            for d, c, a in compute_debt_transfers(monthly_share.balances)
+        ]
         return ResponseModel(
             data=MonthlyBalanceResponse(
                 year=year,
@@ -202,6 +222,7 @@ async def recalculate_monthly_share(
                 expenses=expenses,
                 balances=monthly_share.balances,
                 is_settled=monthly_share.is_settled,
+                transfers=transfers,
             )
         )
 

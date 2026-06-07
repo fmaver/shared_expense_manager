@@ -13,6 +13,7 @@ import requests
 from template.adapters.repositories import RecurringGroupExpenseRepository
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
+from template.domain.models.expense_manager import compute_debt_transfers
 from template.domain.models.formatters import (
     format_amount_es,
     format_category_es,
@@ -1216,6 +1217,13 @@ def handle_waiting_for_balance_date(
                 balances_message += f"🥵 {member_name} debe pagar ${-balance}\n"
             else:
                 balances_message += f"🙂 {member_name} estas al dia\n"
+        transfers = compute_debt_transfers(monthly_balance.balances)
+        if transfers:
+            balances_message += "\n💸 Quién le paga a quién:\n"
+            for debtor_id, creditor_id, amount in transfers:
+                debtor = member_names_dict.get(debtor_id, "?")
+                creditor = member_names_dict.get(creditor_id, "?")
+                balances_message += f"  {debtor} → {creditor}: ${format_amount_es(amount)}\n"
         return balances_message
 
     try:

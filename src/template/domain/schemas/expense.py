@@ -68,12 +68,19 @@ class ExpenseResponse(CamelCaseModel):
     recurring_template_id: Optional[int] = None
 
 
+class DebtTransfer(CamelCaseModel):
+    from_member_id: int
+    to_member_id: int
+    amount: float
+
+
 class MonthlyBalanceResponse(CamelCaseModel):
     year: int
     month: int
     expenses: list[ExpenseResponse]
     balances: Dict[int, float]
     is_settled: bool = False
+    transfers: list[DebtTransfer] = []
 
 
 # ---------------------------------------------------------------------------
