@@ -69,7 +69,12 @@ def _resolve_group_id(
     Side effect: may send group-selector message via wpp_client and mutate estado.
     """
     if estado.get("group_id"):
-        return int(estado["group_id"])
+        gid = int(estado["group_id"])
+        if not estado.get("group_name"):
+            group = next((g for g in groups if g.id == gid), None)
+            if group:
+                estado["group_name"] = group.name
+        return gid
 
     if len(groups) == 1:
         estado["group_id"] = groups[0].id
