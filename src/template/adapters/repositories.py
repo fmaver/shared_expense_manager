@@ -561,7 +561,7 @@ _DEFAULT_EXPENSE_DATA: Dict = {
 # Top-level keys on the estado dict that are NOT part of expense_data but must survive
 # across requests.  We serialise them into expense_data with a "_sess_" prefix so no
 # DB migration is required.
-_SESSION_TOPLEVEL_KEYS = ("group_id", "known_group_ids", "pending_invitation_token")
+_SESSION_TOPLEVEL_KEYS = ("group_id", "group_name", "known_group_ids", "pending_invitation_token")
 
 
 class ChatSessionRepository:
