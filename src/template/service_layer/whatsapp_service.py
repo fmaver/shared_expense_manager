@@ -1094,7 +1094,8 @@ def handle_greetings(  # pylint: disable=too-many-locals
         active_group = groups[0]
     active_group_name = active_group.name if active_group else None
 
-    is_personal_group = active_group is not None and active_group.group_type.value == "personal"
+    _gt = active_group.group_type if active_group is not None else None
+    is_personal_group = _gt is not None and (getattr(_gt, "value", _gt) == "personal")
 
     group_line = f"\n\n📋 Grupo activo: *{active_group_name}*" if active_group_name else ""
     body = (
