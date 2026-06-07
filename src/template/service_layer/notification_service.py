@@ -132,28 +132,67 @@ class NotificationService:
     ) -> None:
         """Notify all group members (except the settler) that a month has been settled."""
         time_now = datetime.now(timezone.utc)
+        message = (
+            f"💰 *{group_name}* — Las cuentas de *{month_name_es(month)} {year}* fueron saldadas ✅\n\n"
+            "Podés ver el resumen de balances en la app."
+        )
+        subject = f"💰 {group_name} — Cuentas de {month_name_es(month)} {year} saldadas ✅"
         for member in members:
             if member.id == actor_member_id:
                 continue
-            if member.notification_preference != NotificationType.WHATSAPP or not member.telephone:
+
+            if member.notification_preference == NotificationType.EMAIL and member.email:
+                self._send_email(member.email, subject, message)
+            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+                last_interacted = member_service.get_last_wpp_chat_time(member)
+                if last_interacted and not last_interacted.tzinfo:
+                    last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+                if last_interacted is None or (time_now - last_interacted).days >= 1:
+                    parameters = [
+                        {"type": "text", "parameter_name": "group_name", "text": group_name},
+                        {"type": "text", "parameter_name": "month", "text": month_name_es(month)},
+                        {"type": "text", "parameter_name": "year", "text": str(year)},
+                    ]
+                    await self._send_whatsapp_template(member.telephone, "balance_mensual", parameters)
+                else:
+                    app_url = self._build_app_url(group_id, is_multi=False)
+                    await self._send_whatsapp(member.telephone, message, app_url=app_url)
+
+    async def notify_unsettle(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        year: int,
+        month: int,
+        actor_member_id: int,
+        members: List[Member],
+        member_service: MemberService,
+        group_name: str,
+        group_id: Optional[int] = None,
+    ) -> None:
+        """Notify all group members (except the actor) that a month has been reopened."""
+        time_now = datetime.now(timezone.utc)
+        message = (
+            f"🔓 *{group_name}* — Las cuentas de *{month_name_es(month)} {year}* fueron reabiertas\n\n"
+            "Se pueden volver a agregar o modificar gastos en la app."
+        )
+        subject = f"🔓 {group_name} — Cuentas de {month_name_es(month)} {year} reabiertas"
+        for member in members:
+            if member.id == actor_member_id:
                 continue
 
-            last_interacted = member_service.get_last_wpp_chat_time(member)
-            if last_interacted and not last_interacted.tzinfo:
-                last_interacted = last_interacted.replace(tzinfo=timezone.utc)
-
-            if last_interacted is None or (time_now - last_interacted).days >= 1:
-                parameters = [
-                    {"type": "text", "parameter_name": "group_name", "text": group_name},
-                    {"type": "text", "parameter_name": "month", "text": month_name_es(month)},
-                    {"type": "text", "parameter_name": "year", "text": str(year)},
-                ]
-                await self._send_whatsapp_template(member.telephone, "balance_mensual", parameters)
-            else:
-                message = (
-                    f"💰 *{group_name}* — Las cuentas de *{month_name_es(month)} {year}* fueron saldadas ✅\n\n"
-                    "Podés ver el resumen de balances en la app."
-                )
+            if member.notification_preference == NotificationType.EMAIL and member.email:
+                self._send_email(member.email, subject, message)
+            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+                last_interacted = member_service.get_last_wpp_chat_time(member)
+                if last_interacted and not last_interacted.tzinfo:
+                    last_interacted = last_interacted.replace(tzinfo=timezone.utc)
+                if last_interacted is None or (time_now - last_interacted).days >= 1:
+                    # TODO: send template once approved in Meta.
+                    # Template name: balance_reabierto | language: es_AR | category: UTILITY
+                    # Body: "🔓 *{{group_name}}* — Las cuentas de *{{month}} {{year}}*
+                    #        fueron reabiertas\n\nSe pueden volver a agregar o modificar
+                    #        gastos en la app."
+                    # Parameters: group_name, month, year
+                    continue
                 app_url = self._build_app_url(group_id, is_multi=False)
                 await self._send_whatsapp(member.telephone, message, app_url=app_url)
 

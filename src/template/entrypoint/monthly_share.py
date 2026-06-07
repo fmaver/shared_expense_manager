@@ -126,14 +126,31 @@ async def settle_monthly_share(  # pylint: disable=too-many-positional-arguments
 
 
 @router.post("/unsettle/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
-async def unsettle_monthly_share(
+async def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    background_tasks: BackgroundTasks,
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
+    member_service: MemberService = Depends(get_member_service),
+    current_member=Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Reverse the settlement of a month: removes auto-generated balancing expenses and reopens it."""
     try:
         service.unsettle_monthly_share(year, month)
+
+        if not service.is_personal_group():
+            members = service.get_members()
+            group_name = service.get_group_name() or ""
+            background_tasks.add_task(
+                NotificationService().notify_unsettle,
+                year=year,
+                month=month,
+                actor_member_id=current_member.id,
+                members=members,
+                member_service=member_service,
+                group_name=group_name,
+                group_id=service.group_id,
+            )
 
         monthly_share = service.get_monthly_balance(year, month)
         expenses = service.get_monthly_expenses(year, month)
