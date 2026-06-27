@@ -24,6 +24,7 @@ class ParsedImageExpense:
     expense_date: date
     payment_type: str  # "debit" | "credit"
     confidence: str = field(default="low")  # "high" | "low"
+    installments: int = field(default=1)  # number of cuotas; 1 = single payment
 
 
 def _build_prompt(categories: List[str], today: date) -> str:
@@ -38,10 +39,20 @@ Today is {today.isoformat()}. Currency is Argentine Pesos (ARS).
 
 Extract these fields:
 - amount: the total amount paid (float). Look for "Total", "TOTAL", "Monto", "Importe". Required.
-- description: merchant name or short label, max 4 words. Use the store/merchant name when visible.
+- description: the REAL merchant or payee name, max 4 words. Strip payment-platform prefixes/noise
+  and surface the underlying merchant. Examples:
+    "MercPago*Shell" or "MP*Shell" → "Shell" (category: transporte)
+    "MercPago*Netflix" → "Netflix" (category: entretenimiento)
+    "MercPago*McDonalds" → "McDonald's" (category: comida)
+    Transfer to a person or store via Mercado Pago → use the person/store name, not "Mercado Pago"
+    CVU/alias transfers → use the recognizable destination name if possible
+  General rule: strip payment platform prefixes (MercPago*, MP*) to find the real merchant or payee,
+  then use that name to improve category inference too.
 - date: transaction date in YYYY-MM-DD format. Use today ({today.isoformat()}) if not visible.
 - category: one of {category_list}
-- payment_type: "credit" if the image shows installments (cuotas) or credit card; "debit" otherwise
+- payment_type: "credit" if the image shows installments (cuotas) or a credit card charge; "debit" otherwise
+- installments: integer number of cuotas shown in the image (e.g. "9 cuotas sin interés" → 9,
+  "en 3 cuotas" → 3). Default 1 if no installments are shown or payment_type is "debit".
 - confidence: "high" if amount and merchant are clearly visible; "low" if you guessed any key field
 
 Respond ONLY with a JSON object, no markdown fences, no explanation:
@@ -51,6 +62,7 @@ Respond ONLY with a JSON object, no markdown fences, no explanation:
   "date": "<YYYY-MM-DD>",
   "category": "<category>",
   "payment_type": "debit" or "credit",
+  "installments": <integer>,
   "confidence": "high" or "low"
 }}"""
 
@@ -110,6 +122,8 @@ def parse_image_expense(
         if category not in categories:
             category = "otros"
 
+        installments = max(1, int(data.get("installments", 1)))
+
         return ParsedImageExpense(
             amount=float(data["amount"]),
             description=str(data.get("description", "Gasto")).strip() or "Gasto",
@@ -117,6 +131,7 @@ def parse_image_expense(
             expense_date=expense_date,
             payment_type=str(data.get("payment_type", "debit")),
             confidence=str(data.get("confidence", "low")),
+            installments=installments,
         )
 
     except Exception as exc:  # pylint: disable=broad-except

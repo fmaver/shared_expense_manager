@@ -133,3 +133,40 @@ class TestParseImageExpense:
 
         assert result is not None
         assert result.payment_type == "credit"
+
+    def test_installments_extracted_from_cuotas(self):
+        json_str = (
+            '{"amount": 9000.0, "description": "Shell", "date": "2026-05-27",'
+            ' "category": "transporte", "payment_type": "credit", "installments": 9, "confidence": "high"}'
+        )
+        with patch("google.genai.Client") as mock_genai:
+            mock_genai.return_value.models.generate_content.return_value = _mock_response(json_str)
+            result = parse_image_expense(FAKE_BYTES, "image/jpeg", CATEGORIES, TODAY)
+
+        assert result is not None
+        assert result.installments == 9
+        assert result.payment_type == "credit"
+
+    def test_installments_defaults_to_1_when_missing(self):
+        json_str = (
+            '{"amount": 500.0, "description": "Coto", "date": "2026-05-27",'
+            ' "category": "supermercado", "payment_type": "debit", "confidence": "high"}'
+        )
+        with patch("google.genai.Client") as mock_genai:
+            mock_genai.return_value.models.generate_content.return_value = _mock_response(json_str)
+            result = parse_image_expense(FAKE_BYTES, "image/jpeg", CATEGORIES, TODAY)
+
+        assert result is not None
+        assert result.installments == 1
+
+    def test_installments_zero_clamped_to_1(self):
+        json_str = (
+            '{"amount": 300.0, "description": "Gasto", "date": "2026-05-27",'
+            ' "category": "otros", "payment_type": "debit", "installments": 0, "confidence": "low"}'
+        )
+        with patch("google.genai.Client") as mock_genai:
+            mock_genai.return_value.models.generate_content.return_value = _mock_response(json_str)
+            result = parse_image_expense(FAKE_BYTES, "image/jpeg", CATEGORIES, TODAY)
+
+        assert result is not None
+        assert result.installments == 1
