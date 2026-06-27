@@ -68,6 +68,7 @@ async def create_expense(
             payment_type=expense_data.payment_type,
             split_strategy=expense_data.split_strategy,
             parent_expense_id=expense.parent_expense_id,
+            currency=getattr(expense_data, "currency", "ARS"),
         )
 
         return ResponseModel(data=response_data)
@@ -124,6 +125,7 @@ async def update_expense(
             payment_type=updated_expense.payment_type,
             split_strategy=_strategy_to_schema(updated_expense.split_strategy),
             parent_expense_id=updated_expense.parent_expense_id,
+            currency=getattr(updated_expense, "currency", "ARS"),
         )
 
         return ResponseModel(data=response_data)
@@ -218,6 +220,7 @@ async def get_expense(
             payment_type=expense.payment_type,
             split_strategy=split_strategy,
             parent_expense_id=expense.parent_expense_id,
+            currency=getattr(expense, "currency", "ARS"),
         )
 
         return ResponseModel(data=response_data)
@@ -255,6 +258,7 @@ async def get_parent_expense(
                 percentages=getattr(parent_expense.split_strategy, "percentages", None),
             ),
             parent_expense_id=parent_expense.parent_expense_id,
+            currency=getattr(parent_expense, "currency", "ARS"),
         )
 
         return ResponseModel(data=response_data)

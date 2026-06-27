@@ -345,6 +345,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
                 installment_no=db_expense.installment_no,
                 split_strategy=split_strategy,
                 recurring_template_id=db_expense.recurring_template_id,
+                currency=db_expense.currency,
             )
             monthly_share.expenses.append(expense)
 
@@ -389,6 +390,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             monthly_share_id=monthly_share_id,
             group_id=group_id,
             parent_expense_id=expense.parent_expense_id,
+            currency=getattr(expense, "currency", "ARS"),
         )
         self.session.add(db_expense)
         self.session.commit()
@@ -444,6 +446,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
                 installments=db_expense.installments,
                 installment_no=db_expense.installment_no,
                 split_strategy=self._deserialize_split_strategy(db_expense.split_strategy),
+                currency=db_expense.currency,
             )
             for db_expense in db_expenses
         ]
@@ -467,6 +470,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         db_expense.installments = expense.installments
         db_expense.installment_no = expense.installment_no
         db_expense.split_strategy = self._serialize_split_strategy(expense.split_strategy)
+        db_expense.currency = getattr(expense, "currency", "ARS")
 
         # Commit the changes to the database
         self.session.commit()
@@ -519,6 +523,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             split_strategy=split_strategy,
             parent_expense_id=db_expense.parent_expense_id,
             recurring_template_id=db_expense.recurring_template_id,
+            currency=db_expense.currency,
         )
 
     def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
@@ -1502,6 +1507,7 @@ class RecurringGroupExpenseRepository:
             start_year=data.start_year,
             start_month=data.start_month,
             active=True,
+            currency=getattr(data, "currency", "ARS") or "ARS",
         )
         self.session.add(model)
         self.session.flush()
@@ -1547,6 +1553,8 @@ class RecurringGroupExpenseRepository:
             model.start_month = data.start_month
         if data.active is not None:
             model.active = data.active
+        if data.currency is not None:
+            model.currency = data.currency
         model.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         self.session.flush()
         self.session.commit()
@@ -1698,4 +1706,5 @@ class RecurringGroupExpenseRepository:
             start_year=model.start_year,
             start_month=model.start_month,
             active=model.active,
+            currency=getattr(model, "currency", "ARS") or "ARS",
         )

@@ -123,6 +123,8 @@ class ExpenseModel(Base):
         ForeignKey("recurring_group_expenses.id", ondelete="SET NULL"), nullable=True
     )
 
+    currency: Mapped[str] = mapped_column(String, default="ARS", server_default="ARS")
+
     payer: Mapped[MemberModel] = relationship(back_populates="expenses")
     monthly_share: Mapped[MonthlyShareModel] = relationship(back_populates="expenses")
     parent_expense: Mapped[Optional["ExpenseModel"]] = relationship(
@@ -204,6 +206,8 @@ class RecurringIncomeModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    currency: Mapped[str] = mapped_column(String, default="ARS", server_default="ARS")
+
     owner: Mapped["MemberModel"] = relationship(foreign_keys=[owner_member_id])
     personal_group: Mapped["GroupModel"] = relationship(foreign_keys=[personal_group_id])
 
@@ -222,6 +226,7 @@ class IncomeInstanceModel(Base):
     )
     label: Mapped[str] = mapped_column(String(255))
     amount: Mapped[float] = mapped_column(Float())
+    currency: Mapped[str] = mapped_column(String, default="ARS", server_default="ARS")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -260,6 +265,7 @@ class RecurringPersonalExpenseModel(Base):
     owner_member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
     label: Mapped[str] = mapped_column(String(255))
     amount: Mapped[float] = mapped_column(Float())
+    currency: Mapped[str] = mapped_column(String, default="ARS", server_default="ARS")
     category_name: Mapped[str] = mapped_column(String(50))
     active: Mapped[bool] = mapped_column(default=True)
     start_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -281,6 +287,7 @@ class RecurringPersonalExpenseInstanceModel(Base):
     month: Mapped[int] = mapped_column(Integer)
     label: Mapped[str] = mapped_column(String(255))
     amount: Mapped[float] = mapped_column(Float())
+    currency: Mapped[str] = mapped_column(String, default="ARS", server_default="ARS")
     category_name: Mapped[str] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -310,6 +317,7 @@ class RecurringGroupExpenseModel(Base):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     description: Mapped[str] = mapped_column(String(255))
     amount: Mapped[float] = mapped_column(Float())
+    currency: Mapped[str] = mapped_column(String, default="ARS", server_default="ARS")
     category: Mapped[str] = mapped_column(String(50))
     payer_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
     payment_type: Mapped[PaymentType] = mapped_column(Enum(PaymentType, native_enum=False))

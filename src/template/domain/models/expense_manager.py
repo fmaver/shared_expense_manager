@@ -446,7 +446,12 @@ class ExpenseManager:
 
     def recalculate_monthly_share(self, monthly_share: MonthlyShare) -> MonthlyShare:
         """Recalculate a monthly share - resolve balances."""
-        monthly_share.recalculate_balances(self.members)
+        # pylint: disable=import-outside-toplevel
+        from template.service_layer.currency_service import get_blue_rate
+
+        # pylint: enable=import-outside-toplevel
+        usd_rate = get_blue_rate() or 1.0
+        monthly_share.recalculate_balances(self.members, usd_rate=usd_rate)
         self.repository.save_monthly_share(monthly_share)
         print("Monthly share recalculated")
 

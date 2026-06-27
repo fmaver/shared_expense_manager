@@ -40,6 +40,7 @@ class ExpenseCreate(CamelCaseModel):
     payment_type: PaymentType
     installments: int = Field(default=1, ge=1)
     split_strategy: SplitStrategySchema
+    currency: str = "ARS"
 
     @model_validator(mode="after")
     def validate_exact_amounts_sum(self) -> "ExpenseCreate":
@@ -66,6 +67,7 @@ class ExpenseResponse(CamelCaseModel):
     split_strategy: SplitStrategySchema
     parent_expense_id: Optional[int] = None
     recurring_template_id: Optional[int] = None
+    currency: str = "ARS"
 
 
 class DebtTransfer(CamelCaseModel):
@@ -97,6 +99,7 @@ class RecurringGroupExpenseCreate(CamelCaseModel):
     split_strategy: SplitStrategySchema
     start_year: int = Field(..., ge=2000, le=2100)
     start_month: int = Field(..., ge=1, le=12)
+    currency: str = "ARS"
 
 
 class RecurringGroupExpenseUpdate(CamelCaseModel):
@@ -109,6 +112,7 @@ class RecurringGroupExpenseUpdate(CamelCaseModel):
     start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
     start_month: Optional[int] = Field(default=None, ge=1, le=12)
     active: Optional[bool] = None
+    currency: Optional[str] = None
 
 
 class RecurringGroupExpenseResponse(CamelCaseModel):
@@ -123,3 +127,4 @@ class RecurringGroupExpenseResponse(CamelCaseModel):
     start_year: int
     start_month: int
     active: bool
+    currency: str = "ARS"

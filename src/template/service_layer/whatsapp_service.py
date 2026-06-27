@@ -977,6 +977,7 @@ def create_expense(
         payment_type=payment_type,
         installments=estado_actual_usuario["expense_data"]["installments"],
         split_strategy=SplitStrategySchema(**split_strategy_dict),
+        currency=estado_actual_usuario["expense_data"].get("currency", "ARS"),
     )
     expense = service.create_expense(expense_data)
 
@@ -1396,6 +1397,26 @@ def handle_recurring_expense(
     return [reply_text], estado_actual_usuario
 
 
+def _parse_amount_with_currency(text: str) -> tuple:
+    """Parse amount text, detecting USD indicators. Returns (amount, currency)."""
+    raw = text.strip()
+    currency = "ARS"
+    # Detect USD indicators (prefix or suffix, case-insensitive)
+    usd_patterns = ["USD", "U$S", "US$", "u$s", "usd"]
+    for pat in usd_patterns:
+        if raw.upper().startswith(pat.upper()):
+            raw = raw[len(pat) :].strip()
+            currency = "USD"
+            break
+        if raw.upper().endswith(pat.upper()):
+            raw = raw[: -len(pat)].strip()
+            currency = "USD"
+            break
+    # Normalize and parse
+    amount = float(raw.replace(",", "."))
+    return amount, currency
+
+
 def handle_waiting_for_amount(
     number: str, estado_actual_usuario: Dict[str, Any], message_id: str, text: str
 ) -> Tuple[List[str], Dict[str, Any]]:
@@ -1403,8 +1424,9 @@ def handle_waiting_for_amount(
     user_responses = []
     print("esperando_monto")
     try:
-        amount = float(text.strip().replace(",", "."))
+        amount, currency = _parse_amount_with_currency(text)
         estado_actual_usuario["expense_data"]["amount"] = amount
+        estado_actual_usuario["expense_data"]["currency"] = currency
 
         body = "🖊️ ¿Cuál es el motivo del gasto?\n\nPor favor, escribe una breve descripción 📝"
         reply_text = reply_text_message(number, message_id, body)
@@ -2282,6 +2304,7 @@ def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positio
     estado_actual_usuario["expense_data"]["category"] = parsed.category
     estado_actual_usuario["expense_data"]["payer_id"] = parsed.payer_id
     estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
+    estado_actual_usuario["expense_data"]["currency"] = parsed.currency
     # Recurring expenses are always debit/1 installment regardless of what the parser inferred
     if parsed.is_recurring:
         estado_actual_usuario["expense_data"]["payment_type"] = "debito"
@@ -2330,6 +2353,7 @@ def handle_image_expense(  # pylint: disable=too-many-arguments,too-many-positio
     estado_actual_usuario["expense_data"]["installments"] = parsed.installments
     estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
     estado_actual_usuario["expense_data"]["from_parser"] = True
+    estado_actual_usuario["expense_data"]["currency"] = parsed.currency
 
     prefix = "✅ Esto encontré en la imagen:" if parsed.confidence == "high" else "⚠️ No estoy seguro de todo, revisá:"
     return _make_confirmation_response(number, estado_actual_usuario, service, member_service, header_prefix=prefix)
@@ -2500,12 +2524,12 @@ def handle_waiting_for_new_value(
     field_id = estado_actual_usuario["expense_data"].get("_editing_field", "")
 
     if field_id == "edit_monto":
-        normalized = text.strip().replace(",", ".")
         try:
-            amount = float(normalized)
+            amount, currency = _parse_amount_with_currency(text)
             if amount <= 0:
                 raise ValueError("non-positive")
             estado_actual_usuario["expense_data"]["amount"] = amount
+            estado_actual_usuario["expense_data"]["currency"] = currency
         except ValueError:
             return [
                 text_message(number, "❌ Monto inválido. Ingresá un número, ej: 1500 o 1500,50")
