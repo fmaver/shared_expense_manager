@@ -18,20 +18,12 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
 
+    conn.execute(sa.text("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'"))
     conn.execute(
-        sa.text(
-            "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'"
-        )
+        sa.text("ALTER TABLE recurring_incomes ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'")
     )
     conn.execute(
-        sa.text(
-            "ALTER TABLE recurring_incomes ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'"
-        )
-    )
-    conn.execute(
-        sa.text(
-            "ALTER TABLE income_instances ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'"
-        )
+        sa.text("ALTER TABLE income_instances ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'")
     )
     conn.execute(
         sa.text(
@@ -45,9 +37,7 @@ def upgrade() -> None:
         )
     )
     conn.execute(
-        sa.text(
-            "ALTER TABLE recurring_group_expenses ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'"
-        )
+        sa.text("ALTER TABLE recurring_group_expenses ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'ARS'")
     )
 
 
