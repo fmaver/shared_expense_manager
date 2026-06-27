@@ -965,7 +965,7 @@ def create_expense(
     # pylint: disable=too-many-locals
     payment_type = (
         PaymentType.CREDIT
-        if estado_actual_usuario["expense_data"]["payment_type"] in ("credito", "crédito")
+        if estado_actual_usuario["expense_data"]["payment_type"] in ("credito", "crédito", "credit")
         else PaymentType.DEBIT
     )
     expense_data = ExpenseCreate(
@@ -1718,6 +1718,11 @@ def handle_waiting_for_installments(
             raise ValueError("Número de cuotas inválido")
         estado_actual_usuario["expense_data"]["installments"] = cuotas
 
+        # If we arrived here from the edit-payment-type flow, go straight to summary
+        if estado_actual_usuario.get("editing_cuotas_from_edit"):
+            estado_actual_usuario.pop("editing_cuotas_from_edit", None)
+            return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
+
         if is_personal and service and member_service:
             return _make_confirmation_response(number, estado_actual_usuario, service, member_service)
 
@@ -2322,7 +2327,7 @@ def handle_image_expense(  # pylint: disable=too-many-arguments,too-many-positio
     estado_actual_usuario["expense_data"]["payer_id"] = current_member.id
     estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
     estado_actual_usuario["expense_data"]["payment_type"] = parsed.payment_type
-    estado_actual_usuario["expense_data"]["installments"] = 1
+    estado_actual_usuario["expense_data"]["installments"] = parsed.installments
     estado_actual_usuario["expense_data"]["split_strategy"] = {"type": "equal"}
     estado_actual_usuario["expense_data"]["from_parser"] = True
 
@@ -2591,15 +2596,17 @@ def handle_waiting_for_new_payment_type(
     is_credit_multi = interactive_id == "edit_pago_btn_3" or ("cuota" in text.lower() and "1 cuota" not in text.lower())
 
     if is_credit_single:
-        estado_actual_usuario["expense_data"]["payment_type"] = "credit"
+        estado_actual_usuario["expense_data"]["payment_type"] = "credito"
         estado_actual_usuario["expense_data"]["installments"] = 1
     elif is_credit_multi:
-        estado_actual_usuario["expense_data"]["payment_type"] = "credit"
-        estado_actual_usuario["expense_data"]["installments"] = estado_actual_usuario["expense_data"].get(
-            "installments", 1
-        )
+        # Ask how many installments before going to the summary
+        estado_actual_usuario["expense_data"]["payment_type"] = "credito"
+        estado_actual_usuario["editing_cuotas_from_edit"] = True
+        estado_actual_usuario["estado"] = "esperando_cuotas"
+        msg = text_message(number, "🔢 ¿En cuántas cuotas?")
+        return [msg], estado_actual_usuario
     else:
-        estado_actual_usuario["expense_data"]["payment_type"] = "debit"
+        estado_actual_usuario["expense_data"]["payment_type"] = "debito"
         estado_actual_usuario["expense_data"]["installments"] = 1
 
     return _apply_field_edit_and_confirm(number, estado_actual_usuario, service, member_service)
@@ -2790,7 +2797,9 @@ def _save_recurring_edit(
     """Persist expense_data edits back to the recurring template and clear future instances."""
     expense_data = estado_actual_usuario["expense_data"]
     payment_type = (
-        PaymentType.CREDIT if expense_data.get("payment_type") in ("credito", "crédito") else PaymentType.DEBIT
+        PaymentType.CREDIT
+        if expense_data.get("payment_type") in ("credito", "crédito", "credit")
+        else PaymentType.DEBIT
     )
     split_dict = expense_data.get("split_strategy") or {"type": "equal"}
     split_strategy = SplitStrategySchema(**split_dict)
