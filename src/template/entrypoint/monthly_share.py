@@ -2,9 +2,17 @@
 
 import io
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    status,
+)
 from fastapi.responses import StreamingResponse
 
 from template.dependencies import (
@@ -15,13 +23,38 @@ from template.dependencies import (
 from template.domain.models.expense_manager import compute_debt_transfers
 from template.domain.models.pdf_builder import build_monthly_report
 from template.domain.schema_model import ResponseModel
-from template.domain.schemas.expense import DebtTransfer, MonthlyBalanceResponse
+from template.domain.schemas.expense import (
+    DebtTransfer,
+    MonthlyBalanceResponse,
+    MonthTrendPoint,
+)
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
+
+
+@router.get("/trend", response_model=ResponseModel[List[MonthTrendPoint]])
+async def get_group_trend(
+    months: int = Query(6, ge=1, le=24),
+    service: ExpenseService = Depends(get_expense_service),
+    _: Any = Depends(get_current_member),
+) -> ResponseModel[List[MonthTrendPoint]]:
+    """Get per-month expense totals for the last N months."""
+    raw = service.get_group_trend(months)
+    points = [
+        MonthTrendPoint(
+            year=p["year"],
+            month=p["month"],
+            total=p["total"],
+            by_category=p["by_category"],
+            by_payer=p["by_payer"],
+        )
+        for p in raw
+    ]
+    return ResponseModel(data=points)
 
 
 @router.get("/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])

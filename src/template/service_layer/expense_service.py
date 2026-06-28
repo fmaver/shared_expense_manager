@@ -3,6 +3,9 @@
 from datetime import date
 from typing import Dict, List, Optional
 
+from dateutil.relativedelta import relativedelta
+
+from template.adapters.orm import ExpenseModel
 from template.domain.models.category import Category
 from template.domain.models.expense_manager import ExpenseManager
 from template.domain.models.group import GroupType
@@ -297,3 +300,34 @@ class ExpenseService:
             raise ValueError(f"No monthly share found for {year}-{month}.")
 
         return self._manager.recalculate_monthly_share(monthly_share)
+
+    def get_group_trend(self, months: int = 6) -> List[Dict]:
+        """Return per-month expense totals for the last N months (excluding balance category)."""
+        today = date.today()
+        start = today - relativedelta(months=months - 1)
+        start_date = date(start.year, start.month, 1)
+
+        session = self._repository.session
+        rows = (
+            session.query(ExpenseModel)
+            .filter(
+                ExpenseModel.group_id == self._group_id,
+                ExpenseModel.category != "balance",
+                ExpenseModel.parent_expense_id.is_(None),
+                ExpenseModel.date >= start_date,
+            )
+            .all()
+        )
+
+        buckets: Dict[tuple, Dict] = {}
+        for row in rows:
+            key = (row.date.year, row.date.month)
+            if key not in buckets:
+                buckets[key] = {"year": key[0], "month": key[1], "total": 0.0, "by_category": {}, "by_payer": {}}
+            b = buckets[key]
+            b["total"] += row.amount
+            b["by_category"][row.category] = b["by_category"].get(row.category, 0.0) + row.amount
+            payer_key = str(row.payer_id)
+            b["by_payer"][payer_key] = b["by_payer"].get(payer_key, 0.0) + row.amount
+
+        return sorted(buckets.values(), key=lambda x: (x["year"], x["month"]))
