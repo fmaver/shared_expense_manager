@@ -2289,6 +2289,7 @@ def handle_quick_expense(  # pylint: disable=too-many-arguments,too-many-positio
         estado_actual_usuario["expense_data"]["date"] = parsed.expense_date.isoformat()
         estado_actual_usuario["expense_data"]["payment_type"] = "debito"
         estado_actual_usuario["expense_data"]["installments"] = 1
+        estado_actual_usuario["expense_data"]["currency"] = parsed.currency
         estado_actual_usuario["expense_data"]["split_strategy"] = {
             "type": "percentage",
             "percentages": {parsed.payer_id: 0, parsed.recipient_id: 100},
