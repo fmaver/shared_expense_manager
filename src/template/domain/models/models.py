@@ -27,6 +27,7 @@ class Expense(CamelCaseModel):
     split_strategy: SplitStrategy
     parent_expense_id: Optional[int] = None
     recurring_template_id: Optional[int] = None
+    currency: str = "ARS"  # "ARS" or "USD"
 
     @field_validator("installment_no")
     def validate_installment_no(cls, v: int, info: ValidationInfo) -> int:
@@ -69,18 +70,18 @@ class MonthlyShare:
         """Mark the monthly share as unsettled."""
         self._is_settled = False
 
-    def add_expense(self, expense: Expense, members: Dict[int, Member]) -> None:
+    def add_expense(self, expense: Expense, members: Dict[int, Member], usd_rate: float = 1.0) -> None:
         """Adds an expense and updates balances accordingly"""
         if self.is_settled:
             raise ValueError(f"No se puede agregar el gasto al balance de {self.month}-{self.year} ya que está saldado")
 
         # Recalculate balances
-        self.calculate_share_for_expense(expense, members)
+        self.calculate_share_for_expense(expense, members, usd_rate=usd_rate)
 
         # Add expense to the list
         self.expenses.append(expense)
 
-    def recalculate_balances(self, members: Dict[int, Member]) -> None:
+    def recalculate_balances(self, members: Dict[int, Member], usd_rate: float = 1.0) -> None:
         """Recalculates all balances from scratch with the current expenses"""
         if self.is_settled:
             return
@@ -90,20 +91,21 @@ class MonthlyShare:
 
         # Recalculate for each expense
         for expense in self.expenses:
-            self.calculate_share_for_expense(expense, members)
+            self.calculate_share_for_expense(expense, members, usd_rate=usd_rate)
 
         # print(f"Recalculated balances for {self.period_key}: {self.balances}")
         for member_id, balance in self.balances.items():
             print(f"{members[int(member_id)].name}: {balance}")
 
-    def calculate_share_for_expense(self, expense: Expense, members: Dict[int, Member]) -> None:
+    def calculate_share_for_expense(self, expense: Expense, members: Dict[int, Member], usd_rate: float = 1.0) -> None:
         """Calculates the share for a specific expense"""
-        shares = expense.split_strategy.calculate_shares(expense.amount, list(members.values()))
+        amount = expense.amount * usd_rate if getattr(expense, "currency", "ARS") == "USD" else expense.amount
+        shares = expense.split_strategy.calculate_shares(amount, list(members.values()))
 
         # Add what the payer paid
         payer_id_str = str(expense.payer_id)
         self.balances.setdefault(payer_id_str, 0)
-        self.balances[payer_id_str] = round(self.balances[payer_id_str] + expense.amount, 2)
+        self.balances[payer_id_str] = round(self.balances[payer_id_str] + amount, 2)
 
         # Subtract each member's share (including the payer)
         for member_id, share in shares.items():

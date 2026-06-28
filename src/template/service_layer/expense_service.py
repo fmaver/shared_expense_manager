@@ -91,6 +91,7 @@ class ExpenseService:
             payment_type=expense_data.payment_type,
             installments=expense_data.installments,
             split_strategy=_build_split_strategy(expense_data.split_strategy),
+            currency=getattr(expense_data, "currency", "ARS") or "ARS",
         )
 
         return self._manager.create_and_add_expense(expense)
@@ -120,6 +121,7 @@ class ExpenseService:
                 installment_no=e.installment_no,
                 split_strategy=_strategy_to_schema(e.split_strategy),
                 parent_expense_id=e.parent_expense_id,
+                currency=getattr(e, "currency", "ARS"),
             )
             for e in expenses
         ]
@@ -152,6 +154,7 @@ class ExpenseService:
                 split_strategy=_strategy_to_schema(expense.split_strategy),
                 parent_expense_id=expense.parent_expense_id,
                 recurring_template_id=expense.recurring_template_id,
+                currency=getattr(expense, "currency", "ARS"),
             )
             for expense in monthly_share.expenses
         ]
@@ -192,6 +195,7 @@ class ExpenseService:
                     payment_type=PaymentType.DEBIT,
                     installments=1,
                     split_strategy=_build_split_strategy(expense_data.split_strategy),
+                    currency=getattr(expense_data, "currency", "ARS") or "ARS",
                 )
                 return self._manager.create_and_add_expense(new_expense)
 
@@ -211,6 +215,7 @@ class ExpenseService:
                 installment_no=existing_expense.installment_no,
                 split_strategy=_build_split_strategy(expense_data.split_strategy),
                 parent_expense_id=existing_expense.parent_expense_id,
+                currency=getattr(expense_data, "currency", "ARS") or "ARS",
             )
             return self._manager.update_credit_expense(updated_expense)
 
@@ -231,6 +236,7 @@ class ExpenseService:
                 payment_type=expense_data.payment_type,
                 installments=expense_data.installments,
                 split_strategy=_build_split_strategy(expense_data.split_strategy),
+                currency=getattr(expense_data, "currency", "ARS") or "ARS",
             )
             return self._manager.create_and_add_expense(new_expense)
 
@@ -247,6 +253,7 @@ class ExpenseService:
         existing_expense.payment_type = expense_data.payment_type
         existing_expense.installments = expense_data.installments
         existing_expense.split_strategy = _build_split_strategy(expense_data.split_strategy)
+        existing_expense.currency = getattr(expense_data, "currency", "ARS") or "ARS"
 
         return self._manager.update_expense(existing_expense, old_payment_type, old_date)
 

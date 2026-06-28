@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from template.entrypoint import (
     auth,
     category,
+    currency,
     expense,
     group,
     invitation,
@@ -38,4 +39,5 @@ api_router_v1.include_router(category.router)
 api_router_v1.include_router(auth.router)
 api_router_v1.include_router(personal.router)
 api_router_v1.include_router(recurring_expense.router)
+api_router_v1.include_router(currency.router)
 root_router.include_router(whatsapp_bot.router)

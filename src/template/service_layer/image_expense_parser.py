@@ -17,7 +17,7 @@ GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 
 @dataclass
-class ParsedImageExpense:
+class ParsedImageExpense:  # pylint: disable=too-many-instance-attributes
     amount: Optional[float]
     description: str
     category: str
@@ -25,6 +25,7 @@ class ParsedImageExpense:
     payment_type: str  # "debit" | "credit"
     confidence: str = field(default="low")  # "high" | "low"
     installments: int = field(default=1)  # number of cuotas; 1 = single payment
+    currency: str = field(default="ARS")  # "ARS" or "USD"
 
 
 def _build_prompt(categories: List[str], today: date) -> str:
@@ -54,6 +55,7 @@ Extract these fields:
 - installments: integer number of cuotas shown in the image (e.g. "9 cuotas sin interés" → 9,
   "en 3 cuotas" → 3). Default 1 if no installments are shown or payment_type is "debit".
 - confidence: "high" if amount and merchant are clearly visible; "low" if you guessed any key field
+- currency: "USD" if the receipt/screenshot clearly shows amounts in US dollars; "ARS" otherwise (default)
 
 Respond ONLY with a JSON object, no markdown fences, no explanation:
 {{
@@ -63,7 +65,8 @@ Respond ONLY with a JSON object, no markdown fences, no explanation:
   "category": "<category>",
   "payment_type": "debit" or "credit",
   "installments": <integer>,
-  "confidence": "high" or "low"
+  "confidence": "high" or "low",
+  "currency": "ARS" or "USD"
 }}"""
 
 
@@ -132,6 +135,7 @@ def parse_image_expense(
             payment_type=str(data.get("payment_type", "debit")),
             confidence=str(data.get("confidence", "low")),
             installments=installments,
+            currency=str(data.get("currency", "ARS")),
         )
 
     except Exception as exc:  # pylint: disable=broad-except
