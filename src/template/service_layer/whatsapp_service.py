@@ -1807,6 +1807,7 @@ def get_expense_summary(  # pylint: disable=too-many-locals
     payer_id = expense_data.get("payer_id")
     category_name = expense_data.get("category", "")
 
+    currency_sym = "US$ " if expense_data.get("currency", "ARS") == "USD" else "$"
     summary = [
         header,
     ]
@@ -1814,7 +1815,7 @@ def get_expense_summary(  # pylint: disable=too-many-locals
         summary.append(f"🏠 Grupo: {group_name}")
     summary += [
         f"💬 Descripción: {expense_data.get('description', '')}",
-        f"💰 Monto: ${format_amount_es(expense_data.get('amount', 0))}",
+        f"💰 Monto: {currency_sym}{format_amount_es(expense_data.get('amount', 0))}",
         f"📅 Fecha: {format_date_es(expense_data.get('date', ''))}",
         f"📂 Categoría: {format_category_es(category_name)}",
     ]
@@ -2741,7 +2742,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
             warning = (
                 "⚠️ *Encontré un gasto similar cargado previamente:*\n\n"
                 f"💬 {dup.description.capitalize()}\n"
-                f"💰 ${format_amount_es(dup.amount)}\n"
+                f"💰 {'US$ ' if getattr(dup, 'currency', 'ARS') == 'USD' else '$'}{format_amount_es(dup.amount)}\n"
                 f"📅 {format_date_es(dup_date_str)}\n"
                 f"🏷️ {format_category_es(dup.category)}\n"
                 f"💳 {format_payment_type_es(dup.payment_type, dup.installments)}\n"
@@ -3099,10 +3100,11 @@ def handle_waiting_for_personal_recurring_start_month(  # pylint: disable=too-ma
     estado_actual_usuario["expense_data"]["date"] = f"{year}-{month:02d}-01"
 
     expense_data = estado_actual_usuario["expense_data"]
+    rec_currency_sym = "US$ " if expense_data.get("currency", "ARS") == "USD" else "$"
     summary_lines = [
         "🔁 *Gasto Recurrente Personal*",
         f"💬 Descripción: {expense_data.get('description', '')}",
-        f"💰 Monto: ${format_amount_es(expense_data.get('amount', 0))}",
+        f"💰 Monto: {rec_currency_sym}{format_amount_es(expense_data.get('amount', 0))}",
         f"📂 Categoría: {format_category_es(expense_data.get('category', ''))}",
         f"📅 Desde: {month_name_es(month)} {year}",
     ]
