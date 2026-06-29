@@ -128,3 +128,11 @@ class RecurringGroupExpenseResponse(CamelCaseModel):
     start_month: int
     active: bool
     currency: str = "ARS"
+
+
+class MonthTrendPoint(CamelCaseModel):
+    year: int
+    month: int
+    total: float
+    by_category: Dict[str, float]
+    by_payer: Dict[str, float]
