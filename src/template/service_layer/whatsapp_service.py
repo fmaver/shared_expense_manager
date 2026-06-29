@@ -2384,12 +2384,16 @@ def _field_edit_menu(
 ) -> str:
     """Return a list-reply message with the editable expense fields."""
     is_recurring = bool(expense_data and expense_data.get("is_recurring"))
+    is_loan = bool(
+        expense_data and (expense_data.get("service") == "prestar plata" or expense_data.get("category") == "prestamo")
+    )
     fields = [
         (fid, label)
         for fid, label in _EDITABLE_FIELDS
         if not (is_recurring and fid == "edit_tipo_pago")
         if not (not is_multi_group and fid == "edit_grupo")
         if not (is_personal and fid == "edit_pagador")
+        if not (is_loan and fid in ("edit_categoria", "edit_tipo_pago"))
     ]
     rows = [{"id": fid, "title": label, "description": ""} for fid, label in fields]
     return json.dumps(
@@ -2721,7 +2725,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
     Sets estado to 'esperando_confirmacion_duplicado' or 'esperando_confirmacion'.
     """
     expense_data = estado_actual_usuario["expense_data"]
-    is_loan = expense_data.get("service") == "prestar plata"
+    is_loan = expense_data.get("service") == "prestar plata" or expense_data.get("category") == "prestamo"
 
     if not is_loan and service is not None:
         try:
@@ -2770,7 +2774,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
 
     if is_loan:
         body = f"{summary}\n¿Confirmas que los datos son correctos?"
-        options = ["✅ Sí, crear préstamo", "❌ No, cancelar"]
+        options = ["✅ Sí, crear préstamo", "❌ No, cancelar", "✏️ Editar campo"]
     elif is_recurring_edit:
         body = f"{summary}\n\n¿Guardás los cambios en el gasto recurrente?"
         options = ["✅ Sí, guardar cambios", "❌ No, cancelar", "✏️ Editar campo"]
