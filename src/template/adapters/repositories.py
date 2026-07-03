@@ -939,6 +939,7 @@ class IncomeRepository:
         amount: float,
         start_year: int,
         start_month: int,
+        currency: str = "ARS",
     ) -> RecurringIncome:
         """Create a new recurring income template with an explicit start month."""
         model = RecurringIncomeModel(
@@ -946,6 +947,7 @@ class IncomeRepository:
             personal_group_id=personal_group_id,
             label=label,
             amount=amount,
+            currency=currency,
             active=True,
             start_year=start_year,
             start_month=start_month,
@@ -1018,6 +1020,7 @@ class IncomeRepository:
         recurring_income_id: int,
         label: str,
         amount: float,
+        currency: str = "ARS",
     ) -> IncomeInstance:
         """Get-or-create a recurring income snapshot for (group, year, month, template).
 
@@ -1045,6 +1048,7 @@ class IncomeRepository:
             recurring_income_id=recurring_income_id,
             label=label,
             amount=amount,
+            currency=currency,
         )
         try:
             self.session.add(model)
@@ -1131,7 +1135,14 @@ class IncomeRepository:
         self.session.commit()
 
     def create_variable_instance(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self, personal_group_id: int, owner_member_id: int, year: int, month: int, label: str, amount: float
+        self,
+        personal_group_id: int,
+        owner_member_id: int,
+        year: int,
+        month: int,
+        label: str,
+        amount: float,
+        currency: str = "ARS",
     ) -> IncomeInstance:
         """Create a one-off variable income entry for a specific month."""
         model = IncomeInstanceModel(
@@ -1143,6 +1154,7 @@ class IncomeRepository:
             recurring_income_id=None,
             label=label,
             amount=amount,
+            currency=currency,
         )
         self.session.add(model)
         self.session.flush()
@@ -1214,6 +1226,7 @@ class IncomeRepository:
             personal_group_id=model.personal_group_id,
             label=model.label,
             amount=model.amount,
+            currency=model.currency,
             active=model.active,
             start_year=model.start_year,
             start_month=model.start_month,
@@ -1232,6 +1245,7 @@ class IncomeRepository:
             recurring_income_id=model.recurring_income_id,
             label=model.label,
             amount=model.amount,
+            currency=model.currency,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )

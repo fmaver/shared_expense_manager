@@ -20,6 +20,7 @@ class RecurringIncomeCreate(CamelCaseModel):
     amount: float = Field(..., gt=0)
     start_year: int = Field(..., ge=2000, le=2100)
     start_month: int = Field(..., ge=1, le=12)
+    currency: str = "ARS"
 
 
 class RecurringIncomeUpdate(CamelCaseModel):
@@ -34,6 +35,7 @@ class RecurringIncomeResponse(CamelCaseModel):
     personal_group_id: int
     label: str
     amount: float
+    currency: str = "ARS"
     active: bool
     start_year: Optional[int] = None
     start_month: Optional[int] = None
@@ -51,6 +53,7 @@ class VariableIncomeCreate(CamelCaseModel):
     month: int = Field(..., ge=1, le=12)
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
+    currency: str = "ARS"
 
 
 class VariableIncomeUpdate(CamelCaseModel):
@@ -73,6 +76,7 @@ class IncomeInstanceResponse(CamelCaseModel):
     recurring_income_id: Optional[int] = None
     label: str
     amount: float
+    currency: str = "ARS"
 
 
 # ---------------------------------------------------------------------------
