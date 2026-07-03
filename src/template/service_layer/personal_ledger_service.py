@@ -119,6 +119,7 @@ class PersonalLedgerService:
                             split_strategy=_strategy_to_schema(exp.split_strategy),
                             parent_expense_id=exp.parent_expense_id,
                             recurring_template_id=exp.recurring_template_id,
+                            currency=exp.currency,
                         )
                     )
         # Load recurring personal expense instances for this month
