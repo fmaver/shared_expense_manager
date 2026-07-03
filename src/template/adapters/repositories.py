@@ -1268,6 +1268,7 @@ class RecurringPersonalExpenseRepository:
         category_name: str,
         start_year: Optional[int],
         start_month: Optional[int],
+        currency: str = "ARS",
     ) -> RecurringPersonalExpense:
         """Create a new recurring personal expense template."""
         model = RecurringPersonalExpenseModel(
@@ -1275,6 +1276,7 @@ class RecurringPersonalExpenseRepository:
             owner_member_id=owner_member_id,
             label=label,
             amount=amount,
+            currency=currency,
             category_name=category_name,
             active=True,
             start_year=start_year,
@@ -1358,6 +1360,7 @@ class RecurringPersonalExpenseRepository:
         label: str,
         amount: float,
         category_name: str,
+        currency: str = "ARS",
     ) -> RecurringPersonalExpenseInstance:
         """Get-or-create a recurring expense snapshot for (group, year, month, template).
 
@@ -1382,6 +1385,7 @@ class RecurringPersonalExpenseRepository:
             month=month,
             label=label,
             amount=amount,
+            currency=currency,
             category_name=category_name,
         )
         try:
@@ -1478,6 +1482,7 @@ class RecurringPersonalExpenseRepository:
             owner_member_id=model.owner_member_id,
             label=model.label,
             amount=model.amount,
+            currency=model.currency,
             category_name=model.category_name,
             active=model.active,
             start_year=model.start_year,
@@ -1495,6 +1500,7 @@ class RecurringPersonalExpenseRepository:
             month=model.month,
             label=model.label,
             amount=model.amount,
+            currency=model.currency,
             category_name=model.category_name,
             created_at=model.created_at,
         )

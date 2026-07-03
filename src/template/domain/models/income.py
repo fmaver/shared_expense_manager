@@ -51,6 +51,7 @@ class RecurringPersonalExpense(CamelCaseModel):
     owner_member_id: int
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
+    currency: str = "ARS"
     category_name: str = Field(..., min_length=1, max_length=50)
     active: bool = True
     start_year: Optional[int] = None
@@ -69,5 +70,6 @@ class RecurringPersonalExpenseInstance(CamelCaseModel):
     month: int
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
+    currency: str = "ARS"
     category_name: str = Field(..., min_length=1, max_length=50)
     created_at: Optional[datetime] = None
