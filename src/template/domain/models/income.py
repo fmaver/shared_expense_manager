@@ -18,6 +18,7 @@ class RecurringIncome(CamelCaseModel):
     personal_group_id: int
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
+    currency: str = "ARS"
     active: bool = True
     start_year: Optional[int] = None
     start_month: Optional[int] = None
@@ -37,6 +38,7 @@ class IncomeInstance(CamelCaseModel):
     recurring_income_id: Optional[int] = None
     label: str = Field(..., min_length=1, max_length=255)
     amount: float = Field(..., gt=0)
+    currency: str = "ARS"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

@@ -61,6 +61,7 @@ def _recurring_to_response(template) -> RecurringIncomeResponse:
         personal_group_id=template.personal_group_id,
         label=template.label,
         amount=template.amount,
+        currency=template.currency,
         active=template.active,
         start_year=template.start_year,
         start_month=template.start_month,
@@ -80,6 +81,7 @@ def _instance_to_response(instance) -> IncomeInstanceResponse:
         recurring_income_id=instance.recurring_income_id,
         label=instance.label,
         amount=instance.amount,
+        currency=instance.currency,
     )
 
 
@@ -153,6 +155,7 @@ async def create_recurring_income(
         amount=data.amount,
         start_year=start_year,
         start_month=start_month,
+        currency=data.currency,
     )
     # Immediately snapshot for the viewed (start) month
     income_repo.upsert_recurring_instance(
@@ -163,6 +166,7 @@ async def create_recurring_income(
         recurring_income_id=template.id,
         label=template.label,
         amount=template.amount,
+        currency=template.currency,
     )
     return ResponseModel(data=_recurring_to_response(template))
 
@@ -276,6 +280,7 @@ async def create_variable_income(
         month=data.month,
         label=data.label,
         amount=data.amount,
+        currency=data.currency,
     )
     return ResponseModel(data=_instance_to_response(instance))
 
