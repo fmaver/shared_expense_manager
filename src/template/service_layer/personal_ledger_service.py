@@ -324,6 +324,7 @@ class PersonalLedgerService:
             recurring_income_id=instance.recurring_income_id,
             label=instance.label,
             amount=instance.amount,
+            currency=instance.currency,
         )
 
     @staticmethod
