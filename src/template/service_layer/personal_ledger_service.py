@@ -92,8 +92,17 @@ class PersonalLedgerService:
         self._materialize_recurring_expenses(personal_group.id, owner_member_id, year, month)
 
         # Step C: load income instances
+        # pylint: disable=import-outside-toplevel
+        from template.service_layer.currency_service import get_blue_rate
+
+        # pylint: enable=import-outside-toplevel
+        usd_rate = get_blue_rate() or 1.0
+
         income_instances = self._income_repo.list_instances_for_month(personal_group.id, year, month)
-        total_income = round(sum(i.amount for i in income_instances), 2)
+        total_income = round(
+            sum(i.amount * usd_rate if getattr(i, "currency", "ARS") == "USD" else i.amount for i in income_instances),
+            2,
+        )
         incomes_response = [self._income_instance_to_response(i) for i in income_instances]
 
         # Step D: direct personal expenses (expenses logged directly in the personal group)
@@ -104,7 +113,8 @@ class PersonalLedgerService:
             for exp in personal_share.expenses:
                 # Defensively exclude internal categories (shouldn't exist in personal group, but safe)
                 if not Category.is_internal_category(exp.category.name):
-                    total_personal_expenses += exp.amount
+                    exp_ars = exp.amount * usd_rate if getattr(exp, "currency", "ARS") == "USD" else exp.amount
+                    total_personal_expenses += exp_ars
                     personal_expenses_list.append(
                         ExpenseResponse(
                             id=exp.id,
@@ -124,7 +134,9 @@ class PersonalLedgerService:
                     )
         # Load recurring personal expense instances for this month
         recurring_exp_instances = self._recurring_expense_repo.list_instances_for_month(personal_group.id, year, month)
-        total_personal_expenses += sum(i.amount for i in recurring_exp_instances)
+        total_personal_expenses += sum(
+            i.amount * usd_rate if getattr(i, "currency", "ARS") == "USD" else i.amount for i in recurring_exp_instances
+        )
         recurring_exp_response = [self._recurring_exp_instance_to_response(i) for i in recurring_exp_instances]
         total_personal_expenses = round(total_personal_expenses, 2)
 
