@@ -340,5 +340,6 @@ class PersonalLedgerService:
             month=instance.month,
             label=instance.label,
             amount=instance.amount,
+            currency=instance.currency,
             category_name=instance.category_name,
         )

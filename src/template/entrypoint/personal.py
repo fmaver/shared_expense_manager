@@ -329,6 +329,7 @@ def _recurring_expense_to_response(template) -> RecurringPersonalExpenseResponse
         owner_member_id=template.owner_member_id,
         label=template.label,
         amount=template.amount,
+        currency=template.currency,
         category_name=template.category_name,
         active=template.active,
         start_year=template.start_year,
@@ -370,6 +371,7 @@ async def create_recurring_expense(
         category_name=data.category_name,
         start_year=start_year,
         start_month=start_month,
+        currency=data.currency,
     )
     # Immediately snapshot for the start month
     recurring_expense_repo.upsert_instance(
@@ -380,6 +382,7 @@ async def create_recurring_expense(
         label=template.label,
         amount=template.amount,
         category_name=template.category_name,
+        currency=template.currency,
     )
     return ResponseModel(data=_recurring_expense_to_response(template))
 

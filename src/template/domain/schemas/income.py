@@ -90,6 +90,7 @@ class RecurringPersonalExpenseCreate(CamelCaseModel):
     category_name: str = Field(..., min_length=1, max_length=50)
     start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
     start_month: Optional[int] = Field(default=None, ge=1, le=12)
+    currency: str = "ARS"
 
 
 class RecurringPersonalExpenseUpdate(CamelCaseModel):
@@ -105,6 +106,7 @@ class RecurringPersonalExpenseResponse(CamelCaseModel):
     owner_member_id: int
     label: str
     amount: float
+    currency: str = "ARS"
     category_name: str
     active: bool
     start_year: Optional[int] = None
@@ -121,6 +123,7 @@ class RecurringPersonalExpenseInstanceResponse(CamelCaseModel):
     month: int
     label: str
     amount: float
+    currency: str = "ARS"
     category_name: str
 
 
