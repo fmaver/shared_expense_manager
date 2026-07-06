@@ -82,7 +82,7 @@ def _to_response(group, members) -> GroupResponse:
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ResponseModel[GroupResponse])
-async def create_group(
+def create_group(
     data: GroupCreate,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -94,7 +94,7 @@ async def create_group(
 
 
 @router.get("/", response_model=ResponseModel[list[GroupResponse]])
-async def list_groups(
+def list_groups(
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
 ) -> ResponseModel[list[GroupResponse]]:
@@ -105,7 +105,7 @@ async def list_groups(
 
 
 @router.get("/{group_id}", response_model=ResponseModel[GroupResponse])
-async def get_group(
+def get_group(
     group_id: int,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -119,7 +119,7 @@ async def get_group(
 
 
 @router.put("/{group_id}", response_model=ResponseModel[GroupResponse])
-async def update_group(
+def update_group(
     group_id: int,
     data: GroupUpdate,
     current_member=Depends(get_current_member),
@@ -135,7 +135,7 @@ async def update_group(
 
 
 @router.get("/{group_id}/members", response_model=ResponseModel[list[GroupMemberResponse]])
-async def list_group_members(
+def list_group_members(
     group_id: int,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -157,7 +157,7 @@ async def list_group_members(
 
 
 @router.post("/{group_id}/members/invite", status_code=status.HTTP_204_NO_CONTENT)
-async def invite_member(
+def invite_member(
     group_id: int,
     data: GroupInvite,
     current_member=Depends(get_current_member),
@@ -174,7 +174,7 @@ async def invite_member(
 @router.post(
     "/{group_id}/invitations", response_model=ResponseModel[InvitationResponse], status_code=status.HTTP_201_CREATED
 )
-async def create_invitation(
+def create_invitation(
     group_id: int,
     data: GroupInviteCreate,
     current_member=Depends(get_current_member),
@@ -196,7 +196,7 @@ async def create_invitation(
 
 
 @router.get("/{group_id}/invitations", response_model=ResponseModel[list[InvitationResponse]])
-async def list_invitations(
+def list_invitations(
     group_id: int,
     current_member=Depends(get_current_member),
     db: Session = Depends(get_db),
@@ -207,7 +207,7 @@ async def list_invitations(
 
 
 @router.delete("/{group_id}/invitations/{invitation_token}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_invitation(
+def revoke_invitation(
     group_id: int,
     invitation_token: str,
     current_member=Depends(get_current_member),
@@ -222,7 +222,7 @@ async def revoke_invitation(
 
 
 @router.post("/{group_id}/join-link", response_model=ResponseModel[GroupJoinLinkResponse])
-async def get_join_link(
+def get_join_link(
     group_id: int,
     current_member=Depends(get_current_member),
     db: Session = Depends(get_db),
@@ -235,7 +235,7 @@ async def get_join_link(
 
 
 @router.post("/{group_id}/join-link/rotate", response_model=ResponseModel[GroupJoinLinkResponse])
-async def rotate_join_link(
+def rotate_join_link(
     group_id: int,
     current_member=Depends(get_current_member),
     db: Session = Depends(get_db),
@@ -251,7 +251,7 @@ async def rotate_join_link(
 
 
 @router.delete("/{group_id}/members/leave", status_code=status.HTTP_204_NO_CONTENT)
-async def leave_group(
+def leave_group(
     group_id: int,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),

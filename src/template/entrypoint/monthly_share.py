@@ -37,7 +37,7 @@ router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
 
 
 @router.get("/trend", response_model=ResponseModel[List[MonthTrendPoint]])
-async def get_group_trend(
+def get_group_trend(
     months: int = Query(6, ge=1, le=24),
     service: ExpenseService = Depends(get_expense_service),
     _: Any = Depends(get_current_member),
@@ -58,7 +58,7 @@ async def get_group_trend(
 
 
 @router.get("/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
-async def get_monthly_balance(
+def get_monthly_balance(
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
@@ -109,7 +109,7 @@ async def get_monthly_balance(
 
 
 @router.post("/settle/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
-async def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-many-arguments
+def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-many-arguments
     background_tasks: BackgroundTasks,
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
@@ -170,7 +170,7 @@ async def settle_monthly_share(  # pylint: disable=too-many-positional-arguments
 
 
 @router.post("/unsettle/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
-async def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     background_tasks: BackgroundTasks,
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
@@ -219,7 +219,7 @@ async def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many
 
 
 @router.post("/recalculate/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
-async def recalculate_monthly_share(
+def recalculate_monthly_share(
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
@@ -264,7 +264,7 @@ async def recalculate_monthly_share(
 
 
 @router.get("/{year}/{month}/pdf")
-async def download_monthly_pdf(
+def download_monthly_pdf(
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),

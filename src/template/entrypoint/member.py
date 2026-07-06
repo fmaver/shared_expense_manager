@@ -17,7 +17,7 @@ router = APIRouter(prefix="/members", tags=["Members"])
 
 
 @router.get("/", response_model=ResponseModel[list[MemberResponse]])
-async def get_members(db: Session = Depends(get_db)) -> ResponseModel[list[MemberResponse]]:
+def get_members(db: Session = Depends(get_db)) -> ResponseModel[list[MemberResponse]]:
     """Get all members."""
     repository = MemberRepository(db)
     members = repository.list()
@@ -38,7 +38,7 @@ async def get_members(db: Session = Depends(get_db)) -> ResponseModel[list[Membe
 
 
 @router.get("/me", response_model=ResponseModel[MemberResponse])
-async def get_current_member_info(current_member=Depends(get_current_member)) -> ResponseModel[MemberResponse]:
+def get_current_member_info(current_member=Depends(get_current_member)) -> ResponseModel[MemberResponse]:
     """Get the current member's information."""
     return ResponseModel(
         data=MemberResponse(
@@ -53,7 +53,7 @@ async def get_current_member_info(current_member=Depends(get_current_member)) ->
 
 
 @router.patch("/me", response_model=ResponseModel[MemberResponse])
-async def update_member_info(
+def update_member_info(
     update_data: MemberUpdate,
     current_member=Depends(get_current_member),
     auth_service: AuthService = Depends(get_auth_service),
@@ -76,7 +76,7 @@ async def update_member_info(
 
 
 @router.post("/me/password", response_model=ResponseModel[MemberResponse])
-async def update_password(
+def update_password(
     password_data: PasswordUpdate,
     current_member=Depends(get_current_member),
     auth_service: AuthService = Depends(get_auth_service),

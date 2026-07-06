@@ -33,7 +33,7 @@ def _assert_group_membership(group_id: int, current_member, group_repo: GroupRep
 
 
 @router.post("/", status_code=201, response_model=ResponseModel[RecurringGroupExpenseResponse])
-async def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: int,
     data: RecurringGroupExpenseCreate,
     background_tasks: BackgroundTasks,
@@ -67,7 +67,7 @@ async def create_recurring_expense(  # pylint: disable=too-many-arguments,too-ma
 
 
 @router.get("/", response_model=ResponseModel[List[RecurringGroupExpenseResponse]])
-async def list_recurring_expenses(
+def list_recurring_expenses(
     group_id: int,
     repo: RecurringGroupExpenseRepository = Depends(get_recurring_group_expense_repository),
     group_repo: GroupRepository = Depends(get_group_repository),
@@ -80,7 +80,7 @@ async def list_recurring_expenses(
 
 
 @router.patch("/{template_id}", response_model=ResponseModel[RecurringGroupExpenseResponse])
-async def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: int,
     template_id: int,
     data: RecurringGroupExpenseUpdate,
@@ -108,7 +108,7 @@ async def update_recurring_expense(  # pylint: disable=too-many-arguments,too-ma
 
 
 @router.delete("/{template_id}", status_code=204)
-async def delete_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def delete_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: int,
     template_id: int,
     viewed_year: int = Query(..., ge=2000, le=2100),

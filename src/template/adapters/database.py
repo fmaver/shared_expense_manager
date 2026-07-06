@@ -15,6 +15,11 @@ def get_engine():
         settings.url,
         echo=settings.echo,
         pool_pre_ping=True,  # Enables connection health checks
+        # Headroom for the frontend's parallel dashboard fetches — the
+        # default 5+10 exhausts under bursts of concurrent ledger requests.
+        pool_size=10,
+        max_overflow=20,
+        pool_recycle=300,  # Recycle idle connections before Neon closes them server-side
     )
 
 

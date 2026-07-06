@@ -124,7 +124,7 @@ class AuthService:
         return encoded_jwt
 
 
-async def get_current_member(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> Member:
+def get_current_member(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> Member:
     """Get the current member."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

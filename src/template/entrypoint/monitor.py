@@ -19,7 +19,7 @@ router = APIRouter()
     name="Liveness",
     status_code=status.HTTP_200_OK,
 )
-async def query_liveness_probe() -> ResponseModel[LivenessProbed]:
+def query_liveness_probe() -> ResponseModel[LivenessProbed]:
     """
     Probe the system liveness.
 
@@ -35,7 +35,7 @@ async def query_liveness_probe() -> ResponseModel[LivenessProbed]:
     name="Readiness",
     status_code=status.HTTP_200_OK,
 )
-async def query_readiness_probe() -> ResponseModel[ReadinessProbed]:
+def query_readiness_probe() -> ResponseModel[ReadinessProbed]:
     """
     Probe the system readiness.
 
