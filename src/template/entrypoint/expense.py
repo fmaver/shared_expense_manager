@@ -25,7 +25,7 @@ router = APIRouter(prefix="/groups/{group_id}/expenses", tags=["Expenses"])
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ResponseModel[ExpenseResponse])
-async def create_expense(
+def create_expense(
     expense_data: ExpenseCreate,
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
@@ -80,7 +80,7 @@ async def create_expense(
 
 
 @router.put("/{expense_id}", response_model=ResponseModel[ExpenseResponse])
-async def update_expense(
+def update_expense(
     expense_id: int,
     expense_data: ExpenseCreate,
     background_tasks: BackgroundTasks,
@@ -137,7 +137,7 @@ async def update_expense(
 
 
 @router.delete("/{expense_id}")
-async def delete_expense(
+def delete_expense(
     expense_id: int,
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
@@ -174,7 +174,7 @@ async def delete_expense(
 
 
 @router.get("/similar", response_model=ResponseModel[list[ExpenseResponse]])
-async def find_similar_expenses(
+def find_similar_expenses(
     year: int,
     month: int,
     amount: float,
@@ -189,7 +189,7 @@ async def find_similar_expenses(
 
 
 @router.get("/{expense_id}", response_model=ResponseModel[ExpenseResponse])
-async def get_expense(
+def get_expense(
     expense_id: int, service: ExpenseService = Depends(get_expense_service)
 ) -> ResponseModel[ExpenseResponse]:
     """Get a specific expense by ID."""
@@ -231,7 +231,7 @@ async def get_expense(
 
 
 @router.get("/{expense_id}/parent", response_model=ResponseModel[ExpenseResponse])
-async def get_parent_expense(
+def get_parent_expense(
     expense_id: int, service: ExpenseService = Depends(get_expense_service)
 ) -> ResponseModel[ExpenseResponse]:
     """Get the parent expense for a given expense ID."""

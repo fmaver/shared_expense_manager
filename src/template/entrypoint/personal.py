@@ -91,7 +91,7 @@ def _instance_to_response(instance) -> IncomeInstanceResponse:
 
 
 @router.get("/group", response_model=ResponseModel[GroupResponse])
-async def get_personal_group(
+def get_personal_group(
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
     db: Session = Depends(get_db),
@@ -108,7 +108,7 @@ async def get_personal_group(
 
 
 @router.get("/ledger/{year}/{month}", response_model=ResponseModel[PersonalLedgerResponse])
-async def get_personal_ledger(
+def get_personal_ledger(
     year: int,
     month: int,
     current_member=Depends(get_current_member),
@@ -125,7 +125,7 @@ async def get_personal_ledger(
 
 
 @router.get("/income/recurring", response_model=ResponseModel[list[RecurringIncomeResponse]])
-async def list_recurring_incomes(
+def list_recurring_incomes(
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
     income_repo=Depends(get_income_repository),
@@ -137,7 +137,7 @@ async def list_recurring_incomes(
 
 
 @router.post("/income/recurring", status_code=201, response_model=ResponseModel[RecurringIncomeResponse])
-async def create_recurring_income(
+def create_recurring_income(
     data: RecurringIncomeCreate,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -172,7 +172,7 @@ async def create_recurring_income(
 
 
 @router.patch("/income/recurring/{income_id}", response_model=ResponseModel[RecurringIncomeResponse])
-async def update_recurring_income(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def update_recurring_income(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     income_id: int,
     data: RecurringIncomeUpdate,
     viewed_year: Optional[int] = None,
@@ -210,7 +210,7 @@ async def update_recurring_income(  # pylint: disable=too-many-arguments,too-man
 
 
 @router.delete("/income/recurring/{income_id}", response_model=ResponseModel[RecurringIncomeResponse])
-async def delete_recurring_income(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def delete_recurring_income(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     income_id: int,
     viewed_year: Optional[int] = None,
     viewed_month: Optional[int] = None,
@@ -250,7 +250,7 @@ async def delete_recurring_income(  # pylint: disable=too-many-arguments,too-man
 
 
 @router.get("/income/variable/{year}/{month}", response_model=ResponseModel[list[IncomeInstanceResponse]])
-async def list_variable_incomes(
+def list_variable_incomes(
     year: int,
     month: int,
     current_member=Depends(get_current_member),
@@ -265,7 +265,7 @@ async def list_variable_incomes(
 
 
 @router.post("/income/variable", status_code=201, response_model=ResponseModel[IncomeInstanceResponse])
-async def create_variable_income(
+def create_variable_income(
     data: VariableIncomeCreate,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -286,7 +286,7 @@ async def create_variable_income(
 
 
 @router.patch("/income/variable/{instance_id}", response_model=ResponseModel[IncomeInstanceResponse])
-async def update_variable_income(
+def update_variable_income(
     instance_id: int,
     data: VariableIncomeUpdate,
     current_member=Depends(get_current_member),
@@ -303,7 +303,7 @@ async def update_variable_income(
 
 
 @router.delete("/income/variable/{instance_id}", status_code=204)
-async def delete_variable_income(
+def delete_variable_income(
     instance_id: int,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -340,7 +340,7 @@ def _recurring_expense_to_response(template) -> RecurringPersonalExpenseResponse
 
 
 @router.get("/expenses/recurring", response_model=ResponseModel[list[RecurringPersonalExpenseResponse]])
-async def list_recurring_expenses(
+def list_recurring_expenses(
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
     recurring_expense_repo=Depends(get_recurring_expense_repository),
@@ -352,7 +352,7 @@ async def list_recurring_expenses(
 
 
 @router.post("/expenses/recurring", status_code=201, response_model=ResponseModel[RecurringPersonalExpenseResponse])
-async def create_recurring_expense(
+def create_recurring_expense(
     data: RecurringPersonalExpenseCreate,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
@@ -388,7 +388,7 @@ async def create_recurring_expense(
 
 
 @router.patch("/expenses/recurring/{expense_id}", response_model=ResponseModel[RecurringPersonalExpenseResponse])
-async def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     expense_id: int,
     data: RecurringPersonalExpenseUpdate,
     viewed_year: Optional[int] = None,
@@ -428,7 +428,7 @@ async def update_recurring_expense(  # pylint: disable=too-many-arguments,too-ma
 
 
 @router.delete("/expenses/recurring/{expense_id}", response_model=ResponseModel[RecurringPersonalExpenseResponse])
-async def delete_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def delete_recurring_expense(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     expense_id: int,
     viewed_year: Optional[int] = None,
     viewed_month: Optional[int] = None,

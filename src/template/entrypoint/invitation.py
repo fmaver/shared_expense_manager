@@ -89,7 +89,7 @@ def _make_token(member_id: int, email: Optional[str]) -> str:
 
 
 @router.get("/invitations/resolve/{token}", response_model=ResponseModel[InvitationResolveResponse])
-async def resolve_invitation(
+def resolve_invitation(
     token: str,
     svc: InvitationService = Depends(_invitation_svc),
 ) -> ResponseModel[InvitationResolveResponse]:
@@ -102,7 +102,7 @@ async def resolve_invitation(
 
 
 @router.post("/invitations/{token}/accept")
-async def accept_invitation(
+def accept_invitation(
     token: str,
     body: InvitationAcceptRequest,
     current_member: Optional[Any] = Depends(_get_optional_member),
@@ -127,7 +127,7 @@ async def accept_invitation(
 
 
 @router.get("/join/resolve/{token}", response_model=ResponseModel[GroupJoinResolveResponse])
-async def resolve_join_token(
+def resolve_join_token(
     token: str,
     svc: GroupJoinLinkService = Depends(_join_link_svc),
 ) -> ResponseModel[GroupJoinResolveResponse]:
@@ -140,7 +140,7 @@ async def resolve_join_token(
 
 
 @router.post("/join/{token}")
-async def register_and_join(
+def register_and_join(
     token: str,
     body: GroupJoinRequest,
     svc: GroupJoinLinkService = Depends(_join_link_svc),

@@ -48,9 +48,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), auth_service: AuthSe
 
 
 @router.post("/initial-password", response_model=MemberResponse)
-async def initial_password_setup(
-    password_data: InitialPasswordSetup, auth_service: AuthService = Depends(get_auth_service)
-):
+def initial_password_setup(password_data: InitialPasswordSetup, auth_service: AuthService = Depends(get_auth_service)):
     """Set initial password for an existing member that doesn't have one."""
     member = auth_service.get_member_by_email(email=password_data.email)
     if not member:
