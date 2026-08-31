@@ -1,10 +1,12 @@
 """Tests for NotificationService email sending via Brevo."""
 
+import asyncio
 from datetime import date
 from unittest.mock import MagicMock, patch
 
 from template.domain.models.category import Category
 from template.domain.models.enums import PaymentType
+from template.domain.models.member import Member
 from template.domain.models.models import Expense
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.service_layer.notification_service import NotificationService
@@ -24,6 +26,41 @@ def _make_expense(split_strategy):
         payment_type=PaymentType.DEBIT,
         split_strategy=split_strategy,
     )
+
+
+class TestRecipientSelectionDoesNotCrash:
+    """Regression: recipients were built as a set of Member, which is unhashable
+    (Member is a Pydantic model) — crashing the update/delete notification tasks
+    with TypeError: unhashable type: 'Member'."""
+
+    def _members(self):
+        # NONE preference → _broadcast performs no actual send; we only need the
+        # recipient collection to be built without raising.
+        return [Member(id=1, name="Actor"), Member(id=2, name="Bob")]
+
+    def test_notify_expense_deleted_does_not_crash(self):
+        service = NotificationService()
+        member_service = MagicMock()
+        member_service.get_member_name_by_id.return_value = "Actor"
+        asyncio.run(
+            service.notify_expense_deleted(
+                _make_expense(EqualSplit()), Member(id=1, name="Actor"), self._members(), member_service
+            )
+        )
+
+    def test_notify_expense_updated_does_not_crash(self):
+        service = NotificationService()
+        member_service = MagicMock()
+        member_service.get_member_name_by_id.return_value = "Actor"
+        asyncio.run(
+            service.notify_expense_updated(
+                _make_expense(EqualSplit()),
+                _make_expense(EqualSplit()),
+                Member(id=1, name="Actor"),
+                self._members(),
+                member_service,
+            )
+        )
 
 
 class TestIsInvolvedInExpense:

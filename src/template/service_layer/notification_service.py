@@ -499,11 +499,11 @@ class NotificationService:
             )
 
         subject = "✏️ Préstamo actualizado" if is_loan else "✏️ Gasto actualizado"
-        recipients = {
+        recipients = [
             m
             for m in members
             if m.id != actor.id and (self._is_involved_in_expense(old, m.id) or self._is_involved_in_expense(new, m.id))
-        }
+        ]
         # Include group name in HTML when at least one recipient needs it
         html_group = (
             group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
@@ -553,7 +553,7 @@ class NotificationService:
             )
 
         subject = "🗑️ Préstamo eliminado" if is_loan else "🗑️ Gasto eliminado"
-        recipients = {m for m in members if m.id != actor.id and self._is_involved_in_expense(expense, m.id)}
+        recipients = [m for m in members if m.id != actor.id and self._is_involved_in_expense(expense, m.id)]
         html_group = (
             group_name if (multi_group_member_ids and multi_group_member_ids & {m.id for m in recipients}) else None
         )
