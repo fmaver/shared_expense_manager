@@ -55,3 +55,22 @@ def test_get_me_returns_current_member(client, auth_headers):
     assert r.status_code == 200
     data = r.json()["data"]
     assert data["email"] == "tester@example.com"
+
+
+def test_register_normalizes_argentine_phone(client):
+    """A number typed with the stray mobile '9' is stored canonically (54... not 549...)."""
+    payload = {
+        "name": "Nueve",
+        "telephone": "5491133334444",
+        "email": "nueve@example.com",
+        "password": "password123",
+    }
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 200
+
+    token = client.post(
+        "/api/v1/auth/token",
+        data={"username": "nueve@example.com", "password": "password123"},
+    ).json()["access_token"]
+    r = client.get("/api/v1/members/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["data"]["telephone"] == "541133334444"
