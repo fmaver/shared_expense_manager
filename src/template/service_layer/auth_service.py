@@ -13,6 +13,7 @@ from template.adapters.database import get_db
 from template.adapters.orm import MemberModel
 from template.adapters.repositories import MemberRepository
 from template.domain.models.member import Member
+from template.domain.phone import normalize_ar_phone
 from template.domain.schemas.member import MemberCreate, MemberUpdate, TokenData
 
 # Configuration
@@ -84,7 +85,7 @@ class AuthService:
         db_member = MemberModel(
             email=member.email,
             name=member.name,
-            telephone=member.telephone,
+            telephone=normalize_ar_phone(member.telephone),
             notification_preference=member.notification_preference,
             hashed_password=self.get_password_hash(member.password),
         )

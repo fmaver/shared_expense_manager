@@ -43,6 +43,7 @@ from template.domain.models.member import Member
 from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
+from template.domain.phone import normalize_ar_phone
 from template.domain.schemas.expense import (
     RecurringGroupExpenseCreate,
     RecurringGroupExpenseResponse,
@@ -195,7 +196,7 @@ class MemberRepository:
         if update_data.name is not None:
             db_member.name = update_data.name
         if update_data.telephone is not None:
-            db_member.telephone = update_data.telephone
+            db_member.telephone = normalize_ar_phone(update_data.telephone)
         if update_data.email is not None:
             db_member.email = update_data.email
         if update_data.notification_preference is not None:

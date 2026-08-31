@@ -15,6 +15,7 @@ from template.adapters.repositories import (
 from template.domain.models.enums import InvitationChannel, InvitationStatus
 from template.domain.models.group import GroupType
 from template.domain.models.member import Member
+from template.domain.phone import normalize_ar_phone
 from template.domain.schemas.group import (
     GroupJoinLinkResponse,
     GroupJoinResolveResponse,
@@ -29,10 +30,8 @@ _INVITATION_EXPIRY_DAYS = 7
 
 
 def _normalise_phone(phone: str) -> str:
-    """Strip the extra '9' from Argentine numbers (5491xxxxxxxx → 541xxxxxxxx)."""
-    if phone.startswith("549") and len(phone) > 10:
-        return "54" + phone[3:]
-    return phone
+    """Normalise an Argentine number to the canonical stored form (54XXXXXXXXXX)."""
+    return normalize_ar_phone(phone) or phone
 
 
 class InvitationService:
