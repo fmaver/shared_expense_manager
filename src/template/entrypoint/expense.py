@@ -3,10 +3,7 @@
 from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
 
-from template.adapters.database import get_db
-from template.adapters.repositories import MemberRepository
 from template.dependencies import get_expense_service, get_member_service
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
@@ -30,15 +27,14 @@ def create_expense(
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
-    db: Session = Depends(get_db),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Create a new expense."""
     try:
         expense = service.create_expense(expense_data)
 
-        # Get all members to notify
-        members = MemberRepository(db).list()
+        # Notify only the members of this expense's group
+        members = service.get_members()
         group_name = service.get_group_name()
         multi_group_ids = service.get_multi_group_member_ids(members)
 
@@ -86,7 +82,6 @@ def update_expense(
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
-    db: Session = Depends(get_db),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Update an existing expense."""
@@ -98,7 +93,7 @@ def update_expense(
 
         # Schedule notification in background (skip for personal groups)
         if not service.is_personal_group():
-            members = MemberRepository(db).list()
+            members = service.get_members()
             group_name = service.get_group_name()
             multi_group_ids = service.get_multi_group_member_ids(members)
             background_tasks.add_task(
@@ -142,7 +137,6 @@ def delete_expense(
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
-    db: Session = Depends(get_db),
     current_member=Depends(get_current_member),
 ) -> None:
     """Delete an expense."""
@@ -154,7 +148,7 @@ def delete_expense(
 
         # Skip notification for personal groups
         if expense_to_delete and not service.is_personal_group():
-            members = MemberRepository(db).list()
+            members = service.get_members()
             group_name = service.get_group_name()
             multi_group_ids = service.get_multi_group_member_ids(members)
             background_tasks.add_task(

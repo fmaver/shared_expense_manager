@@ -1,5 +1,7 @@
 """Integration tests for expense CRUD endpoints."""
 
+import json
+
 
 def _expense_payload(payer_id: int, description="supermercado", amount=1500.0):
     return {
@@ -77,6 +79,70 @@ def test_create_credit_expense_expands_installments(client, auth_headers, primar
     data = r.json()["data"]
     assert data["installments"] == 3
     assert data["payerId"] == primary_member_id
+
+
+# ── Notification recipient scoping ────────────────────────────────────────────
+
+
+def _capture_wpp_recipients(monkeypatch) -> list:
+    """Patch the WhatsApp send seam and record every recipient phone number."""
+    recipients: list = []
+
+    def _fake_send(data):
+        recipients.append(json.loads(data).get("to"))
+        return {"detail": "mensaje enviado", "status_code": 200}
+
+    monkeypatch.setattr(
+        "template.service_layer.notification_service.enviar_mensaje_whatsapp",
+        _fake_send,
+    )
+    return recipients
+
+
+def _register_whatsapp_member(client, name, email, telephone) -> dict:
+    """Register a member with WhatsApp notifications enabled; return their auth headers."""
+    r = client.post(
+        "/api/v1/auth/register",
+        json={"name": name, "telephone": telephone, "email": email, "password": "secret123"},
+    )
+    assert r.status_code == 200, r.text
+    token = client.post(
+        "/api/v1/auth/token",
+        data={"username": email, "password": "secret123"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    patched = client.patch(
+        "/api/v1/members/me",
+        json={"notificationPreference": "WHATSAPP"},
+        headers=headers,
+    )
+    assert patched.status_code == 200, patched.text
+    return headers
+
+
+def test_expense_notification_not_sent_to_non_group_members(
+    client, auth_headers, primary_member_id, primary_group_id, monkeypatch
+):
+    """Regression: a member who is NOT in the expense's group must never be notified.
+
+    Reproduces the bug where the expense router notified every member in the whole
+    system (MemberRepository.list()) instead of only the expense's group members.
+    """
+    outsider_phone = "5491133334444"
+    _register_whatsapp_member(client, "Outsider", "outsider@example.com", outsider_phone)
+
+    recipients = _capture_wpp_recipients(monkeypatch)
+
+    r = client.post(
+        f"/api/v1/groups/{primary_group_id}/expenses/",
+        json=_expense_payload(payer_id=primary_member_id),
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    assert (
+        outsider_phone not in recipients
+    ), f"Outsider (not a member of the group) was notified: recipients={recipients}"
 
 
 # ── Similar expense endpoint ──────────────────────────────────────────────────
