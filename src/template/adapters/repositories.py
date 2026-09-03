@@ -978,6 +978,7 @@ class IncomeRepository:
         label: Optional[str] = None,
         amount: Optional[float] = None,
         active: Optional[bool] = None,
+        currency: Optional[str] = None,
     ) -> RecurringIncome:
         """Update fields on a recurring income template."""
         model = self.session.query(RecurringIncomeModel).filter(RecurringIncomeModel.id == income_id).first()
@@ -989,6 +990,8 @@ class IncomeRepository:
             model.amount = amount
         if active is not None:
             model.active = active
+        if currency is not None:
+            model.currency = currency
         self.session.flush()
         self.session.commit()
         return self._recurring_to_domain(model)
@@ -1080,19 +1083,23 @@ class IncomeRepository:
         month: int,
         new_label: str,
         new_amount: float,
+        new_currency: Optional[str] = None,
     ) -> None:
         """Update an existing recurring income snapshot for the given (group, year, month).
 
         No-op if no snapshot exists yet. The caller is responsible for ensuring this is only
         called for the current month.
         """
+        values: dict = {"label": new_label, "amount": new_amount}
+        if new_currency is not None:
+            values["currency"] = new_currency
         self.session.query(IncomeInstanceModel).filter(
             IncomeInstanceModel.personal_group_id == personal_group_id,
             IncomeInstanceModel.recurring_income_id == recurring_income_id,
             IncomeInstanceModel.year == year,
             IncomeInstanceModel.month == month,
             IncomeInstanceModel.source == "recurring",
-        ).update({"label": new_label, "amount": new_amount})
+        ).update(values)
         self.session.commit()
 
     def update_recurring_instances_from_month_onwards(  # pylint: disable=too-many-arguments,too-many-positional-arguments  # noqa: E501
@@ -1103,6 +1110,7 @@ class IncomeRepository:
         month: int,
         new_label: str,
         new_amount: float,
+        new_currency: Optional[str] = None,
     ) -> None:
         """Bulk-update all existing recurring snapshots from (year, month) onwards.
 
@@ -1111,6 +1119,9 @@ class IncomeRepository:
         """
         from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
 
+        values: dict = {"label": new_label, "amount": new_amount}
+        if new_currency is not None:
+            values["currency"] = new_currency
         self.session.query(IncomeInstanceModel).filter(
             IncomeInstanceModel.personal_group_id == personal_group_id,
             IncomeInstanceModel.recurring_income_id == recurring_income_id,
@@ -1119,7 +1130,7 @@ class IncomeRepository:
                 IncomeInstanceModel.year > year,
                 and_(IncomeInstanceModel.year == year, IncomeInstanceModel.month >= month),
             ),
-        ).update({"label": new_label, "amount": new_amount})
+        ).update(values)
         self.session.commit()
 
     def delete_recurring_instance_for_month(
@@ -1182,9 +1193,13 @@ class IncomeRepository:
         return self._instance_to_domain(model) if model else None
 
     def update_instance(
-        self, instance_id: int, label: Optional[str] = None, amount: Optional[float] = None
+        self,
+        instance_id: int,
+        label: Optional[str] = None,
+        amount: Optional[float] = None,
+        currency: Optional[str] = None,
     ) -> IncomeInstance:
-        """Update label and/or amount on an income instance."""
+        """Update label, amount and/or currency on an income instance."""
         model = self.session.query(IncomeInstanceModel).filter(IncomeInstanceModel.id == instance_id).first()
         if not model:
             raise ValueError(f"IncomeInstance {instance_id} not found")
@@ -1192,6 +1207,8 @@ class IncomeRepository:
             model.label = label
         if amount is not None:
             model.amount = amount
+        if currency is not None:
+            model.currency = currency
         self.session.flush()
         self.session.commit()
         return self._instance_to_domain(model)
@@ -1313,6 +1330,7 @@ class RecurringPersonalExpenseRepository:
         amount: Optional[float] = None,
         category_name: Optional[str] = None,
         active: Optional[bool] = None,
+        currency: Optional[str] = None,
     ) -> RecurringPersonalExpense:
         """Update fields on a recurring expense template."""
         model = (
@@ -1330,6 +1348,8 @@ class RecurringPersonalExpenseRepository:
             model.category_name = category_name
         if active is not None:
             model.active = active
+        if currency is not None:
+            model.currency = currency
         self.session.flush()
         self.session.commit()
         return self._to_domain(model)
@@ -1434,10 +1454,14 @@ class RecurringPersonalExpenseRepository:
         new_label: str,
         new_amount: float,
         new_category_name: str,
+        new_currency: Optional[str] = None,
     ) -> None:
         """Bulk-update label/amount/category_name for all instances from (year, month) onwards."""
         from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
 
+        values: dict = {"label": new_label, "amount": new_amount, "category_name": new_category_name}
+        if new_currency is not None:
+            values["currency"] = new_currency
         self.session.query(RecurringPersonalExpenseInstanceModel).filter(
             RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
             RecurringPersonalExpenseInstanceModel.recurring_expense_id == recurring_expense_id,
@@ -1448,7 +1472,7 @@ class RecurringPersonalExpenseRepository:
                     RecurringPersonalExpenseInstanceModel.month >= month,
                 ),
             ),
-        ).update({"label": new_label, "amount": new_amount, "category_name": new_category_name})
+        ).update(values)
         self.session.commit()
 
     def delete_instances_from_month_onwards(

@@ -25,6 +25,7 @@ def _make_template(
     payer_id: int = 1,
     payment_type: str = "debit",
     split_strategy: SplitStrategySchema | None = None,
+    currency: str = "ARS",
 ) -> MagicMock:
     """Build a mock recurring group expense template.
 
@@ -42,6 +43,7 @@ def _make_template(
     t.category = category
     t.payer_id = payer_id
     t.payment_type = payment_type
+    t.currency = currency
     # participant_ids=None → EqualSplit for all members (the standard DB-deserialized form)
     t.split_strategy = split_strategy or SplitStrategySchema(type="equal", participant_ids=None)
     return t
@@ -222,3 +224,34 @@ def test_materialize_handles_empty_template_list():
 
     recurring_repo.list_for_group.assert_called_once_with(1, active_only=True)
     expense_manager._add_to_monthly_share.assert_not_called()  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# Test 6: Currency propagates from the template onto the materialized expense
+# ---------------------------------------------------------------------------
+
+
+def test_materialize_propagates_currency_from_template():
+    """A USD recurring group expense template must produce a USD expense row.
+
+    Regression: the Expense was built without `currency`, so it defaulted to ARS
+    and the group's balance math skipped the blue-rate conversion.
+    """
+    template = _make_template(template_id=42, start_year=2026, start_month=5)
+    template.currency = "USD"
+    recurring_repo, expense_repo, expense_manager = _build_deps(
+        templates=[template],
+        monthly_share=_make_unsettled_share(),
+    )
+
+    materialize_recurring_group_expenses(
+        group_id=1,
+        year=2026,
+        month=6,
+        recurring_repo=recurring_repo,
+        expense_repo=expense_repo,
+        expense_manager=expense_manager,
+    )
+
+    expense_arg = expense_manager._add_to_monthly_share.call_args[0][0]
+    assert expense_arg.currency == "USD"

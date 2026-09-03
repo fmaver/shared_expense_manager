@@ -191,7 +191,9 @@ def update_recurring_income(  # pylint: disable=too-many-arguments,too-many-posi
     template = income_repo.get_recurring(income_id)
     if not template or template.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Recurring income not found")
-    updated = income_repo.update_recurring(income_id, label=data.label, amount=data.amount, active=data.active)
+    updated = income_repo.update_recurring(
+        income_id, label=data.label, amount=data.amount, active=data.active, currency=data.currency
+    )
     today = date.today()
     # Use the viewed month as the start point; fall back to today if not provided
     start_year = viewed_year or today.year
@@ -205,6 +207,7 @@ def update_recurring_income(  # pylint: disable=too-many-arguments,too-many-posi
         month=start_month,
         new_label=updated.label,
         new_amount=updated.amount,
+        new_currency=updated.currency,
     )
     return ResponseModel(data=_recurring_to_response(updated))
 
@@ -298,7 +301,7 @@ def update_variable_income(
     instance = income_repo.get_instance(instance_id)
     if not instance or instance.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Income entry not found")
-    updated = income_repo.update_instance(instance_id, label=data.label, amount=data.amount)
+    updated = income_repo.update_instance(instance_id, label=data.label, amount=data.amount, currency=data.currency)
     return ResponseModel(data=_instance_to_response(updated))
 
 
@@ -408,7 +411,12 @@ def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-pos
     if not template or template.personal_group_id != personal_group.id:
         raise HTTPException(status_code=404, detail="Recurring expense not found")
     updated = recurring_expense_repo.update(
-        expense_id, label=data.label, amount=data.amount, category_name=data.category_name, active=data.active
+        expense_id,
+        label=data.label,
+        amount=data.amount,
+        category_name=data.category_name,
+        active=data.active,
+        currency=data.currency,
     )
     today = date.today()
     months_to_sync = {(today.year, today.month)}
@@ -423,6 +431,7 @@ def update_recurring_expense(  # pylint: disable=too-many-arguments,too-many-pos
             new_label=updated.label,
             new_amount=updated.amount,
             new_category_name=updated.category_name,
+            new_currency=updated.currency,
         )
     return ResponseModel(data=_recurring_expense_to_response(updated))
 

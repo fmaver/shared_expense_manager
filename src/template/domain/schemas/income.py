@@ -27,6 +27,7 @@ class RecurringIncomeUpdate(CamelCaseModel):
     label: Optional[str] = None
     amount: Optional[float] = Field(default=None, gt=0)
     active: Optional[bool] = None
+    currency: Optional[str] = None
 
 
 class RecurringIncomeResponse(CamelCaseModel):
@@ -59,6 +60,7 @@ class VariableIncomeCreate(CamelCaseModel):
 class VariableIncomeUpdate(CamelCaseModel):
     label: Optional[str] = None
     amount: Optional[float] = Field(default=None, gt=0)
+    currency: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +100,7 @@ class RecurringPersonalExpenseUpdate(CamelCaseModel):
     amount: Optional[float] = Field(default=None, gt=0)
     category_name: Optional[str] = Field(default=None, min_length=1, max_length=50)
     active: Optional[bool] = None
+    currency: Optional[str] = None
 
 
 class RecurringPersonalExpenseResponse(CamelCaseModel):

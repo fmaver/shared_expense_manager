@@ -394,6 +394,7 @@ def test_materialize_recurring_income_called():
     mock_template.id = 5
     mock_template.label = "Sueldo"
     mock_template.amount = 2000.0
+    mock_template.currency = "ARS"
     mock_template.start_year = None
     mock_template.start_month = None
     income_repo.list_recurring.return_value = [mock_template]
@@ -408,6 +409,7 @@ def test_materialize_recurring_income_called():
         recurring_income_id=5,
         label="Sueldo",
         amount=2000.0,
+        currency="ARS",
     )
 
 
@@ -421,3 +423,53 @@ def test_get_or_create_personal_group_called():
     svc, group_service, *_ = _build_service()
     svc.get_ledger(owner_member_id=1, year=2025, month=6)
     group_service.get_or_create_personal_group.assert_called_once_with(1)
+
+
+# ---------------------------------------------------------------------------
+# Test 10: Currency propagates from recurring templates into monthly snapshots
+# ---------------------------------------------------------------------------
+
+
+def test_materialize_recurring_income_propagates_currency():
+    """A USD recurring income template must snapshot as USD, not fall back to ARS.
+
+    Regression: materialization dropped `currency`, so every month after the
+    template's start month rendered a USD salary as ARS.
+    """
+    personal_group = _make_personal_group(group_id=99)
+    svc, _, _, _, income_repo = _build_service(personal_group=personal_group)
+
+    usd_template = MagicMock()
+    usd_template.id = 5
+    usd_template.label = "Sueldo"
+    usd_template.amount = 4000.0
+    usd_template.currency = "USD"
+    usd_template.start_year = None
+    usd_template.start_month = None
+    income_repo.list_recurring.return_value = [usd_template]
+
+    svc.get_ledger(owner_member_id=1, year=2025, month=6)
+
+    _, kwargs = income_repo.upsert_recurring_instance.call_args
+    assert kwargs["currency"] == "USD"
+
+
+def test_materialize_recurring_expenses_propagates_currency():
+    """A USD recurring personal expense template must snapshot as USD."""
+    personal_group = _make_personal_group(group_id=99)
+    svc, _, _, _, _ = _build_service(personal_group=personal_group)
+
+    usd_template = MagicMock()
+    usd_template.id = 8
+    usd_template.label = "Netflix"
+    usd_template.amount = 15.0
+    usd_template.currency = "USD"
+    usd_template.category_name = "entretenimiento"
+    usd_template.start_year = None
+    usd_template.start_month = None
+    svc._recurring_expense_repo.list_for_group.return_value = [usd_template]
+
+    svc.get_ledger(owner_member_id=1, year=2025, month=6)
+
+    _, kwargs = svc._recurring_expense_repo.upsert_instance.call_args
+    assert kwargs["currency"] == "USD"
