@@ -300,6 +300,7 @@ class PersonalLedgerService:
                 recurring_income_id=template.id,
                 label=template.label,
                 amount=template.amount,
+                currency=template.currency,
             )
 
     def _materialize_recurring_expenses(
@@ -323,6 +324,7 @@ class PersonalLedgerService:
                 label=template.label,
                 amount=template.amount,
                 category_name=template.category_name,
+                currency=template.currency,
             )
 
     @staticmethod

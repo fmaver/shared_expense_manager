@@ -65,6 +65,7 @@ def materialize_recurring_group_expenses(  # pylint: disable=too-many-arguments,
             installment_no=1,
             payment_type=PaymentType(template.payment_type),
             split_strategy=_build_split_strategy(template.split_strategy),
+            currency=template.currency,
         )
 
         # Add to the monthly share (creates the row in DB and recalculates balances).
