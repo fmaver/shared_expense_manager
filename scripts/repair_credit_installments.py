@@ -140,7 +140,7 @@ def load_families(session: Session) -> list[Family]:
             amount_per_installment=record["amount_per_installment"],
             group_id=record["group_id"],
         )
-        family.rows = session.execute(text(ROWS_SQL), {"parent_id": family.parent_id}).mappings().all()
+        family.rows = list(session.execute(text(ROWS_SQL), {"parent_id": family.parent_id}).mappings().all())
         families.append(family)
     return families
 
@@ -153,7 +153,10 @@ def load_families(session: Session) -> list[Family]:
 def repair(session: Session, family: Family) -> None:
     """Rebuild one family by replaying the fixed update path."""
     # pylint: disable=import-outside-toplevel
-    from template.adapters.repositories import GroupRepository, SQLAlchemyExpenseRepository
+    from template.adapters.repositories import (
+        GroupRepository,
+        SQLAlchemyExpenseRepository,
+    )
     from template.domain.models.expense_manager import ExpenseManager
 
     # pylint: enable=import-outside-toplevel
@@ -172,8 +175,8 @@ def repair(session: Session, family: Family) -> None:
     manager.update_credit_expense(parent)
 
 
-def main() -> int:
-    """Report, and optionally repair, every scrambled credit family."""
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="write the repairs (default is dry run)")
     parser.add_argument("--all", action="store_true", help="also list families that are already correct")
@@ -184,7 +187,82 @@ def main() -> int:
         action="store_true",
         help="also repair families sitting in settled months (changes settled balances)",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def dump_family(session: Session, parent_id: int) -> None:
+    """Print every row of one family, with the share each cuota should be in."""
+    for family in load_families(session):
+        if family.parent_id != parent_id:
+            continue
+        print(f"#{family.parent_id} {family.description!r}")
+        print(f"  purchase date : {family.purchase_date}")
+        print(f"  installments  : {family.installments}")
+        print(f"  per cuota     : {family.amount_per_installment}")
+        print("  rows:")
+        for row in family.rows:
+            expected = family.expected_period(row.installment_no)
+            print(
+                f"    id={row.id:<6} cuota {row.installment_no}/{family.installments}  "
+                f"share {row.share_year}-{row.share_month:02d}  "
+                f"expected {expected[0]}-{expected[1]:02d}  "
+                f"settled={row.is_settled}  {row.description!r}"
+            )
+        print(f"  problems: {family.problems() or 'none'}")
+        return
+    print(f"no multi-installment credit family with parent id {parent_id}")
+
+
+@dataclass
+class Triage:
+    """Families grouped by what should happen to them."""
+
+    broken: list[Family] = field(default_factory=list)
+    settled_blocked: list[Family] = field(default_factory=list)
+    unlinked: list[Family] = field(default_factory=list)
+
+
+def triage(families: list[Family], allow_settled: bool, show_all: bool) -> Triage:
+    """Sort families into repairable, settled-blocked and legacy, printing each."""
+    result = Triage()
+    for family in families:
+        issues = family.problems()
+        label = f"#{family.parent_id} {family.description[:40]!r} ({family.installments} cuotas)"
+        if not issues:
+            if show_all:
+                print(f"OK     {label}")
+            continue
+        if family.is_unlinked:
+            result.unlinked.append(family)
+            print(f"LEGACY {label}")
+        elif family.touches_settled() and not allow_settled:
+            result.settled_blocked.append(family)
+            print(f"SKIP (settled) {label}")
+        else:
+            result.broken.append(family)
+            print(f"BROKEN {label}")
+        for issue in issues:
+            print(f"    - {issue}")
+        print()
+    return result
+
+
+def summarise(result: Triage) -> None:
+    """Print the counts for each triage bucket."""
+    print("=" * 60)
+    print(f"Families needing repair: {len(result.broken)}")
+    if result.unlinked:
+        print(
+            f"Legacy unlinked families (reported only, never rebuilt): {len(result.unlinked)} — "
+            "their installments exist as standalone rows"
+        )
+    if result.settled_blocked:
+        print(f"Skipped because they sit in settled months: {len(result.settled_blocked)} (use --allow-settled)")
+
+
+def main() -> int:
+    """Report, and optionally repair, every scrambled credit family."""
+    args = _build_parser().parse_args()
 
     if not args.db_url:
         print("error: no database URL. Pass --db-url or set DATABASE_URL.", file=sys.stderr)
@@ -194,75 +272,29 @@ def main() -> int:
     os.environ.setdefault("DATABASE_ENV", "PROD")
 
     # Imported after DATABASE_URL is set: database.py builds its engine at import time.
-    from template.adapters.database import SessionLocal  # pylint: disable=import-outside-toplevel
+    # pylint: disable=import-outside-toplevel
+    from template.adapters.database import SessionLocal
 
-    broken: list[Family] = []
-    settled_blocked: list[Family] = []
-    unlinked: list[Family] = []
-
-    if args.family:
-        with SessionLocal() as session:
-            for family in load_families(session):
-                if family.parent_id != args.family:
-                    continue
-                print(f"#{family.parent_id} {family.description!r}")
-                print(f"  purchase date : {family.purchase_date}")
-                print(f"  installments  : {family.installments}")
-                print(f"  per cuota     : {family.amount_per_installment}")
-                print("  rows:")
-                for row in family.rows:
-                    expected = family.expected_period(row.installment_no)
-                    print(
-                        f"    id={row.id:<6} cuota {row.installment_no}/{family.installments}  "
-                        f"share {row.share_year}-{row.share_month:02d}  "
-                        f"expected {expected[0]}-{expected[1]:02d}  "
-                        f"settled={row.is_settled}  {row.description!r}"
-                    )
-                print(f"  problems: {family.problems() or 'none'}")
-        return 0
+    # pylint: enable=import-outside-toplevel
 
     with SessionLocal() as session:
+        if args.family:
+            dump_family(session, args.family)
+            return 0
+
         families = load_families(session)
         print(f"Scanned {len(families)} multi-installment credit expense(s).\n")
-
-        for family in families:
-            issues = family.problems()
-            if not issues:
-                if args.all:
-                    print(f"OK     #{family.parent_id} {family.description[:40]!r} ({family.installments} cuotas)")
-                continue
-            label = f"#{family.parent_id} {family.description[:40]!r} " f"({family.installments} cuotas)"
-            if family.is_unlinked:
-                unlinked.append(family)
-                print(f"LEGACY {label}")
-            elif family.touches_settled() and not args.allow_settled:
-                settled_blocked.append(family)
-                print(f"SKIP (settled) {label}")
-            else:
-                broken.append(family)
-                print(f"BROKEN {label}")
-            for issue in issues:
-                print(f"    - {issue}")
-            print()
-
-        print("=" * 60)
-        print(f"Families needing repair: {len(broken)}")
-        if unlinked:
-            print(
-                f"Legacy unlinked families (reported only, never rebuilt): {len(unlinked)} — "
-                "their installments exist as standalone rows"
-            )
-        if settled_blocked:
-            print(f"Skipped because they sit in settled months: {len(settled_blocked)} (use --allow-settled)")
+        result = triage(families, allow_settled=args.allow_settled, show_all=args.all)
+        summarise(result)
 
         if not args.apply:
             print("\nDry run — nothing written. Re-run with --apply to commit.")
             return 0
 
-        for family in broken:
+        for family in result.broken:
             print(f"repairing #{family.parent_id} {family.description[:40]!r}...")
             repair(session, family)
-        print(f"\nRepaired {len(broken)} family(ies).")
+        print(f"\nRepaired {len(result.broken)} family(ies).")
 
     return 0
 
