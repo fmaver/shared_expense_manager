@@ -257,113 +257,112 @@ class ExpenseManager:
 
         return updated_expense
 
-    # flake8: noqa: C901
-    # pylint: disable=R0915
-    def update_credit_expense(self, updated_expense: Expense) -> Expense:
-        """Update a credit expense and all its related installments."""
-        print(f"\n=== Starting credit expense update process for ID: {updated_expense.id} ===")
+    def _share_period_for_installment(self, purchase_date: date, installment_no: int) -> date:
+        """Return a date inside the monthly share that a given installment belongs to.
 
-        # Get all child expenses
+        Credit payments start the month after the purchase, so cuota k falls in
+        purchase month + k.
+        """
+        return purchase_date + relativedelta(months=installment_no)
+
+    def _move_expense_to_share(self, expense: Expense, share_date: date) -> None:
+        """Point an existing expense row at the share for share_date, creating it if needed."""
+        if expense.id is None:
+            raise ValueError("Cannot reassign an expense without an ID")
+        monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
+        if not monthly_share:
+            monthly_share = MonthlyShare(share_date.year, share_date.month, self.group_id)
+            self.repository.save_monthly_share(monthly_share)
+            monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
+            if not monthly_share:
+                raise ValueError("Failed to create monthly share")
+        self.repository.reassign_expense_to_monthly_share(expense.id, share_date.year, share_date.month, self.group_id)
+        # Keep the in-memory share consistent with the FK we just moved.
+        if all(existing.id != expense.id for existing in monthly_share.expenses):
+            monthly_share.expenses.append(expense)
+
+    def _shares_holding_family(self, parent_id: int, child_ids: set[int]) -> list[MonthlyShare]:
+        """Return every monthly share currently holding the parent or one of its children.
+
+        Used to recalculate the months an installment is about to leave.
+        """
+        family = {parent_id} | child_ids
+        return [
+            share
+            for share in self.repository.get_all_monthly_shares(self.group_id).values()
+            if any(expense.id in family for expense in share.expenses)
+        ]
+
+    def update_credit_expense(self, updated_expense: Expense) -> Expense:
+        """Update a credit expense and rebuild its installment rows.
+
+        The parent row *is* installment 1: it is updated in place so its ID survives an
+        edit. Installments 2..N are deleted and rebuilt, which is what makes this correct
+        rather than merely tidier — deriving each row's number, amount and month from the
+        loop counter means the result cannot depend on the order the database happens to
+        return existing children in, and every row is explicitly assigned to a share.
+
+        Every installment row stores the purchase date; the month it falls in comes from
+        its monthly share, not from `date`.
+        """
         if updated_expense.id is None:
             raise ValueError("Expense ID cannot be None")
-        child_expenses = self.repository.get_child_expenses(updated_expense.id)
-        print(f"Parent expense ID: {updated_expense.id}")
-        print(f"Child expenses found with IDs: {[child_expense.id for child_expense in child_expenses]}")
 
-        # Calculate amount per installment from the total amount
-        amount_per_installment = updated_expense.amount / updated_expense.installments
-
-        # Clean base description (remove any existing installment suffix)
+        parent_id = updated_expense.id
+        installments = updated_expense.installments
+        amount_per_installment = updated_expense.amount / installments
         base_description = re.sub(r"\s*\(\d+\/\d+\)\s*$", "", updated_expense.description)
-        current_total_installments = len(child_expenses) + 1
-        print(
-            f"We currently have {current_total_installments} installments, but we want {updated_expense.installments}"
-        )
 
-        # First, if we're reducing installments, delete the excess ones
-        if updated_expense.installments < current_total_installments:
-            print(f"Reducing installments from {current_total_installments} to {updated_expense.installments}")
+        existing_children = self.repository.get_child_expenses(parent_id)
+        child_ids = {child.id for child in existing_children if child.id is not None}
 
-            for i in range(current_total_installments, updated_expense.installments, -1):
-                excess_child = child_expenses[i - 2]
-                print(f"Deleting excess installment {i}: {excess_child.description}")
-                if excess_child.id is None:
-                    raise ValueError("Expense ID cannot be None")
-                self.repository.delete_expense(excess_child.id)
+        # Capture the months this family occupies before anything moves, so the ones it
+        # vacates get their balances recalculated too.
+        stale_shares = self._shares_holding_family(parent_id, child_ids)
 
-                # Get and recalculate the monthly share for this installment
-                installment_date = updated_expense.date + relativedelta(months=i)
-                monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
-                if monthly_share:
-                    self.recalculate_monthly_share(monthly_share)
+        # Drop every child; cuotas 2..N are rebuilt below from the loop counter.
+        for child_id in child_ids:
+            self.repository.delete_expense(child_id)
 
-        # Update the first installment with the per-installment amount
+        # Installment 1 — update the parent row in place and move it to its new month.
         updated_expense.amount = amount_per_installment
-        updated_expense.description = f"{base_description} (1/{updated_expense.installments})"
-        print("Updating first installment:")
+        updated_expense.description = f"{base_description} (1/{installments})"
+        updated_expense.installment_no = 1
         self.repository.update_expense(updated_expense)
+        self._move_expense_to_share(updated_expense, self._share_period_for_installment(updated_expense.date, 1))
 
-        # recalculate monthly share
-        installment_date = updated_expense.date + relativedelta(months=1)
-        monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
-        if monthly_share:
-            self.recalculate_monthly_share(monthly_share)
-
-        # Update remaining child installments
-        for i in range(
-            updated_expense.installments - 1
-        ):  # from 1 because first installment (position 0) is already handled
-            if i < len(child_expenses):
-                child = child_expenses[i]
-                child.description = f"{base_description} ({i + 2}/{updated_expense.installments})"
-                child.amount = amount_per_installment
-                child.date = updated_expense.date
-                child.category = updated_expense.category
-                child.payer_id = updated_expense.payer_id
-                child.payment_type = updated_expense.payment_type
-                child.split_strategy = updated_expense.split_strategy
-                child.installments = updated_expense.installments  # Update total installments
-                child.installment_no = i + 2  # Update installment number
-                child.parent_expense_id = updated_expense.id  # Set parent expense ID
-
-                self.repository.update_expense(child)
-
-                # Get and recalculate the monthly share for this installment
-                # For credit, payments start next month
-                installment_date = updated_expense.date + relativedelta(months=child.installment_no)
-                monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
-                if monthly_share:
-                    self.recalculate_monthly_share(monthly_share)
-
-        print("Check if we need to create new installments...")
-
-        # If we're increasing installments, create new ones
-        if updated_expense.installments > (len(child_expenses) + 1):  # +1 to account for the parent expense
-            start_installment = len(child_expenses) + 2  # +2 because we start after parent and existing children
-            for i in range(start_installment, updated_expense.installments + 1):
-                installment_date = updated_expense.date + relativedelta(months=i)
-                new_child_expense = Expense(
-                    description=f"{base_description} ({i}/{updated_expense.installments})",
+        # Installments 2..N — rebuilt so number, amount and month always agree.
+        for installment_no in range(2, installments + 1):
+            self._add_to_monthly_share(
+                Expense(
+                    description=f"{base_description} ({installment_no}/{installments})",
                     amount=amount_per_installment,
                     date=updated_expense.date,
                     category=updated_expense.category,
                     payer_id=updated_expense.payer_id,
                     payment_type=updated_expense.payment_type,
-                    installments=updated_expense.installments,
-                    installment_no=i,
+                    installments=installments,
+                    installment_no=installment_no,
                     split_strategy=updated_expense.split_strategy,
-                    parent_expense_id=updated_expense.id,
-                )
+                    parent_expense_id=parent_id,
+                    currency=getattr(updated_expense, "currency", "ARS") or "ARS",
+                ),
+                self._share_period_for_installment(updated_expense.date, installment_no),
+            )
 
-                # Add expense to the appropriate monthly share
-                self._add_to_monthly_share(new_child_expense, installment_date)
+        # Recalculate every month the family touched — vacated and newly occupied alike.
+        periods = {(share.year, share.month) for share in stale_shares} | {
+            (
+                self._share_period_for_installment(updated_expense.date, no).year,
+                self._share_period_for_installment(updated_expense.date, no).month,
+            )
+            for no in range(1, installments + 1)
+        }
+        for year, month in sorted(periods):
+            monthly_share = self.get_monthly_balance(year, month)
+            if monthly_share:
+                self.recalculate_monthly_share(monthly_share)
 
-                # Get and recalculate the monthly share for this installment
-                monthly_share = self.get_monthly_balance(installment_date.year, installment_date.month)
-                if monthly_share:
-                    self.recalculate_monthly_share(monthly_share)
-
-        print("\n=== Credit expense update process completed ===")
         return updated_expense
 
     def get_expense(self, expense_id: int) -> Expense:

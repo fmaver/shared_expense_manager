@@ -111,6 +111,16 @@ def mock_repository():  # noqa: C901
                 ms.settle()
 
         def reassign_expense_to_monthly_share(self, expense_id: int, year: int, month: int, group_id: int) -> None:
-            pass
+            # Mirrors the real repo: moving the share FK takes the row out of whatever
+            # share held it. The caller owns the in-memory list of the target share, so
+            # nothing is appended here. A pure no-op would hide a caller that forgets to
+            # reassign at all, which is a bug this fixture is meant to expose.
+            if self.get_expense(expense_id) is None:
+                return
+            for ms in self.monthly_shares.values():
+                ms.expenses = [e for e in ms.expenses if e.id != expense_id]
+            key = f"{year}-{month:02d}"
+            if key not in self.monthly_shares:
+                self.monthly_shares[key] = MonthlyShare(year, month, group_id)
 
     return MockExpenseRepository()
