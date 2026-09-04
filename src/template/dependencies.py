@@ -19,6 +19,7 @@ from template.domain.models.repository import ExpenseRepository
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
+from template.service_layer.occasion_service import OccasionService
 from template.service_layer.personal_ledger_service import PersonalLedgerService
 from template.service_layer.whatsapp_client import MetaWhatsAppClient, WhatsAppClient
 
@@ -52,6 +53,18 @@ def get_expense_service(
 ) -> ExpenseService:
     """Get expense service instance scoped to a group."""
     return ExpenseService(repository, group_id=group_id, group_repo=group_repo)
+
+
+def get_occasion_service(
+    group_id: int,
+    repository: ExpenseRepository = Depends(get_repository),
+    group_repo: GroupRepository = Depends(get_group_repository),
+) -> OccasionService:
+    """Get the occasion (month-collapsed) service for a group."""
+    return OccasionService(
+        ExpenseService(repository, group_id=group_id, group_repo=group_repo),
+        repository,
+    )
 
 
 def get_member_service(

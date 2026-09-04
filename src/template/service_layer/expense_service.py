@@ -80,8 +80,24 @@ class ExpenseService:
         group = self._group_repo.get(self._group_id)
         return group is not None and group.group_type == GroupType.PERSONAL
 
+    def is_one_time_group(self) -> bool:
+        """Return True if this service is scoped to a one-time (occasion) group."""
+        group = self._group_repo.get(self._group_id)
+        return group is not None and group.group_type == GroupType.ONE_TIME
+
+    def _assert_payment_type_allowed(self, payment_type) -> None:
+        """Reject credit in a one-time group.
+
+        Installments exist to spread a cost across months, and a credit expense lands in the
+        *next* month's share — both meaningless for an occasion. Enforced here, where every
+        create and update path converges, rather than only hidden in the form.
+        """
+        if payment_type == PaymentType.CREDIT and self.is_one_time_group():
+            raise ValueError("Credit expenses are not allowed in a one-time group")
+
     def create_expense(self, expense_data: ExpenseCreate) -> Expense:
         """Create a new expense."""
+        self._assert_payment_type_allowed(expense_data.payment_type)
         category = Category()
         category.name = expense_data.category.name
 
@@ -179,6 +195,8 @@ class ExpenseService:
         # Guard: child installments cannot be edited directly
         if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installment_no > 1:
             raise ValueError("Cannot update credit expense installments after the first one")
+
+        self._assert_payment_type_allowed(expense_data.payment_type)
 
         # Case 1: existing is already multi-installment credit
         if existing_expense.payment_type == PaymentType.CREDIT and existing_expense.installments > 1:

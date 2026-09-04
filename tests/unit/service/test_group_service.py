@@ -23,7 +23,8 @@ def test_create_group_adds_creator_as_member():
 
     svc.create(name="My Group", creator_member_id=42)
 
-    repo.create.assert_called_once_with("My Group")
+    # The type is now always explicit; REGULAR is the same default the repo used before.
+    repo.create.assert_called_once_with("My Group", group_type=GroupType.REGULAR)
     repo.add_member.assert_called_once_with(5, 42)
 
 

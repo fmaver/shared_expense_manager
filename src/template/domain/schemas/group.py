@@ -20,7 +20,14 @@ class GroupMemberResponse(CamelCaseModel):
 
 
 class GroupCreate(CamelCaseModel):
+    """Create a group.
+
+    `personal` is deliberately not accepted: personal groups are created only by
+    get_or_create_personal_group, and minting one here would give a member a second.
+    """
+
     name: str = Field(..., min_length=1, max_length=255)
+    group_type: Literal["regular", "one_time"] = "regular"
 
 
 class GroupUpdate(CamelCaseModel):

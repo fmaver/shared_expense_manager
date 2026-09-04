@@ -16,8 +16,17 @@ class GroupStatus(str, Enum):
 
 
 class GroupType(str, Enum):
+    """How a group treats time.
+
+    REGULAR is an ongoing arrangement: expenses belong to a month and settlement closes a
+    month. ONE_TIME is an occasion — a trip, a dinner — with no notion of "this month": every
+    expense belongs to the single event, and one settle closes the whole thing. Monthly shares
+    still exist underneath a one-time group; they are aggregated away at the edges.
+    """
+
     REGULAR = "regular"
     PERSONAL = "personal"
+    ONE_TIME = "one_time"
 
 
 class Group(CamelCaseModel):
