@@ -91,7 +91,13 @@ class MemberRepository:
         return None
 
     def create_stub(self, name: str, email: Optional[str] = None, telephone: Optional[str] = None) -> Member:
-        """Create a stub member with no password. At least one of email or telephone must be provided."""
+        """Create a stub member with no password.
+
+        Both contacts are optional. A member with neither is a "ghost": someone tracked by
+        name inside a group who is not an app user. Nothing is ever sent to them, because
+        every notification path guards on the contact field it needs. They can later claim
+        an account through the group's join link.
+        """
         db_member = MemberModel(
             name=name,
             email=email,

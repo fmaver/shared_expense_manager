@@ -31,6 +31,12 @@ class GroupInvite(CamelCaseModel):
     email: str
 
 
+class GroupMemberCreate(CamelCaseModel):
+    """Add a member by name alone — no contact details, no account, no notification."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+
+
 class GroupInviteCreate(CamelCaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     channel: Literal["email", "phone"]
@@ -78,11 +84,20 @@ class GroupJoinRequest(CamelCaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     email: str
     password: str
+    claim_member_id: Optional[int] = None
+
+
+class ClaimableMemberResponse(CamelCaseModel):
+    """A name-only member that someone joining by link may claim as themselves."""
+
+    member_id: int
+    name: str
 
 
 class GroupJoinResolveResponse(CamelCaseModel):
     group_name: str
     inviter_name: str
+    claimable_members: list[ClaimableMemberResponse] = []
 
 
 class GroupResponse(CamelCaseModel):

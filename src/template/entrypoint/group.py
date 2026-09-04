@@ -24,6 +24,7 @@ from template.domain.schemas.group import (
     GroupInvite,
     GroupInviteCreate,
     GroupJoinLinkResponse,
+    GroupMemberCreate,
     GroupMemberResponse,
     GroupResponse,
     GroupUpdate,
@@ -153,6 +154,40 @@ def list_group_members(
             )
             for m in members
         ]
+    )
+
+
+@router.post(
+    "/{group_id}/members",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ResponseModel[GroupMemberResponse],
+)
+def add_named_member(
+    group_id: int,
+    data: GroupMemberCreate,
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+    member_repo: MemberRepository = Depends(get_member_repository),
+) -> ResponseModel[GroupMemberResponse]:
+    """Add a member identified only by name.
+
+    The member has no contact details and no password, so nothing is ever sent to them.
+    They can later claim the account through the group's join link.
+    """
+    if not group_service.is_member(group_id, current_member.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this group")
+    try:
+        member = group_service.add_named_member(group_id, data.name, member_repo)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return ResponseModel(
+        data=GroupMemberResponse(
+            member_id=member.id,
+            name=member.name,
+            email=member.email,
+            telephone=member.telephone,
+            is_stub=member.is_stub,
+        )
     )
 
 

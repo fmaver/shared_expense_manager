@@ -222,6 +222,7 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /` — list groups the current member belongs to
 - `GET /{group_id}`, `PUT /{group_id}` — get/rename group
 - `GET /{group_id}/members` — list members
+- `POST /{group_id}/members` — add a "ghost" member by name alone (no contact details, no account)
 - `POST /{group_id}/members/invite` — legacy auto-accept invite by email
 - `POST /{group_id}/invitations` — create invitation (email or WhatsApp, creates stub member)
 - `GET /{group_id}/invitations` — list pending invitations
@@ -233,8 +234,8 @@ All routes under `/api/v1` except monitor and webhook.
 **Invitations / join links** (public — no auth required)
 - `GET /invitations/resolve/{token}` — resolve invitation token (returns group + stub member info)
 - `POST /invitations/{token}/accept` — accept invitation; existing members send JWT, new stubs provide password
-- `GET /join/resolve/{token}` — resolve join-link token
-- `POST /join/{token}` — register a new member and join the group
+- `GET /join/resolve/{token}` — resolve join-link token; returns `claimableMembers` (name-only members the joiner may claim)
+- `POST /join/{token}` — register a new member and join the group; optional `claimMemberId` claims an existing name-only member instead of creating one
 
 **Categories** `/api/v1/categories`
 - `GET /`, `GET /with-emojis`
@@ -260,6 +261,7 @@ All routes under `/api/v1` except monitor and webhook.
 - **WhatsApp 24-hour window rule**: if `now - member.last_wpp_chat_datetime >= 1 day` (or never set), Meta requires a pre-approved template. Template name: `expense_notification`, locale `es_AR`. Within the window, free-form text is allowed.
 - **DB tables created on startup AND Alembic migrations both exist** — they coexist by design. The Alembic baseline is `baseline_baseline_20250318.py`. Migration chain: `m3_add_chat_sessions_and_processed_messages` → `m4_reconcile_schema` → `m5_rename_compras_to_supermercado` → `m6_add_groups_schema` → `m7_migrate_to_default_group` → `m8_drop_old_monthly_shares_unique` → `m9_invitations_and_stubs` → `m10_personal_groups_income` → `m11_recurring_income_start_month` → `m12_recurring_personal_expenses` → `m13_recurring_group_expenses` (latest).
 - **Recurring templates must propagate every field into their monthly instances** — `PersonalLedgerService._materialize_recurring_income` / `_materialize_recurring_expenses` and `materialize_recurring_group_expenses` build a fresh instance row per month. A field added to a template but not passed at materialization silently falls back to its column default. This is what broke `currency`: USD templates snapshotted as ARS in every month after the start month (the create endpoint passes it, the materializer did not), so USD amounts were displayed and summed as ARS. Same trap as installment expansion — see `scripts/backfill_recurring_currency.py` for the repair.
+- **Ghost members** — a stub (`hashed_password IS NULL`) with **no email and no telephone**. Tracked by name inside a group, never notified, and created by `POST /{group_id}/members`. Only these are **claimable** through a join link: a stub created by an email or WhatsApp invitation carries a contact detail and is structurally excluded, so nobody holding the link can seize an invitation addressed to someone else. `claimable_members()` in `invitation_service.py` is the single definition, re-validated on the join itself — the resolve response is a UI convenience, never the authority.
 - **Default members re-seeded every startup** — safe because `InitializationService` checks for existence first.
 - **`get_expense` raises `ValueError` for missing IDs** — the expense endpoint catches this as HTTP 400, not 404. Integration tests should assert `status_code in (400, 404)` for the not-found case.
 
