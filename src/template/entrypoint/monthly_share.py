@@ -18,12 +18,14 @@ from fastapi.responses import StreamingResponse
 from template.dependencies import (
     get_expense_service,
     get_member_service,
+    get_occasion_service,
     get_recurring_group_expense_materializer,
 )
 from template.domain.models.expense_manager import compute_debt_transfers
 from template.domain.models.pdf_builder import build_monthly_report
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import (
+    AggregateBalanceResponse,
     DebtTransfer,
     MonthlyBalanceResponse,
     MonthTrendPoint,
@@ -32,6 +34,7 @@ from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
+from template.service_layer.occasion_service import OccasionService
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
 
@@ -55,6 +58,35 @@ def get_group_trend(
         for p in raw
     ]
     return ResponseModel(data=points)
+
+
+# Literal routes must be declared before /{year}/{month}, or "all" and "settle-all" would be
+# matched as a year. The same constraint is why /trend sits above.
+@router.get("/all", response_model=ResponseModel[AggregateBalanceResponse])
+def get_aggregate_balance(
+    service: OccasionService = Depends(get_occasion_service),
+    current_member=Depends(get_current_member),
+) -> ResponseModel[AggregateBalanceResponse]:
+    """Every expense and one net balance for the whole group, with months collapsed.
+
+    Intended for one-time (occasion) groups, which have no notion of "this month".
+    """
+    try:
+        return ResponseModel(data=service.get_aggregate_balance())
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/settle-all", response_model=ResponseModel[AggregateBalanceResponse])
+def settle_all(
+    service: OccasionService = Depends(get_occasion_service),
+    current_member=Depends(get_current_member),
+) -> ResponseModel[AggregateBalanceResponse]:
+    """Settle every month of the group that holds expenses, closing the occasion in one step."""
+    try:
+        return ResponseModel(data=service.settle_all())
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])

@@ -16,9 +16,14 @@ class GroupService:
         """Initialize group service."""
         self._repo = repository
 
-    def create(self, name: str, creator_member_id: int) -> Group:
-        """Create a new group and add the creator as a member."""
-        group = self._repo.create(name)
+    def create(self, name: str, creator_member_id: int, group_type: GroupType = GroupType.REGULAR) -> Group:
+        """Create a new group and add the creator as a member.
+
+        The type is fixed at creation: converting between ongoing and one-time would have to
+        decide which month a trip's spending belongs to, or collapse months that may already
+        be settled.
+        """
+        group = self._repo.create(name, group_type=group_type)
         self._repo.add_member(group.id, creator_member_id)
         return group
 

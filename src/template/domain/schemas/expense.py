@@ -85,6 +85,20 @@ class MonthlyBalanceResponse(CamelCaseModel):
     transfers: list[DebtTransfer] = []
 
 
+class AggregateBalanceResponse(CamelCaseModel):
+    """Every expense and one net balance for a whole group, with months collapsed.
+
+    Used by one-time (occasion) groups, which have no notion of "this month". `is_settled` is
+    an all-months property: true only when every month holding expenses is settled.
+    """
+
+    group_id: int
+    expenses: list[ExpenseResponse]
+    balances: Dict[int, float]
+    is_settled: bool = False
+    transfers: list[DebtTransfer] = []
+
+
 # ---------------------------------------------------------------------------
 # Recurring group expense schemas
 # ---------------------------------------------------------------------------

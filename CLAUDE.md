@@ -135,7 +135,7 @@ tests/
 | Entity | Key fields | Notes |
 |---|---|---|
 | `Member` | id, name, telephone, email, hashed_password, notification_preference, last_wpp_chat_datetime | `notification_preference`: WHATSAPP / EMAIL / NONE; `is_stub` computed (`hashed_password is None`) |
-| `Group` | id, name, status, group_type, created_at | Container for members and expenses |
+| `Group` | id, name, status, group_type, created_at | Container for members and expenses. `group_type`: `regular` (ongoing, month-scoped) / `one_time` (an occasion — months collapsed, credit rejected) / `personal`. Stored as `String(20)`, so new values need **no migration**. Immutable after creation. |
 | `GroupMembership` | group_id, member_id | Many-to-many join table |
 | `Expense` | id, description, amount, date, category, payer_id, payment_type, installments, installment_no, split_strategy (JSON), parent_expense_id, group_id | `parent_expense_id` self-FK, cascade delete |
 | `MonthlyShare` | year, month, is_settled, balances (JSON dict member_id→float), expenses, group_id | owns `recalculate_balances` logic |
@@ -211,7 +211,9 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /{expense_id}`, `PUT /{expense_id}`, `DELETE /{expense_id}`
 - `GET /{expense_id}/parent`
 
-**Monthly Shares** `/api/v1/shares`
+**Monthly Shares** `/api/v1/groups/{group_id}/shares`
+- `GET /all` — every expense and one net balance with months collapsed (one-time groups). Declared **before** `/{year}/{month}` or "all" is parsed as a year
+- `POST /settle-all` — settle every month holding expenses, closing an occasion in one step
 - `GET /{year}/{month}`
 - `POST /settle/{year}/{month}` — close out, generate balancing expenses
 - `POST /unsettle/{year}/{month}` — reopen: delete `balance`-category expenses, set `is_settled=False`, recalculate
@@ -222,6 +224,7 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /` — list groups the current member belongs to
 - `GET /{group_id}`, `PUT /{group_id}` — get/rename group
 - `GET /{group_id}/members` — list members
+- `POST /` accepts `groupType`: `regular` (default) or `one_time`; `personal` is rejected — those are created only by `get_or_create_personal_group`
 - `POST /{group_id}/members` — add a "ghost" member by name alone (no contact details, no account)
 - `POST /{group_id}/members/invite` — legacy auto-accept invite by email
 - `POST /{group_id}/invitations` — create invitation (email or WhatsApp, creates stub member)
@@ -261,6 +264,7 @@ All routes under `/api/v1` except monitor and webhook.
 - **Datetimes**: `last_wpp_chat_datetime` is timezone-aware UTC. Always produce timezone-aware datetimes when doing arithmetic against it.
 - **WhatsApp 24-hour window rule**: if `now - member.last_wpp_chat_datetime >= 1 day` (or never set), Meta requires a pre-approved template. Template name: `expense_notification`, locale `es_AR`. Within the window, free-form text is allowed.
 - **DB tables created on startup AND Alembic migrations both exist** — they coexist by design. The Alembic baseline is `baseline_baseline_20250318.py`. Migration chain: `m3_add_chat_sessions_and_processed_messages` → `m4_reconcile_schema` → `m5_rename_compras_to_supermercado` → `m6_add_groups_schema` → `m7_migrate_to_default_group` → `m8_drop_old_monthly_shares_unique` → `m9_invitations_and_stubs` → `m10_personal_groups_income` → `m11_recurring_income_start_month` → `m12_recurring_personal_expenses` → `m13_recurring_group_expenses` (latest).
+- **One-time groups keep monthly shares underneath** — `OccasionService` collapses them at the edge, which is why no schema change was needed and the balance/transfer math is reused unchanged. Balances sum per member across months (sound because they are stored in ARS). `is_settled` is an **all-months** property. Credit is rejected in `ExpenseService._assert_payment_type_allowed`, where create and update both converge — the hidden UI control is not the rule.
 - **Recurring templates must propagate every field into their monthly instances** — `PersonalLedgerService._materialize_recurring_income` / `_materialize_recurring_expenses` and `materialize_recurring_group_expenses` build a fresh instance row per month. A field added to a template but not passed at materialization silently falls back to its column default. This is what broke `currency`: USD templates snapshotted as ARS in every month after the start month (the create endpoint passes it, the materializer did not), so USD amounts were displayed and summed as ARS. Same trap as installment expansion — see `scripts/backfill_recurring_currency.py` for the repair.
 - **Merging a ghost into an existing account** — `MemberMergeService.merge(ghost_id, survivor_id, group_id)`. `claim_stub` writes an email and password onto the ghost's own row, so it only works when the joiner has no row; an existing account needs the ghost *absorbed*. A merge **changes no amounts** — it relabels who an amount belongs to — which is why it rewrites `expenses.payer_id`, the `participant_ids`/`percentages`/`amounts` **inside** `split_strategy` JSON, `recurring_group_expenses` (its own `payer_id` *and* `split_strategy`), `monthly_shares.balances` keys, memberships and invitations, then deletes the ghost, all in one transaction. **Settled months are rewritten, not skipped**: `recalculate_balances` returns early when `is_settled`, so skipping them would leave balances keyed to a deleted member. Where both ids appear in one split or balances map their shares are added, preserving the total. Refuses any member that is not a ghost, and aborts if the row owns a personal group, income, or a join link.
 - **Ghost members** — a stub (`hashed_password IS NULL`) with **no email and no telephone**. Tracked by name inside a group, never notified, and created by `POST /{group_id}/members`. Only these are **claimable** through a join link: a stub created by an email or WhatsApp invitation carries a contact detail and is structurally excluded, so nobody holding the link can seize an invitation addressed to someone else. `claimable_members()` in `invitation_service.py` is the single definition, re-validated on the join itself — the resolve response is a UI convenience, never the authority.

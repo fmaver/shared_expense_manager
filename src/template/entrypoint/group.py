@@ -17,6 +17,7 @@ from template.dependencies import (
     get_member_repository,
     get_repository,
 )
+from template.domain.models.group import GroupType
 from template.domain.models.repository import ExpenseRepository
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.group import (
@@ -89,7 +90,7 @@ def create_group(
     group_service: GroupService = Depends(get_group_service),
 ) -> ResponseModel[GroupResponse]:
     """Create a new group with the current member as owner."""
-    group = group_service.create(data.name, current_member.id)
+    group = group_service.create(data.name, current_member.id, group_type=GroupType(data.group_type))
     members = group_service.list_members(group.id)
     return ResponseModel(data=_to_response(group, members))
 
