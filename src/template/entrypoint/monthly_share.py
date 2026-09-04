@@ -89,6 +89,18 @@ def settle_all(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/unsettle-all", response_model=ResponseModel[AggregateBalanceResponse])
+def unsettle_all(
+    service: OccasionService = Depends(get_occasion_service),
+    _: Any = Depends(get_current_member),
+) -> ResponseModel[AggregateBalanceResponse]:
+    """Reopen every settled month of the group — the mirror of settle-all."""
+    try:
+        return ResponseModel(data=service.unsettle_all())
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
 def get_monthly_balance(
     year: int = Path(..., ge=1900, le=9999),
