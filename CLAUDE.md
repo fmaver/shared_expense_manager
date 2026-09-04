@@ -313,6 +313,10 @@ Loaded from `.env` via `python-dotenv` + `pydantic-settings`.
 
 Ops runbooks (SendGrid one-time setup, staging WhatsApp setup): see `docs/operations.md`.
 
+**Designed but not built:** see `docs/backlog.md` — persistent login / token policy (the 30-minute
+JWT is why users get logged out), iOS push notifications, and why a link cannot open the installed
+PWA on iOS. Each entry separates verified code facts from platform claims needing re-checking.
+
 ---
 
 ## Frontend integration
