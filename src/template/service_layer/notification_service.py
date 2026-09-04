@@ -59,7 +59,7 @@ class NotificationService:
             is_multi = bool(multi_group_member_ids and member.id in multi_group_member_ids)
             effective_group = group_name if (group_name and is_multi) else None
 
-            if member.notification_preference == NotificationType.EMAIL:
+            if member.notification_preference == NotificationType.EMAIL and member.email:
                 message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
                 if effective_group:
                     message = f"📁 *{effective_group}*\n\n{message}"
