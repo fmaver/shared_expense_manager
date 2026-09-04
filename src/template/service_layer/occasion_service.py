@@ -65,6 +65,19 @@ class OccasionService:
             transfers=transfers,
         )
 
+    def unsettle_all(self) -> AggregateBalanceResponse:
+        """Reopen every settled month of this group, then return the aggregate.
+
+        The mirror of settle_all: an occasion is settled as one thing, so it has to be
+        reopened as one thing. Reopening only the viewed month would leave the group
+        half-settled with no way to tell from the single balance shown.
+        """
+        shares = self._repository.get_all_monthly_shares(self._group_id)
+        for share in sorted(shares.values(), key=lambda s: (s.year, s.month)):
+            if share.is_settled:
+                self._expenses.unsettle_monthly_share(share.year, share.month)
+        return self.get_aggregate_balance()
+
     def settle_all(self) -> AggregateBalanceResponse:
         """Settle every month of this group that holds expenses, then return the aggregate."""
         shares = self._repository.get_all_monthly_shares(self._group_id)

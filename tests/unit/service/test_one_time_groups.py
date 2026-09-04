@@ -211,3 +211,16 @@ def test_aggregate_on_an_empty_group_is_settled_and_balanced(populated_session):
 
     assert aggregate.expenses == []
     assert aggregate.balances == {}
+
+
+def test_unsettle_all_reopens_every_month(populated_session):
+    """The mirror of settle-all: an occasion settled as one thing reopens as one thing."""
+    group_id = _one_time_group(populated_session)
+    service = _service(populated_session, group_id)
+    service.create_expense(_expense(date=date(2026, 5, 10)))
+    service.create_expense(_expense(date=date(2026, 6, 10)))
+    _occasion(populated_session, group_id).settle_all()
+
+    aggregate = _occasion(populated_session, group_id).unsettle_all()
+
+    assert aggregate.is_settled is False
