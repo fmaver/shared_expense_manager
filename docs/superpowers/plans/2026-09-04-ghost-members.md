@@ -22,6 +22,22 @@
 - Frontend: `npm run lint` and `npm run build`.
 - A member is **claimable** only when all three hold: belongs to the group, `hashed_password IS NULL`, and `email IS NULL AND telephone IS NULL`. Re-validate server-side on every claim; never trust the resolve response.
 
+### Testing strategy — read before starting
+
+`make integration` cannot run on the development machine (no Docker, no local Postgres), and
+pointing it at staging is forbidden: `tests/integration/conftest.py::clean_tables` truncates
+tables after every test and would wipe staging data.
+
+So the RED-GREEN cycle runs on **in-memory SQLite unit tests**, following the pattern in
+`tests/unit/adapters/test_income_currency_update.py`: build the schema with
+`Base.metadata.create_all(engine)`, construct the repository or service directly against that
+session, and assert on real rows. This covers the claimable filter and every claim rejection
+path — the security-relevant logic — with a local test cycle measured in milliseconds.
+
+Router-level integration tests are still written (they check status codes, auth and the wire
+shape) but are **verified by CI**, not locally. When a task says "verified in CI", write the
+test, confirm it is collected (`--collect-only`), and move on; do not claim it passed.
+
 ---
 
 ### Task 1: Allow a contactless stub member
@@ -339,10 +355,42 @@ git commit -m "feat: add group member by name only"
 
 ### Task 4: Expose claimable members on join-token resolve
 
+**Test cycle:** SQLite unit tests drive this (local RED-GREEN); the integration test is written
+for CI.
+
 **Files:**
 - Modify: `src/template/domain/schemas/group.py:83-85` (`GroupJoinResolveResponse`)
 - Modify: `src/template/service_layer/invitation_service.py` (`GroupJoinLinkService.resolve_join_token`, ~line 308)
-- Test: `tests/integration/groups/test_ghost_members.py` (extend)
+- Test: `tests/unit/service/test_ghost_member_claiming.py` (create — the local cycle)
+- Test: `tests/integration/groups/test_ghost_members.py` (extend — CI)
+
+**Local unit test to write first**, following `tests/unit/adapters/test_income_currency_update.py`
+for the session fixture. Build a group with four members — the creator (full account), a ghost
+(no contacts), an email-invited stub, and a phone-invited stub — then assert the claimable
+filter returns only the ghost:
+
+```python
+def test_only_contactless_stubs_are_claimable(populated_session):
+    """Invited stubs carry a contact detail and must never be claimable."""
+    group_repo = GroupRepository(populated_session)
+    member_repo = MemberRepository(populated_session)
+
+    ghost = member_repo.create_stub(name="Guada")
+    by_email = member_repo.create_stub(name="Ivi", email="ivi@example.com")
+    by_phone = member_repo.create_stub(name="Sol", telephone="5411999999")
+    for member in (ghost, by_email, by_phone):
+        group_repo.add_member(GROUP_ID, member.id)
+
+    claimable = [
+        m for m in group_repo.list_members(GROUP_ID)
+        if m.is_stub and m.email is None and m.telephone is None
+    ]
+
+    assert [m.name for m in claimable] == ["Guada"]
+```
+
+Once the filter moves into the service, re-point this test at the real service method rather
+than duplicating the comprehension.
 
 **Interfaces:**
 - Consumes: the `POST /{group_id}/members` route from Task 3.
@@ -429,6 +477,12 @@ git commit -m "feat: list claimable name-only members on join resolve"
 ---
 
 ### Task 5: Claim a ghost member when joining
+
+**Test cycle:** the three rejection paths are the security surface of this feature and are
+driven by SQLite unit tests in `tests/unit/service/test_ghost_member_claiming.py`, asserting
+that `_claimable_or_raise` raises `ValueError` for: a member with an email, a member with a
+telephone, a member that already has a password, and a member belonging to another group. The
+integration tests below cover status codes and the wire shape, and are verified in CI.
 
 **Files:**
 - Modify: `src/template/domain/schemas/group.py:77-80` (`GroupJoinRequest`)
