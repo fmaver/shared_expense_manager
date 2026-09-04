@@ -129,11 +129,18 @@ def accept_invitation(
 @router.get("/join/resolve/{token}", response_model=ResponseModel[GroupJoinResolveResponse])
 def resolve_join_token(
     token: str,
+    current_member: Optional[Any] = Depends(_get_optional_member),
     svc: GroupJoinLinkService = Depends(_join_link_svc),
 ) -> ResponseModel[GroupJoinResolveResponse]:
-    """Resolve a shareable join link. Public — no auth required."""
+    """Resolve a shareable join link. Public, but reads a JWT when one is present.
+
+    With a JWT we can tell the caller they are already in this group, so the page can say so
+    instead of offering a join that would no-op.
+    """
     try:
         result = svc.resolve_join_token(token)
+        if current_member is not None:
+            result.already_member = svc.is_member_of_join_group(token, current_member.id)
         return ResponseModel(data=result)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -143,9 +150,14 @@ def resolve_join_token(
 def register_and_join(
     token: str,
     body: GroupJoinRequest,
+    current_member: Optional[Any] = Depends(_get_optional_member),
     svc: GroupJoinLinkService = Depends(_join_link_svc),
 ) -> dict:
-    """Register a new member and add them to the group identified by the join link."""
+    """Join the group identified by the join link.
+
+    Authenticated callers join with their JWT and need no credentials in the body; claiming a
+    ghost then merges it into their account. Anonymous callers register as before.
+    """
     try:
         new_member = svc.register_and_join(
             token=token,
@@ -153,6 +165,7 @@ def register_and_join(
             email=body.email,
             password=body.password,
             claim_member_id=body.claim_member_id,
+            current_member=current_member,
         )
         access_token = _make_token(new_member.id, new_member.email)
         return {"data": {"accessToken": access_token, "tokenType": "bearer"}}
