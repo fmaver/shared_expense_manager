@@ -81,9 +81,13 @@ class InvitationAcceptRequest(CamelCaseModel):
 
 
 class GroupJoinRequest(CamelCaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    email: str
-    password: str
+    """Join by link. Credentials are required only when joining without an account —
+    an authenticated caller supplies none of them, so the service validates rather than
+    the schema, letting the error say which path is missing what."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    email: Optional[str] = None
+    password: Optional[str] = None
     claim_member_id: Optional[int] = None
 
 
@@ -98,6 +102,7 @@ class GroupJoinResolveResponse(CamelCaseModel):
     group_name: str
     inviter_name: str
     claimable_members: list[ClaimableMemberResponse] = []
+    already_member: bool = False
 
 
 class GroupResponse(CamelCaseModel):

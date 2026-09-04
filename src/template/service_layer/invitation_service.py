@@ -23,6 +23,7 @@ from template.domain.schemas.group import (
     InvitationResolveResponse,
     InvitationResponse,
 )
+from template.service_layer.member_merge_service import MemberMergeService
 from template.service_layer.whatsapp_invite_client import WhatsAppInviteClient
 
 
@@ -339,15 +340,28 @@ class GroupJoinLinkService:
     def register_and_join(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         token: str,
-        name: str,
-        email: str,
-        password: str,
+        name: Optional[str] = None,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
         claim_member_id: Optional[int] = None,
+        current_member: Optional[Member] = None,
     ) -> Member:
-        """Join a group by link, either as a brand-new member or by claiming a name-only one."""
+        """Join a group by link.
+
+        Four paths, by whether the caller is authenticated and whether they claim a ghost:
+        anonymous registers (optionally onto a ghost via claim_stub), while an authenticated
+        caller is simply added to the group — and if they claim a ghost, that ghost is *merged*
+        into their account, since they already have a member row of their own.
+        """
         row = self._join_link_repo.get_by_token(token)
         if not row:
             raise ValueError("Join link not found or expired")
+
+        if current_member is not None:
+            return self._join_as_existing_account(row.group_id, current_member, claim_member_id)
+
+        if not (name and email and password):
+            raise ValueError("name, email and password are required when joining without an account")
 
         existing = self._member_repo.get_member_by_email(email)
         if existing:
@@ -365,6 +379,25 @@ class GroupJoinLinkService:
         self._member_repo.claim_stub(new_member.id, email, password_hash)
         self._group_repo.add_member(row.group_id, new_member.id)
         return self._member_repo.get(new_member.id)
+
+    def _join_as_existing_account(
+        self, group_id: int, current_member: Member, claim_member_id: Optional[int]
+    ) -> Member:
+        """Add an authenticated caller to the group, absorbing a ghost if they claim one."""
+        if claim_member_id is not None:
+            self._claimable_or_raise(group_id, claim_member_id)
+            # The merge moves the caller into the group as part of its work.
+            MemberMergeService(self._group_repo.session).merge(claim_member_id, current_member.id, group_id)
+        else:
+            self._group_repo.add_member(group_id, current_member.id)  # idempotent
+        return self._member_repo.get(current_member.id)
+
+    def is_member_of_join_group(self, token: str, member_id: int) -> bool:
+        """Return True if this member already belongs to the group the token points at."""
+        row = self._join_link_repo.get_by_token(token)
+        if not row:
+            raise ValueError("Join link not found or expired")
+        return self._group_repo.is_member(row.group_id, member_id)
 
     def _claimable_or_raise(self, group_id: int, member_id: int) -> Member:
         """Return the member if this group's link may claim it, else raise.

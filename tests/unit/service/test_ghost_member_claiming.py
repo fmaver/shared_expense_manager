@@ -113,3 +113,79 @@ def test_claimable_members_are_scoped_to_the_group(populated_session):
     group_repo.add_member(OTHER_GROUP_ID, outsider.id)
 
     assert _claimable_names(populated_session, GROUP_ID) == []
+
+
+# ---------------------------------------------------------------------------
+# Joining with an existing account
+# ---------------------------------------------------------------------------
+
+
+def _join_service(session):
+    from template.adapters.repositories import GroupJoinLinkRepository
+    from template.service_layer.invitation_service import GroupJoinLinkService
+
+    return GroupJoinLinkService(
+        group_repo=GroupRepository(session),
+        member_repo=MemberRepository(session),
+        join_link_repo=GroupJoinLinkRepository(session),
+        app_base_url="http://localhost:5173",
+    )
+
+
+def _make_token(session, creator_id: int = 1) -> str:
+    return _join_service(session).get_or_create_link(GROUP_ID, creator_id).token
+
+
+def _existing_account(session, name="Guada", email="guada@example.com"):
+    member = MemberRepository(session).create_stub(name=name, email=email)
+    return MemberRepository(session).claim_stub(member.id, email, "hashed")
+
+
+def test_authenticated_join_adds_the_caller_without_a_password(populated_session):
+    """A logged-in user joins with their JWT — no name, email or password in the body."""
+    joiner = _existing_account(populated_session)
+    token = _make_token(populated_session)
+
+    result = _join_service(populated_session).register_and_join(token=token, current_member=joiner)
+
+    assert result.id == joiner.id
+    assert joiner.id in [m.id for m in GroupRepository(populated_session).list_members(GROUP_ID)]
+
+
+def test_authenticated_join_with_claim_merges_the_ghost(populated_session):
+    """Claiming as an existing account absorbs the ghost instead of creating a member."""
+    group_repo = GroupRepository(populated_session)
+    ghost = MemberRepository(populated_session).create_stub(name="Guada")
+    group_repo.add_member(GROUP_ID, ghost.id)
+    joiner = _existing_account(populated_session, name="Guada real", email="real@example.com")
+    token = _make_token(populated_session)
+
+    result = _join_service(populated_session).register_and_join(
+        token=token, claim_member_id=ghost.id, current_member=joiner
+    )
+
+    assert result.id == joiner.id
+    member_ids = [m.id for m in group_repo.list_members(GROUP_ID)]
+    assert joiner.id in member_ids
+    assert ghost.id not in member_ids, "the ghost must be absorbed, not left alongside"
+
+
+def test_authenticated_join_is_idempotent_when_already_a_member(populated_session):
+    """Re-opening the link as an existing member does not duplicate the membership."""
+    joiner = _existing_account(populated_session)
+    token = _make_token(populated_session)
+    service = _join_service(populated_session)
+
+    service.register_and_join(token=token, current_member=joiner)
+    service.register_and_join(token=token, current_member=joiner)
+
+    members = [m.id for m in GroupRepository(populated_session).list_members(GROUP_ID)]
+    assert members.count(joiner.id) == 1
+
+
+def test_anonymous_join_still_requires_credentials(populated_session):
+    """Without a JWT the caller must supply name, email and password."""
+    token = _make_token(populated_session)
+
+    with pytest.raises(ValueError):
+        _join_service(populated_session).register_and_join(token=token, name="Nuevo")
