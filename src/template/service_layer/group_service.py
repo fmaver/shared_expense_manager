@@ -64,6 +64,17 @@ class GroupService:
             raise ValueError(f"No member found with email {email}")
         self._repo.add_member(group_id, member.id)
 
+    def add_named_member(self, group_id: int, name: str, member_repo) -> Member:
+        """Add a member identified only by name — a "ghost".
+
+        The member has no contact details and no password, so nothing is ever sent to them.
+        They can later claim the account through the group's join link.
+        """
+        self._assert_not_personal(group_id)
+        member = member_repo.create_stub(name=name)
+        self._repo.add_member(group_id, member.id)
+        return member
+
     def leave(self, group_id: int, member_id: int, member_balance: float) -> None:
         """Remove a member from the group. Blocked if they have a non-zero balance."""
         self._assert_not_personal(group_id)

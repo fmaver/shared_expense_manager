@@ -152,6 +152,7 @@ def register_and_join(
             name=body.name,
             email=body.email,
             password=body.password,
+            claim_member_id=body.claim_member_id,
         )
         access_token = _make_token(new_member.id, new_member.email)
         return {"data": {"accessToken": access_token, "tokenType": "bearer"}}

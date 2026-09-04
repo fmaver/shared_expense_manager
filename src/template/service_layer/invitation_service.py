@@ -17,12 +17,29 @@ from template.domain.models.group import GroupType
 from template.domain.models.member import Member
 from template.domain.phone import normalize_ar_phone
 from template.domain.schemas.group import (
+    ClaimableMemberResponse,
     GroupJoinLinkResponse,
     GroupJoinResolveResponse,
     InvitationResolveResponse,
     InvitationResponse,
 )
 from template.service_layer.whatsapp_invite_client import WhatsAppInviteClient
+
+
+def claimable_members(group_repo: GroupRepository, group_id: int) -> list[Member]:
+    """Return the group's members that someone joining by link may claim as themselves.
+
+    A member is claimable only when it is still a stub *and* carries no contact details.
+    That second condition is load-bearing: a stub created by an email or WhatsApp invitation
+    is addressed to a specific person, so allowing it to be claimed would let whoever holds
+    the join link seize an invitation meant for someone else.
+    """
+    return [
+        member
+        for member in group_repo.list_members(group_id)
+        if member.is_stub and member.email is None and member.telephone is None
+    ]
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -313,10 +330,21 @@ class GroupJoinLinkService:
         return GroupJoinResolveResponse(
             group_name=row.group.name,
             inviter_name=row.created_by.name,
+            claimable_members=[
+                ClaimableMemberResponse(member_id=m.id, name=m.name)
+                for m in claimable_members(self._group_repo, row.group_id)
+            ],
         )
 
-    def register_and_join(self, token: str, name: str, email: str, password: str) -> Member:
-        """Register a brand-new member and add them to the group for this join link."""
+    def register_and_join(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        token: str,
+        name: str,
+        email: str,
+        password: str,
+        claim_member_id: Optional[int] = None,
+    ) -> Member:
+        """Join a group by link, either as a brand-new member or by claiming a name-only one."""
         row = self._join_link_repo.get_by_token(token)
         if not row:
             raise ValueError("Join link not found or expired")
@@ -326,7 +354,25 @@ class GroupJoinLinkService:
             raise ValueError(f"Email {email} is already registered")
 
         password_hash = pwd_context.hash(password)
+
+        if claim_member_id is not None:
+            claimed = self._claimable_or_raise(row.group_id, claim_member_id)
+            self._member_repo.claim_stub(claimed.id, email, password_hash)
+            self._group_repo.add_member(row.group_id, claimed.id)
+            return self._member_repo.get(claimed.id)
+
         new_member = self._member_repo.create_stub(name=name, email=email)
         self._member_repo.claim_stub(new_member.id, email, password_hash)
         self._group_repo.add_member(row.group_id, new_member.id)
         return self._member_repo.get(new_member.id)
+
+    def _claimable_or_raise(self, group_id: int, member_id: int) -> Member:
+        """Return the member if this group's link may claim it, else raise.
+
+        Re-validated here rather than trusted from the resolve response, which is only a
+        convenience for the UI.
+        """
+        for member in claimable_members(self._group_repo, group_id):
+            if member.id == member_id:
+                return member
+        raise ValueError("That member cannot be claimed through this link")
