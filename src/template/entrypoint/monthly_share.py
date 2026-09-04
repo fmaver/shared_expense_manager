@@ -63,6 +63,7 @@ def get_monthly_balance(
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
     materialize: Callable[[int, int], None] = Depends(get_recurring_group_expense_materializer),
+    _: Any = Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Get the monthly balance for a specific month."""
     try:
@@ -223,6 +224,7 @@ def recalculate_monthly_share(
     year: int = Path(..., ge=1900, le=9999),
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
+    _: Any = Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Recalculate the monthly share for a specific month."""
     try:

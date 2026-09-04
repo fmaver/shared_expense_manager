@@ -184,7 +184,9 @@ def find_similar_expenses(
 
 @router.get("/{expense_id}", response_model=ResponseModel[ExpenseResponse])
 def get_expense(
-    expense_id: int, service: ExpenseService = Depends(get_expense_service)
+    expense_id: int,
+    service: ExpenseService = Depends(get_expense_service),
+    _=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Get a specific expense by ID."""
     try:
@@ -226,7 +228,9 @@ def get_expense(
 
 @router.get("/{expense_id}/parent", response_model=ResponseModel[ExpenseResponse])
 def get_parent_expense(
-    expense_id: int, service: ExpenseService = Depends(get_expense_service)
+    expense_id: int,
+    service: ExpenseService = Depends(get_expense_service),
+    _=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Get the parent expense for a given expense ID."""
     try:
