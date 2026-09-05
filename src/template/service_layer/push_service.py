@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from template.adapters.orm import MemberModel
 from template.adapters.repositories import PushSubscriptionRepository
 from template.domain.models.enums import NotificationType
+from template.domain.models.formatters import format_amount_es
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,32 @@ def resolve_channel(member: MemberModel, push_repo: PushSubscriptionRepository) 
     if push_repo.has_any(member.id):
         return PUSH_CHANNEL
     return member.notification_preference
+
+
+def push_body_for_expense(expense, creator, member_service) -> str:
+    """Who, what and how much — enough to decide whether it matters, read at a glance.
+
+    A lock-screen notification is skimmed, not studied. The full breakdown is one tap away, so
+    this carries only what makes the difference between ignoring it and opening the app.
+    """
+    payer = member_service.get_member(expense.payer_id) if expense.payer_id else None
+    who = payer.name if payer else creator.name
+    symbol = "US$ " if getattr(expense, "currency", "ARS") == "USD" else "$"
+    return f"{who} cargó {expense.description} · {symbol}{format_amount_es(expense.amount)}"
+
+
+def push_url_for_expense(expense, group_id) -> str:
+    """Deep link straight to this expense.
+
+    The month has to travel with it: an expense dated in another month is not on the screen
+    the group opens to, so landing on the group alone would leave the user hunting for the
+    very thing the notification was about. `?year=&month=` is the convention the app already
+    uses; `expense` opens its detail.
+    """
+    base = f"/groups/{group_id}" if group_id else "/groups"
+    if not group_id or expense.date is None:
+        return base
+    return f"{base}?year={expense.date.year}&month={expense.date.month}&expense={expense.id}"
 
 
 class PushService:
