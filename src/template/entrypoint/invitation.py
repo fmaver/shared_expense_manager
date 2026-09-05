@@ -68,6 +68,7 @@ def _invitation_svc(db: Session = Depends(get_db)) -> InvitationService:
         notification_service=NotificationService(),
         wpp_invite_client=MetaWhatsAppInviteClient(),
         app_base_url=os.getenv("APP_BASE_URL", "http://localhost:5173"),
+        push_service=PushService(db),
     )
 
 

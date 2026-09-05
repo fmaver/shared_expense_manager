@@ -104,6 +104,11 @@ def push_body_for_join(joiner_name: str, claimed_name: Optional[str] = None) -> 
     return f"👋 {joiner_name} se sumó al grupo"
 
 
+def push_body_for_invitation(inviter_name: str) -> str:
+    """An invitation to a group. The group name is the title, so it is not repeated here."""
+    return f"👋 {inviter_name} te invitó a este grupo"
+
+
 def push_body_for_settlement(month: int, year: int) -> str:
     """A settled month, in the few words a lock screen shows."""
     return f"✅ Cuentas de {month_name_es(month)} {year} saldadas"
@@ -157,6 +162,18 @@ class PushService:
                 self._handle_failure(subscription.endpoint, exc)
             except Exception as exc:  # pylint: disable=broad-except
                 logger.warning("Push delivery failed for %s: %s", subscription.endpoint, exc)
+
+    def send_if_subscribed(self, member_id: int, title: str, body: str, url: str) -> bool:
+        """Deliver only if this member has a registered device. True when it was sent.
+
+        Callers that route between channels need the answer, not just the send: they fall
+        through to email when it is False. The subscription lookup uses this service's own
+        repository, so a caller needs no second push dependency.
+        """
+        if not self._repo.has_any(member_id):
+            return False
+        self.send_to_member(member_id, title, body, url)
+        return True
 
     def _handle_failure(self, endpoint: str, exc: WebPushException) -> None:
         """Drop the device only when the push service says it is gone."""
