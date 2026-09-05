@@ -23,16 +23,15 @@ from template.domain.models.models import Expense
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.service_layer.member_service import MemberService
 from template.service_layer.push_service import (
-    PUSH_CHANNEL,
     PushMessage,
     push_body_for_expense,
     push_body_for_join,
+    push_body_for_occasion,
     push_body_for_recurring_template,
     push_body_for_settlement,
     push_body_for_unsettle,
     push_url_for_expense,
     push_url_for_month,
-    resolve_channel,
 )
 from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
@@ -50,22 +49,18 @@ class NotificationService:
         self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
         self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
 
-    def _maybe_push(self, member, push_service, push_repo, message) -> bool:
+    @staticmethod
+    def _maybe_push(member, push_service, message) -> bool:
         """Send a push to this member if that is their channel. True when it was sent.
 
-        Every dispatch site had the same shape; this keeps the routing decision in one place
-        so a future channel does not have to be added four times. `message` is None when push
-        is not configured for this call at all.
+        Takes the service alone rather than a service *and* a subscription repository. They
+        were two optional parameters that had to travel together, and three call sites shipped
+        with one of them missing — silently falling back to email, or to nothing at all for the
+        accounts whose preference is still the NONE default. One parameter cannot be half-passed.
         """
-        if push_service is None or message is None or not self._push_channel(member, push_repo):
+        if push_service is None or message is None:
             return False
-        push_service.send_to_member(member.id, message.title, message.body, message.url)
-        return True
-
-    @staticmethod
-    def _push_channel(member, push_repo) -> bool:
-        """True when this member should be reached by push instead of their usual channel."""
-        return push_repo is not None and resolve_channel(member, push_repo) == PUSH_CHANNEL
+        return push_service.send_if_subscribed(member.id, message.title, message.body, message.url)
 
     async def notify_expense_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
         self,
@@ -78,12 +73,11 @@ class NotificationService:
         group_id: Optional[int] = None,
         is_recurring: bool = False,
         push_service=None,
-        push_repo=None,
     ) -> None:
         """Notify members about a new expense based on their notification preferences.
 
-        `push_service`/`push_repo` are optional so every existing caller and test keeps
-        working unchanged; without them the behaviour is exactly what it was.
+        `push_service` is optional so every existing caller and test keeps working unchanged;
+        without it the behaviour is exactly what it was.
         """
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
         if is_loan:
@@ -121,7 +115,7 @@ class NotificationService:
             # registered; everyone else falls through to email exactly as before. This sits
             # *after* the involvement check above on purpose — push adds a pipe, not a new
             # decision about who deserves to hear about this expense.
-            if self._maybe_push(member, push_service, push_repo, push_message):
+            if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
 
             elif member.notification_preference == NotificationType.EMAIL and member.email:
@@ -195,7 +189,6 @@ class NotificationService:
         group_name: str,
         group_id: Optional[int] = None,
         push_service=None,
-        push_repo=None,
     ) -> None:
         """Notify all group members (except the settler) that a month has been settled."""
         time_now = datetime.now(timezone.utc)
@@ -220,7 +213,7 @@ class NotificationService:
             if member.id == actor_member_id:
                 continue
 
-            if self._maybe_push(member, push_service, push_repo, push_message):
+            if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
             elif member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
@@ -249,7 +242,6 @@ class NotificationService:
         group_name: str,
         group_id: Optional[int] = None,
         push_service=None,
-        push_repo=None,
     ) -> None:
         """Notify all group members (except the actor) that a month has been reopened."""
         time_now = datetime.now(timezone.utc)
@@ -274,7 +266,7 @@ class NotificationService:
             if member.id == actor_member_id:
                 continue
 
-            if self._maybe_push(member, push_service, push_repo, push_message):
+            if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
             elif member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
@@ -462,7 +454,6 @@ class NotificationService:
         group_name: Optional[str] = None,
         group_id: Optional[int] = None,
         push_service: Any = None,
-        push_repo: Any = None,
     ) -> None:
         """Notify group members about a new recurring expense template created from the web app."""
         # pylint: disable=import-outside-toplevel
@@ -498,7 +489,7 @@ class NotificationService:
 
             message = f"📁 *{group_name}*\n\n{message_body}" if group_name else message_body
 
-            if self._maybe_push(member, push_service, push_repo, push_message):
+            if self._maybe_push(member, push_service, push_message):
                 continue
 
             if member.notification_preference == NotificationType.EMAIL and member.email:
@@ -522,7 +513,6 @@ class NotificationService:
         group_id: Optional[int] = None,
         claimed_name: Optional[str] = None,
         push_service: Any = None,
-        push_repo: Any = None,
     ) -> None:
         """Tell the people already in a group that someone joined it.
 
@@ -550,9 +540,42 @@ class NotificationService:
         for member in members:
             if member.id == joiner.id:
                 continue
-            if self._maybe_push(member, push_service, push_repo, push_message):
+            if self._maybe_push(member, push_service, push_message):
                 continue
             # `member.email` is not redundant: ghost members carry a preference but nowhere to send.
+            if member.notification_preference == NotificationType.EMAIL and member.email:
+                self._send_email(member.email, subject, message)
+
+    async def notify_occasion_settled(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        actor_member_id: int,
+        members: List[Member],
+        group_name: Optional[str] = None,
+        group_id: Optional[int] = None,
+        settled: bool = True,
+        push_service: Any = None,
+    ) -> None:
+        """Settling or reopening a one-time group as a whole.
+
+        Separate from notify_settlement because an occasion has no month to name: it keeps
+        monthly shares underneath, but closing it is one act over all of them, and a message
+        saying "las cuentas de marzo" would describe an internal detail the group never sees.
+        """
+        subject = "✅ Cuentas saldadas" if settled else "↩️ Grupo reabierto"
+        body = push_body_for_occasion(settled)
+        message = f"📁 *{group_name}*\n\n{body}" if group_name else body
+
+        push_message = (
+            PushMessage(group_name or subject, body, f"/groups/{group_id}" if group_id else "/groups")
+            if push_service is not None
+            else None
+        )
+
+        for member in members:
+            if member.id == actor_member_id:
+                continue
+            if self._maybe_push(member, push_service, push_message):
+                continue
             if member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
 
@@ -627,7 +650,6 @@ class NotificationService:
         multi_group_member_ids: Optional[set] = None,
         group_id: Optional[int] = None,
         push_service=None,
-        push_repo=None,
     ) -> None:
         """Notify members (union of old+new involved, minus actor) about an edited expense."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -680,7 +702,6 @@ class NotificationService:
             template_name="expense_updated",
             template_parameters=template_params,
             push_service=push_service,
-            push_repo=push_repo,
             push_title=group_name,
             push_body=(
                 f"✏️ {actor_name} editó "
@@ -700,7 +721,6 @@ class NotificationService:
         multi_group_member_ids: Optional[set] = None,
         group_id: Optional[int] = None,
         push_service=None,
-        push_repo=None,
     ) -> None:
         """Notify involved members (minus actor) that an expense was deleted."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -738,7 +758,6 @@ class NotificationService:
             template_name="expense_deleted",
             template_parameters=template_params,
             push_service=push_service,
-            push_repo=push_repo,
             push_title=group_name,
             push_body=(
                 f"🗑️ {actor_name} eliminó "
@@ -764,7 +783,6 @@ class NotificationService:
         template_name: Optional[str] = None,
         template_parameters: Optional[List[Dict[str, Any]]] = None,
         push_service=None,
-        push_repo=None,
         push_title: Optional[str] = None,
         push_body: Optional[str] = None,
         push_url: Optional[str] = None,
@@ -787,7 +805,7 @@ class NotificationService:
         for member in recipients:
             is_multi = bool(multi_group_member_ids and member.id in multi_group_member_ids)
             show_group = bool(group_name and is_multi)
-            if self._maybe_push(member, push_service, push_repo, push_message):
+            if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
             elif member.notification_preference == NotificationType.EMAIL:
                 self._send_email(member.email, subject, message, html_content=html_content)

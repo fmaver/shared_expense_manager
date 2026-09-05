@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from template.adapters.database import get_db
 from template.adapters.repositories import (
     GroupRepository,
-    PushSubscriptionRepository,
     RecurringGroupExpenseRepository,
 )
 from template.dependencies import (
@@ -76,7 +75,6 @@ def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-pos
         group_name=group.name if group else None,
         group_id=group_id,
         push_service=PushService(db),
-        push_repo=PushSubscriptionRepository(db),
     )
 
     return ResponseModel(data=template)

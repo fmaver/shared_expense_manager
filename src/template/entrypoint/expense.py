@@ -15,7 +15,6 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
-from template.adapters.repositories import PushSubscriptionRepository
 from template.dependencies import (
     get_expense_service,
     get_group_service,
@@ -108,7 +107,6 @@ def create_expense(
                 multi_group_member_ids=multi_group_ids,
                 group_id=service.group_id,
                 push_service=PushService(db),
-                push_repo=PushSubscriptionRepository(db),
             )
 
         # Create response data
@@ -171,7 +169,6 @@ def update_expense(  # pylint: disable=too-many-locals
                 multi_group_member_ids=multi_group_ids,
                 group_id=service.group_id,
                 push_service=PushService(db),
-                push_repo=PushSubscriptionRepository(db),
             )
 
         response_data = ExpenseResponse(
@@ -231,7 +228,6 @@ def delete_expense(
                 multi_group_member_ids=multi_group_ids,
                 group_id=service.group_id,
                 push_service=PushService(db),
-                push_repo=PushSubscriptionRepository(db),
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

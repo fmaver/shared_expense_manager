@@ -594,6 +594,7 @@ def administrar_chatbot(  # pylint: disable=too-many-arguments,too-many-position
     recurring_repo: Optional["RecurringGroupExpenseRepository"] = None,
     income_repo: Optional["IncomeRepository"] = None,
     recurring_personal_repo: Optional["RecurringPersonalExpenseRepository"] = None,
+    push_service: Optional[Any] = None,
 ) -> Dict[str, Any]:  # noqa: C901
     """logica del bot"""
     # pylint: disable=too-many-locals
@@ -642,7 +643,13 @@ def administrar_chatbot(  # pylint: disable=too-many-arguments,too-many-position
 
     elif estado_actual_usuario["estado"] == "esperando_confirmacion_saldar_cuentas":
         responses, estado_actual_usuario = handle_settle_accounts(
-            number, estado_actual_usuario, message_id, service, text, member_service=member_service
+            number,
+            estado_actual_usuario,
+            message_id,
+            service,
+            text,
+            member_service=member_service,
+            push_service=push_service,
         )
         user_responses.extend(responses)
 
@@ -1235,6 +1242,7 @@ def handle_settle_accounts(
     service: ExpenseService,
     text: str,
     member_service: Optional[MemberService] = None,
+    push_service: Optional[Any] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle settle shares"""
     user_responses = []
@@ -1273,6 +1281,7 @@ def handle_settle_accounts(
                     member_service=member_service,
                     group_name=group_name,
                     group_id=service.group_id,
+                    push_service=push_service,
                 )
             )
 
