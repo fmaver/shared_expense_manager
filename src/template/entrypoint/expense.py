@@ -2,7 +2,16 @@
 
 from datetime import date
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 
 from template.dependencies import (
     get_expense_service,
@@ -10,15 +19,18 @@ from template.dependencies import (
     get_member_service,
     get_repository,
 )
+from template.domain.models.enums import PaymentType
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import (
     ExpenseCreate,
+    ExpenseDraftResponse,
     ExpenseResponse,
     SplitStrategySchema,
 )
 from template.service_layer.auth_service import get_current_member
+from template.service_layer.expense_draft_service import build_expense_draft
 from template.service_layer.expense_service import ExpenseService, _strategy_to_schema
 from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
@@ -28,6 +40,35 @@ router = APIRouter(prefix="/groups/{group_id}/expenses", tags=["Expenses"])
 
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
+@router.post("/parse-image", response_model=ResponseModel[ExpenseDraftResponse])
+async def parse_expense_image(
+    file: UploadFile = File(...),
+    _=Depends(get_current_member),
+) -> ResponseModel[ExpenseDraftResponse]:
+    """Read an expense off an uploaded screenshot or receipt photo.
+
+    Returns a **draft** for the user to confirm — it never creates the expense. The image is
+    parsed by an LLM, which is occasionally wrong, and this is money.
+    """
+    try:
+        draft = build_expense_draft(await file.read(), file.content_type or "")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    return ResponseModel(
+        data=ExpenseDraftResponse(
+            amount=draft.amount,
+            description=draft.description,
+            category=draft.category,
+            date=draft.date,
+            payment_type=PaymentType(draft.payment_type),
+            installments=draft.installments,
+            currency=draft.currency,
+            confidence=draft.confidence,
+        )
+    )
+
+
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ResponseModel[ExpenseResponse])
 def create_expense(
     expense_data: ExpenseCreate,

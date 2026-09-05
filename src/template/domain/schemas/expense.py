@@ -85,6 +85,23 @@ class MonthlyBalanceResponse(CamelCaseModel):
     transfers: list[DebtTransfer] = []
 
 
+class ExpenseDraftResponse(CamelCaseModel):
+    """An expense read off an image by the LLM — a suggestion, not a saved expense.
+
+    `confidence` is surfaced deliberately so the UI can tell the user when to look twice.
+    `amount` is optional because the model sometimes finds a receipt but no total.
+    """
+
+    amount: Optional[float] = None
+    description: str
+    category: str
+    date: date
+    payment_type: PaymentType
+    installments: int = 1
+    currency: str = "ARS"
+    confidence: str = "low"
+
+
 class AggregateBalanceResponse(CamelCaseModel):
     """Every expense and one net balance for a whole group, with months collapsed.
 
