@@ -30,12 +30,16 @@ _DEAD_SUBSCRIPTION_STATUSES = (404, 410)
 def resolve_channel(member: MemberModel, push_repo: PushSubscriptionRepository) -> Union[str, NotificationType]:
     """Return the single channel this member should be notified through.
 
-    NONE wins over everything: it is an explicit opt-out, and owning a registered device does
-    not undo it. Otherwise push takes precedence when the member has one, and the member's
-    existing preference is the fallback for everyone else.
+    An active subscription wins, including over a NONE preference. Registering a device means
+    tapping "turn on notifications" and granting a browser permission prompt — that *is* an
+    explicit opt-in, and it would be perverse for a stale preference to silently veto it.
+    NONE also happens to be the column default, so honouring it first would have made push
+    look broken for most accounts.
+
+    NONE still governs the other channels: a member with no subscription and a NONE preference
+    is notified by nothing, exactly as before. Turning push off removes the subscription and
+    falls straight back to that.
     """
-    if member.notification_preference == NotificationType.NONE:
-        return NotificationType.NONE
     if push_repo.has_any(member.id):
         return PUSH_CHANNEL
     return member.notification_preference

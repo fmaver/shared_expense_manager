@@ -83,12 +83,26 @@ def test_a_member_without_a_subscription_keeps_email(populated_session):
     assert resolve_channel(_member(populated_session, MEMBER_ID), repo) == NotificationType.EMAIL
 
 
-def test_a_member_who_opted_out_still_gets_nothing(populated_session):
-    """NONE is an explicit choice and outranks having a device registered."""
+def test_registering_a_device_overrides_a_none_preference(populated_session):
+    """Tapping "turn on" and granting the permission prompt IS the opt-in.
+
+    NONE is also the column default, so honouring it over a fresh subscription would have made
+    push look broken on most accounts.
+    """
     member = _member(populated_session, MEMBER_ID)
     member.notification_preference = NotificationType.NONE
     populated_session.commit()
     _subscribe(populated_session, MEMBER_ID)
+    repo = PushSubscriptionRepository(populated_session)
+
+    assert resolve_channel(member, repo) == "push"
+
+
+def test_none_still_silences_a_member_with_no_device(populated_session):
+    """The opt-out keeps working for the channels it actually governs."""
+    member = _member(populated_session, MEMBER_ID)
+    member.notification_preference = NotificationType.NONE
+    populated_session.commit()
     repo = PushSubscriptionRepository(populated_session)
 
     assert resolve_channel(member, repo) == NotificationType.NONE
