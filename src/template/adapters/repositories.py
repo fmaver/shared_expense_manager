@@ -688,19 +688,54 @@ class GroupRepository:
         )
         return self._to_domain(model) if model else None
 
-    def list_for_member(self, member_id: int, include_personal: bool = False) -> list[Group]:
-        """Return all active groups the member belongs to."""
+    def list_for_member(self, member_id: int, include_personal: bool = False, archived: bool = False) -> list[Group]:
+        """Return the member's active groups.
+
+        `archived` selects which side of the member's own archive to return. It defaults to
+        False so every existing caller keeps today's behaviour.
+        """
+        archived_filter = (
+            GroupMembershipModel.archived_at.isnot(None) if archived else GroupMembershipModel.archived_at.is_(None)
+        )
         query = (
             self.session.query(GroupModel)
             .join(GroupMembershipModel, GroupModel.id == GroupMembershipModel.group_id)
             .filter(
                 GroupMembershipModel.member_id == member_id,
                 GroupModel.status == "active",
+                archived_filter,
             )
         )
         if not include_personal:
             query = query.filter(GroupModel.group_type != GroupType.PERSONAL.value)
         return [self._to_domain(m) for m in query.all()]
+
+    def set_archived(self, group_id: int, member_id: int, archived: bool) -> None:
+        """Archive or unarchive a group for one member only."""
+        membership = (
+            self.session.query(GroupMembershipModel)
+            .filter(
+                GroupMembershipModel.group_id == group_id,
+                GroupMembershipModel.member_id == member_id,
+            )
+            .first()
+        )
+        if not membership:
+            raise ValueError(f"Member {member_id} is not a member of group {group_id}")
+        membership.archived_at = datetime.utcnow() if archived else None
+        self.session.commit()
+
+    def list_archived_member_ids(self, group_id: int) -> list[int]:
+        """Return the members who have archived this group."""
+        rows = (
+            self.session.query(GroupMembershipModel.member_id)
+            .filter(
+                GroupMembershipModel.group_id == group_id,
+                GroupMembershipModel.archived_at.isnot(None),
+            )
+            .all()
+        )
+        return [row[0] for row in rows]
 
     def update_name(self, group_id: int, name: str) -> Group:
         """Rename a group."""

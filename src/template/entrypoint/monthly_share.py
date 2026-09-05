@@ -15,8 +15,10 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
+from template.adapters.repositories import GroupRepository
 from template.dependencies import (
     get_expense_service,
+    get_group_repository,
     get_member_service,
     get_occasion_service,
     get_recurring_group_expense_materializer,
@@ -37,6 +39,18 @@ from template.service_layer.notification_service import NotificationService
 from template.service_layer.occasion_service import OccasionService
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
+
+
+def _notifiable_members(members, group_repo, group_id: int):
+    """Drop members who archived this group.
+
+    Settlement and unsettle notifications go to the whole group, and that broadcast is exactly
+    the noise archiving exists to stop. Expense notifications need no equivalent: they already
+    skip anyone the expense does not involve, so an archived member who *is* affected still
+    hears about it.
+    """
+    archived = set(group_repo.list_archived_member_ids(group_id))
+    return [m for m in members if m.id not in archived]
 
 
 @router.get("/trend", response_model=ResponseModel[List[MonthTrendPoint]])
@@ -204,6 +218,7 @@ def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-m
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
+    group_repo: GroupRepository = Depends(get_group_repository),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Settle the monthly share for a specific month."""
@@ -233,7 +248,7 @@ def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-m
             )
 
         if not service.is_personal_group():
-            members = service.get_members()
+            members = _notifiable_members(service.get_members(), group_repo, service.group_id)
             group_name = service.get_group_name() or ""
             background_tasks.add_task(
                 NotificationService().notify_settlement,
@@ -272,6 +287,7 @@ def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-posit
     month: int = Path(..., ge=1, le=12),
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
+    group_repo: GroupRepository = Depends(get_group_repository),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Reverse the settlement of a month: removes auto-generated balancing expenses and reopens it."""
@@ -279,7 +295,7 @@ def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-posit
         service.unsettle_monthly_share(year, month)
 
         if not service.is_personal_group():
-            members = service.get_members()
+            members = _notifiable_members(service.get_members(), group_repo, service.group_id)
             group_name = service.get_group_name() or ""
             background_tasks.add_task(
                 NotificationService().notify_unsettle,

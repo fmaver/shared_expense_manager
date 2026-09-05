@@ -4,7 +4,13 @@ from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
-from template.dependencies import get_expense_service, get_member_service
+from template.dependencies import (
+    get_expense_service,
+    get_group_service,
+    get_member_service,
+    get_repository,
+)
+from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, PercentageSplit
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import (
@@ -14,6 +20,7 @@ from template.domain.schemas.expense import (
 )
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService, _strategy_to_schema
+from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 
@@ -27,11 +34,16 @@ def create_expense(
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
+    group_service: GroupService = Depends(get_group_service),
+    repository: ExpenseRepository = Depends(get_repository),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Create a new expense."""
     try:
         expense = service.create_expense(expense_data)
+        # A new expense can put an archived member back into debt, which must bring the group
+        # back into their list — otherwise archiving would hide a balance from them.
+        group_service.refresh_archived_state(service.group_id, repository)
 
         # Notify only the members of this expense's group
         members = service.get_members()
@@ -82,6 +94,8 @@ def update_expense(
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
+    group_service: GroupService = Depends(get_group_service),
+    repository: ExpenseRepository = Depends(get_repository),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Update an existing expense."""
@@ -90,6 +104,7 @@ def update_expense(
         old_expense = service.get_expense(expense_id)
 
         updated_expense = service.update_expense(expense_id, expense_data)
+        group_service.refresh_archived_state(service.group_id, repository)
 
         # Schedule notification in background (skip for personal groups)
         if not service.is_personal_group():
@@ -137,6 +152,8 @@ def delete_expense(
     background_tasks: BackgroundTasks,
     service: ExpenseService = Depends(get_expense_service),
     member_service: MemberService = Depends(get_member_service),
+    group_service: GroupService = Depends(get_group_service),
+    repository: ExpenseRepository = Depends(get_repository),
     current_member=Depends(get_current_member),
 ) -> None:
     """Delete an expense."""
@@ -145,6 +162,7 @@ def delete_expense(
         expense_to_delete = service.get_expense(expense_id)
 
         service.delete_expense(expense_id)
+        group_service.refresh_archived_state(service.group_id, repository)
 
         # Skip notification for personal groups
         if expense_to_delete and not service.is_personal_group():

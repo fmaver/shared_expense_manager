@@ -80,6 +80,9 @@ class GroupMembershipModel(Base):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Archiving is per member: set here rather than on the group, so one member can put a
+    # group away while everyone else keeps using it.
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("group_id", "member_id", name="uq_group_member"),)
 
