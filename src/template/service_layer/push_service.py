@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from template.adapters.orm import MemberModel
 from template.adapters.repositories import PushSubscriptionRepository
+from template.domain.models.category import Category
 from template.domain.models.enums import NotificationType
 from template.domain.models.formatters import format_amount_es
 
@@ -47,15 +48,28 @@ def resolve_channel(member: MemberModel, push_repo: PushSubscriptionRepository) 
 
 
 def push_body_for_expense(expense, creator, member_service) -> str:
-    """Who, what and how much — enough to decide whether it matters, read at a glance.
+    """Two lines: what happened, then what it was for.
 
-    A lock-screen notification is skimmed, not studied. The full breakdown is one tap away, so
-    this carries only what makes the difference between ignoring it and opening the app.
+    A lock-screen notification is skimmed, not studied, so this carries only what decides
+    whether to open the app. The amount goes on the first line rather than after the
+    description: descriptions are free text, and a long one used to push the separator and the
+    amount onto a second line where the "·" was left stranded at the start.
+
+    The emoji is the expense's own category — 🛒 for supermercado, ✈️ for viajes — so it says
+    something at a glance instead of decorating every notification identically.
     """
     payer = member_service.get_member(expense.payer_id) if expense.payer_id else None
     who = payer.name if payer else creator.name
+    category = expense.category.name if expense.category else ""
+    emoji = Category.get_category_emoji(category)
     symbol = "US$ " if getattr(expense, "currency", "ARS") == "USD" else "$"
-    return f"{who} cargó {expense.description} · {symbol}{format_amount_es(expense.amount)}"
+    amount = f"{symbol}{format_amount_es(expense.amount)}"
+
+    verb = "registró un préstamo de" if category.lower() == "prestamo" else "cargó"
+    headline = f"{emoji} {who} {verb} {amount}".strip()
+
+    description = (expense.description or "").strip()
+    return f"{headline}\n{description}" if description else headline
 
 
 def push_url_for_expense(expense, group_id) -> str:
