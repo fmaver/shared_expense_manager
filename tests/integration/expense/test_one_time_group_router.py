@@ -179,8 +179,11 @@ def _recurring_payload(payer_id: int) -> dict:
 
 
 def test_recurring_expense_is_rejected_in_a_one_time_group(client, auth_headers):
-    """"Repeats every month" is meaningless where there are no months, and the materializer
-    would keep minting expenses into an occasion that already ended."""
+    """A monthly repeat is meaningless where there are no months.
+
+    Without this the materializer would keep minting expenses into an occasion that already
+    ended.
+    """
     group_id = _create_group(client, auth_headers)
     me = _me(client, auth_headers)
 
