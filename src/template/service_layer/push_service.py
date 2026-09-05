@@ -133,6 +133,11 @@ def push_body_for_unsettle(month: int, year: int) -> str:
     return f"↩️ {month_name_es(month)} {year} fue reabierto"
 
 
+def push_body_for_occasion(settled: bool) -> str:
+    """A one-time group closed or reopened as a whole — it has no month to name."""
+    return "✅ Cuentas del grupo saldadas" if settled else "↩️ El grupo se reabrió"
+
+
 def push_url_for_month(group_id, year: int, month: int) -> str:
     """Link to a specific month of a group, using the app's ?year=&month= convention."""
     if not group_id:

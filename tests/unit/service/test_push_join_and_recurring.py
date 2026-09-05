@@ -32,10 +32,10 @@ def _ghost() -> Member:
 
 
 def _push(subscribed_ids):
-    """A push repo where only `subscribed_ids` have a registered device."""
-    repo = MagicMock()
-    repo.has_any.side_effect = lambda member_id: member_id in subscribed_ids
-    return repo
+    """A push service that delivers only to `subscribed_ids`, mirroring send_if_subscribed."""
+    service = MagicMock()
+    service.send_if_subscribed.side_effect = lambda member_id, *_: member_id in subscribed_ids
+    return service
 
 
 class TestJoinNotification:
@@ -43,7 +43,7 @@ class TestJoinNotification:
 
     def test_pushes_to_subscribed_members_and_emails_the_rest(self):
         service = NotificationService()
-        push_service = MagicMock()
+        push_service = _push({1})
         fran, guada = _member(1, "Fran"), _member(2, "Guada")
 
         with patch.object(service, "_send_email") as send_email:
@@ -54,18 +54,17 @@ class TestJoinNotification:
                     group_name="Viaje",
                     group_id=8,
                     push_service=push_service,
-                    push_repo=_push({1}),
                 )
             )
 
-        pushed_ids = [call.args[0] for call in push_service.send_to_member.call_args_list]
-        assert pushed_ids == [1], "only the member with a device gets push"
+        delivered = [c.args[0] for c in push_service.send_if_subscribed.call_args_list if c.args[0] in {1}]
+        assert delivered == [1], "the member with a device is reached by push"
         emailed = [call.args[0] for call in send_email.call_args_list]
         assert emailed == ["guada@example.com"], "everyone else keeps their email"
 
     def test_the_joiner_is_not_notified_about_their_own_arrival(self):
         service = NotificationService()
-        push_service = MagicMock()
+        push_service = _push({3})
         nico = _member(3, "Nico")
 
         with patch.object(service, "_send_email"):
@@ -76,11 +75,10 @@ class TestJoinNotification:
                     group_name="Viaje",
                     group_id=8,
                     push_service=push_service,
-                    push_repo=_push({3}),
                 )
             )
 
-        push_service.send_to_member.assert_not_called()
+        push_service.send_if_subscribed.assert_not_called()
 
     def test_ghost_members_are_never_contacted(self):
         """A ghost has no email — the EMAIL branch would otherwise call _send_email(None)."""
@@ -110,7 +108,7 @@ class TestRecurringTemplatePush:
     @pytest.mark.parametrize("subscribed", [True, False])
     def test_push_replaces_email_only_for_subscribed_members(self, subscribed):
         service = NotificationService()
-        push_service = MagicMock()
+        push_service = _push({2} if subscribed else set())
         template = MagicMock(payer_id=1, category="comida", description="Netflix", amount=5000.0)
         template.start_month, template.start_year = 3, 2026
 
@@ -128,9 +126,9 @@ class TestRecurringTemplatePush:
                     group_name="Casa",
                     group_id=4,
                     push_service=push_service,
-                    push_repo=_push({2} if subscribed else set()),
                 )
             )
 
-        assert push_service.send_to_member.called is subscribed
+        # Push is always *offered* the member; whether it delivers is what decides the fallback.
+        push_service.send_if_subscribed.assert_called_once()
         assert send_email.called is not subscribed

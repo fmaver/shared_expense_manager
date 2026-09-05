@@ -14,7 +14,9 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
+from template.adapters.database import get_db
 from template.adapters.repositories import GroupRepository
 from template.dependencies import (
     get_expense_service,
@@ -37,6 +39,7 @@ from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 from template.service_layer.occasion_service import OccasionService
+from template.service_layer.push_service import PushService
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
 
@@ -92,25 +95,59 @@ def get_aggregate_balance(
 
 
 @router.post("/settle-all", response_model=ResponseModel[AggregateBalanceResponse])
-def settle_all(
+def settle_all(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    background_tasks: BackgroundTasks,
     service: OccasionService = Depends(get_occasion_service),
+    expense_service: ExpenseService = Depends(get_expense_service),
+    group_repo: GroupRepository = Depends(get_group_repository),
     current_member=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> ResponseModel[AggregateBalanceResponse]:
     """Settle every month of the group that holds expenses, closing the occasion in one step."""
     try:
-        return ResponseModel(data=service.settle_all())
+        result = service.settle_all()
+        # A one-time group is settled as a whole, so this is the only settlement notification
+        # its members ever get — the per-month endpoints are blocked for these groups.
+        if not expense_service.is_personal_group():
+            background_tasks.add_task(
+                NotificationService().notify_occasion_settled,
+                actor_member_id=current_member.id,
+                members=_notifiable_members(expense_service.get_members(), group_repo, expense_service.group_id),
+                group_name=expense_service.get_group_name() or "",
+                group_id=expense_service.group_id,
+                settled=True,
+                push_service=PushService(db),
+            )
+        return ResponseModel(data=result)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post("/unsettle-all", response_model=ResponseModel[AggregateBalanceResponse])
-def unsettle_all(
+def unsettle_all(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    background_tasks: BackgroundTasks,
     service: OccasionService = Depends(get_occasion_service),
-    _: Any = Depends(get_current_member),
+    expense_service: ExpenseService = Depends(get_expense_service),
+    group_repo: GroupRepository = Depends(get_group_repository),
+    actor=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> ResponseModel[AggregateBalanceResponse]:
     """Reopen every settled month of the group — the mirror of settle-all."""
     try:
-        return ResponseModel(data=service.unsettle_all())
+        result = service.unsettle_all()
+        # A one-time group is settled as a whole, so this is the only settlement notification
+        # its members ever get — the per-month endpoints are blocked for these groups.
+        if not expense_service.is_personal_group():
+            background_tasks.add_task(
+                NotificationService().notify_occasion_settled,
+                actor_member_id=actor.id,
+                members=_notifiable_members(expense_service.get_members(), group_repo, expense_service.group_id),
+                group_name=expense_service.get_group_name() or "",
+                group_id=expense_service.group_id,
+                settled=False,
+                push_service=PushService(db),
+            )
+        return ResponseModel(data=result)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -220,6 +257,7 @@ def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-m
     member_service: MemberService = Depends(get_member_service),
     group_repo: GroupRepository = Depends(get_group_repository),
     current_member=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Settle the monthly share for a specific month."""
     # A one-time group is settled as a whole. Letting a client close a single month here
@@ -259,6 +297,7 @@ def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-m
                 member_service=member_service,
                 group_name=group_name,
                 group_id=service.group_id,
+                push_service=PushService(db),
             )
 
         transfers = [
@@ -289,6 +328,7 @@ def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-posit
     member_service: MemberService = Depends(get_member_service),
     group_repo: GroupRepository = Depends(get_group_repository),
     current_member=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Reverse the settlement of a month: removes auto-generated balancing expenses and reopens it."""
     try:
@@ -306,6 +346,7 @@ def unsettle_monthly_share(  # pylint: disable=too-many-arguments,too-many-posit
                 member_service=member_service,
                 group_name=group_name,
                 group_id=service.group_id,
+                push_service=PushService(db),
             )
 
         monthly_share = service.get_monthly_balance(year, month)

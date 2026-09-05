@@ -25,6 +25,7 @@ from template.adapters.repositories import (
 from template.dependencies import get_processed_message_repository, get_whatsapp_client
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
+from template.service_layer.push_service import PushService
 from template.service_layer.whatsapp_client import WhatsAppClient
 from template.service_layer.whatsapp_service import (
     administrar_chatbot,
@@ -377,6 +378,7 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
             recurring_repo=recurring_repo,
             income_repo=income_repo,
             recurring_personal_repo=recurring_personal_repo,
+            push_service=PushService(db),
         )
         session_repo.save(number, nuevo_estado)
 

@@ -15,7 +15,6 @@ from template.adapters.repositories import (
     GroupRepository,
     InvitationRepository,
     MemberRepository,
-    PushSubscriptionRepository,
 )
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.group import (
@@ -117,7 +116,6 @@ def _announce_join(  # pylint: disable=too-many-arguments,too-many-positional-ar
         group_id=group_id,
         claimed_name=claimed_name,
         push_service=PushService(db),
-        push_repo=PushSubscriptionRepository(db),
     )
 
 
