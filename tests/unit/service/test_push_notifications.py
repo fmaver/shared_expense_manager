@@ -14,7 +14,11 @@ from sqlalchemy.orm import sessionmaker
 from template.adapters.orm import Base, MemberModel, PushSubscriptionModel
 from template.adapters.repositories import PushSubscriptionRepository
 from template.domain.models.enums import NotificationType
-from template.service_layer.push_service import PushService, resolve_channel
+from template.service_layer.push_service import (
+    PushService,
+    push_body_for_expense,
+    resolve_channel,
+)
 
 MEMBER_ID = 1
 OTHER_ID = 2
@@ -232,36 +236,53 @@ def test_the_deep_link_carries_the_month_of_the_expense():
     assert url == "/groups/7?year=2026&month=5&expense=42"
 
 
-def test_the_body_says_who_what_and_how_much():
-    """Enough to decide whether it matters, without opening the app."""
-    from template.service_layer.push_service import push_body_for_expense
-
+def _expense(description="Coto", amount=4500.0, currency="ARS", category="supermercado"):
     expense = MagicMock()
-    expense.description = "Coto"
-    expense.amount = 4500.0
-    expense.currency = "ARS"
+    expense.description = description
+    expense.amount = amount
+    expense.currency = currency
     expense.payer_id = 2
+    expense.category = MagicMock()
+    expense.category.name = category
+    return expense
 
-    member_service = MagicMock()
-    member_service.get_member.return_value = MagicMock(name="x")
-    member_service.get_member.return_value.name = "Guada"
 
-    body = push_body_for_expense(expense, MagicMock(), member_service)
+def _member_service(name="Guada"):
+    service = MagicMock()
+    service.get_member.return_value.name = name
+    return service
 
-    assert body.startswith("Guada cargó Coto · $")
+
+def test_the_amount_is_on_the_first_line_not_after_the_description():
+    """A long description used to push the separator and amount onto a second line, stranding
+    the "·" at the start of it. The amount leads instead, where free text cannot displace it."""
+    body = push_body_for_expense(_expense(description="Probamos de nuevo el push"), MagicMock(), _member_service())
+
+    first_line = body.split("\n")[0]
+    assert "$4.500,00" in first_line
+    assert "Probamos de nuevo el push" not in first_line
+
+
+def test_the_emoji_is_the_expense_category():
+    """Informative rather than decorative: the same emoji on everything would say nothing."""
+    assert push_body_for_expense(_expense(category="supermercado"), MagicMock(), _member_service()).startswith("🛒")
+    assert push_body_for_expense(_expense(category="viajes"), MagicMock(), _member_service()).startswith("✈️")
+
+
+def test_a_loan_reads_as_a_loan_not_as_an_expense():
+    """The title is now the group, so "cargó" would be the only cue and it would be wrong."""
+    body = push_body_for_expense(_expense(category="prestamo"), MagicMock(), _member_service())
+
+    assert "préstamo" in body
+
+
+def test_an_empty_description_leaves_no_dangling_line():
+    body = push_body_for_expense(_expense(description=""), MagicMock(), _member_service())
+
+    assert "\n" not in body
 
 
 def test_a_usd_expense_is_not_shown_as_pesos():
-    from template.service_layer.push_service import push_body_for_expense
-
-    expense = MagicMock()
-    expense.description = "Libro"
-    expense.amount = 20.0
-    expense.currency = "USD"
-    expense.payer_id = 2
-    member_service = MagicMock()
-    member_service.get_member.return_value.name = "Fran"
-
-    body = push_body_for_expense(expense, MagicMock(), member_service)
+    body = push_body_for_expense(_expense(currency="USD", amount=20.0), MagicMock(), _member_service("Fran"))
 
     assert "US$" in body
