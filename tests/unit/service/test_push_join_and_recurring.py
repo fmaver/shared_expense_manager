@@ -99,7 +99,7 @@ class TestJoinNotification:
         send_email.assert_not_called()
 
     def test_claiming_a_ghost_says_which_name_was_taken_over(self):
-        """"Nico se sumó" is confusing when the group has tracked him as "Tomi" all along."""
+        """ "Nico se sumó" is confusing when the group has tracked him as "Tomi" all along."""
         assert push_body_for_join("Nico", claimed_name="Tomi") == "👋 Nico se sumó como Tomi"
         assert push_body_for_join("Nico") == "👋 Nico se sumó al grupo"
 
