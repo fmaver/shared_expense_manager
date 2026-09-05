@@ -26,6 +26,8 @@ from template.service_layer.push_service import (
     PUSH_CHANNEL,
     PushMessage,
     push_body_for_expense,
+    push_body_for_join,
+    push_body_for_recurring_template,
     push_body_for_settlement,
     push_body_for_unsettle,
     push_url_for_expense,
@@ -459,6 +461,8 @@ class NotificationService:
         member_service: MemberService,
         group_name: Optional[str] = None,
         group_id: Optional[int] = None,
+        push_service: Any = None,
+        push_repo: Any = None,
     ) -> None:
         """Notify group members about a new recurring expense template created from the web app."""
         # pylint: disable=import-outside-toplevel
@@ -476,6 +480,16 @@ class NotificationService:
         )
         subject = "🔁 Nuevo gasto recurrente"
 
+        push_message = (
+            PushMessage(
+                group_name or subject,
+                push_body_for_recurring_template(template, creator),
+                f"/groups/{group_id}" if group_id else "/groups",
+            )
+            if push_service is not None
+            else None
+        )
+
         for member in members:
             if member.id == creator.id:
                 continue
@@ -484,7 +498,10 @@ class NotificationService:
 
             message = f"📁 *{group_name}*\n\n{message_body}" if group_name else message_body
 
-            if member.notification_preference == NotificationType.EMAIL:
+            if self._maybe_push(member, push_service, push_repo, push_message):
+                continue
+
+            if member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
@@ -496,6 +513,48 @@ class NotificationService:
                 app_url = self._build_app_url(group_id, is_multi=False)
                 intro = "🔁 Nuevo gasto recurrente\nA continuación puede ver un resumen👇\n\n"
                 await self._send_whatsapp(member.telephone, intro + message, app_url=app_url)
+
+    async def notify_member_joined(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        joiner: Member,
+        members: List[Member],
+        group_name: Optional[str] = None,
+        group_id: Optional[int] = None,
+        claimed_name: Optional[str] = None,
+        push_service: Any = None,
+        push_repo: Any = None,
+    ) -> None:
+        """Tell the people already in a group that someone joined it.
+
+        This is the half of the invitation event that push can actually carry. The invitation
+        itself goes to somebody who has no account and therefore no registered device, so it
+        stays on email/WhatsApp — no amount of push work reaches a person who is not a user yet.
+
+        Push with an email fallback only: there is no approved WhatsApp template for this, and
+        free-form text would reach just the members who happened to chat in the last 24 hours.
+        """
+        subject = "👋 Nuevo integrante"
+        body = push_body_for_join(joiner.name, claimed_name=claimed_name)
+        message = f"📁 *{group_name}*\n\n{body}" if group_name else body
+
+        push_message = (
+            PushMessage(
+                group_name or subject,
+                body,
+                f"/groups/{group_id}/members" if group_id else "/groups",
+            )
+            if push_service is not None
+            else None
+        )
+
+        for member in members:
+            if member.id == joiner.id:
+                continue
+            if self._maybe_push(member, push_service, push_repo, push_message):
+                continue
+            # `member.email` is not redundant: ghost members carry a preference but nowhere to send.
+            if member.notification_preference == NotificationType.EMAIL and member.email:
+                self._send_email(member.email, subject, message)
 
     def _create_expense_message(  # pylint: disable=too-many-branches
         self, expense: Expense, creator: Member, member_service: MemberService, is_recurring: bool = False

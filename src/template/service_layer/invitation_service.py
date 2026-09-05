@@ -265,6 +265,15 @@ class InvitationService:
         self._invitation_repo.mark_accepted(row.id, claimed.id)
         return claimed
 
+    def group_id_for_token(self, token: str) -> Optional[int]:
+        """The group an invitation points at, or None if the token is unknown.
+
+        Read before accepting, because the caller needs to notify that group's members and
+        accepting is what makes the token unusable.
+        """
+        row = self._invitation_repo.get_by_token(token)
+        return row.group_id if row else None
+
     def revoke_invitation(self, token: str, revoker_member_id: int) -> None:
         """Revoke a pending invitation and clean up an orphan stub if applicable."""
         row = self._invitation_repo.get_by_token(token)
@@ -391,6 +400,11 @@ class GroupJoinLinkService:
         else:
             self._group_repo.add_member(group_id, current_member.id)  # idempotent
         return self._member_repo.get(current_member.id)
+
+    def group_id_for_token(self, token: str) -> Optional[int]:
+        """The group a join link points at, or None if the token is unknown."""
+        row = self._join_link_repo.get_by_token(token)
+        return row.group_id if row else None
 
     def is_member_of_join_group(self, token: str, member_id: int) -> bool:
         """Return True if this member already belongs to the group the token points at."""

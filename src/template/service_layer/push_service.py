@@ -88,6 +88,22 @@ def push_url_for_expense(expense, group_id) -> str:
     return f"{base}?year={expense.date.year}&month={expense.date.month}&expense={expense.id}"
 
 
+def push_body_for_recurring_template(template, creator) -> str:
+    """A new recurring template, in the shape the expense notification already uses."""
+    return f"🔁 {creator.name} creó un recurrente de ${format_amount_es(template.amount)}\n{template.description}"
+
+
+def push_body_for_join(joiner_name: str, claimed_name: Optional[str] = None) -> str:
+    """Someone joined the group.
+
+    When they claimed a ghost, the claimed name is the useful half: the group has been
+    tracking that person as "Tomi" for weeks, so "Nico se sumó" alone reads like a stranger.
+    """
+    if claimed_name and claimed_name != joiner_name:
+        return f"👋 {joiner_name} se sumó como {claimed_name}"
+    return f"👋 {joiner_name} se sumó al grupo"
+
+
 def push_body_for_settlement(month: int, year: int) -> str:
     """A settled month, in the few words a lock screen shows."""
     return f"✅ Cuentas de {month_name_es(month)} {year} saldadas"

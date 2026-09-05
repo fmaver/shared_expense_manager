@@ -3,9 +3,12 @@
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
+from template.adapters.database import get_db
 from template.adapters.repositories import (
     GroupRepository,
+    PushSubscriptionRepository,
     RecurringGroupExpenseRepository,
 )
 from template.dependencies import (
@@ -23,6 +26,7 @@ from template.domain.schemas.expense import (
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
+from template.service_layer.push_service import PushService
 
 router = APIRouter(prefix="/groups/{group_id}/expenses/recurring", tags=["RecurringExpenses"])
 
@@ -42,6 +46,7 @@ def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-pos
     group_repo: GroupRepository = Depends(get_group_repository),
     member_service: MemberService = Depends(get_member_service),
     current_member=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> ResponseModel[RecurringGroupExpenseResponse]:
     """Create a new recurring group expense template.
 
@@ -70,6 +75,8 @@ def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-pos
         member_service=member_service,
         group_name=group.name if group else None,
         group_id=group_id,
+        push_service=PushService(db),
+        push_repo=PushSubscriptionRepository(db),
     )
 
     return ResponseModel(data=template)
