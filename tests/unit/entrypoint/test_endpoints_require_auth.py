@@ -67,6 +67,4 @@ def test_no_unexpected_public_routes(test_client):
         if not _depends_on_current_member(endpoint):
             unguarded.append(f"{sorted(route.methods)[0]} {path}")
 
-    # GET /api/v1/members/ is a known gap: its frontend client sends no token, so guarding it
-    # requires shipping the frontend first. Tracked separately, not silently accepted.
-    assert unguarded == ["GET /api/v1/members/"], f"unexpected unguarded routes: {unguarded}"
+    assert unguarded == [], f"unexpected unguarded routes: {unguarded}"
