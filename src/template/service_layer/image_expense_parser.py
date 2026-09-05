@@ -1,11 +1,12 @@
 """Gemini Vision-based parser for expense images (receipts, payment screenshots)."""
 
+import base64
 import json
 import logging
 import os
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from google import genai
 from google.genai import types
@@ -14,6 +15,14 @@ logger = logging.getLogger(__name__)
 
 # Verify this model ID at https://ai.google.dev/gemini-api/docs/models before deployment
 GEMINI_MODEL = "gemini-2.5-flash-lite"
+# Backup reader for when Gemini is at capacity. Reuses the key the WhatsApp text parser
+# already uses, so no new configuration is needed in Render. Haiku is chosen for cost: this
+# only runs during a Gemini outage, and reading a receipt is a narrow extraction task.
+CLAUDE_IMAGE_MODEL = "claude-haiku-4-5"
+# Claude accepts only these four. Gemini is more permissive — an iPhone photo can arrive as
+# image/heic — so a fallback is not always possible, and saying so beats sending a type the
+# API will reject.
+CLAUDE_SUPPORTED_MEDIA_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
 
 @dataclass
@@ -70,74 +79,165 @@ Respond ONLY with a JSON object, no markdown fences, no explanation:
 }}"""
 
 
+# Gemini answers 503 UNAVAILABLE when the model is busy, and 429 when quota is exhausted.
+# google-genai raises these as plain exceptions rather than typed ones, so detection is on the
+# message. Kept deliberately narrow: only capacity, never "this image is unreadable".
+_CAPACITY_MARKERS = ("503", "unavailable", "overloaded", "high demand", "429", "resource_exhausted")
+
+
+def _is_capacity_error(exc: Exception) -> bool:
+    """True when the provider was too busy, as opposed to the request being wrong."""
+    message = str(exc).lower()
+    return any(marker in message for marker in _CAPACITY_MARKERS)
+
+
 def parse_image_expense(
     image_bytes: bytes,
     mime_type: str,
     categories: List[str],
     today: Optional[date] = None,
 ) -> Optional[ParsedImageExpense]:
-    """Parse expense details from an image using Gemini Vision.
+    """Parse expense details from an image, with Claude as a backup for Gemini outages.
 
-    Returns ParsedImageExpense on success, or None if the key could not parse
-    the image (missing API key, network error, amount not found, etc.).
+    Gemini is tried first. If it answers 503/429 — a transient capacity problem rather than
+    anything wrong with the picture — the same image is retried on Claude. Every other
+    outcome is taken at face value: a missing key, an unreadable image or "no amount here"
+    are answers, and paying a second model to reach the same one would be waste.
+
+    Returns None when neither model could read an expense. Never raises: callers show a
+    friendly message.
     """
     if today is None:
         today = date.today()
 
+    try:
+        return _parse_with_gemini(image_bytes, mime_type, categories, today)
+    except Exception as exc:  # pylint: disable=broad-except
+        if not _is_capacity_error(exc):
+            logger.warning("Image expense parsing failed: %s", exc)
+            return None
+        logger.warning("Gemini unavailable (%s) — retrying this image on Claude", exc)
+
+    try:
+        return _parse_with_claude(image_bytes, mime_type, categories, today)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Claude image fallback also failed: %s", exc)
+        return None
+
+
+def _parse_with_gemini(
+    image_bytes: bytes,
+    mime_type: str,
+    categories: List[str],
+    today: date,
+) -> Optional[ParsedImageExpense]:
+    """Read the image with Gemini Vision.
+
+    Deliberately does not catch: the caller decides whether a failure is a capacity blip worth
+    retrying on another model, or a real problem with the image.
+    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         logger.warning("GEMINI_API_KEY not set — image expense parsing disabled")
         return None
 
-    try:
-        client = genai.Client(api_key=api_key)
-        prompt = _build_prompt(categories, today)
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=[
+            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            types.Part.from_text(text=_build_prompt(categories, today)),
+        ],
+    )
 
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                types.Part.from_text(text=prompt),
-            ],
-        )
+    return _to_parsed_expense(response.text.strip() if response.text else "", categories, today)
 
-        raw = response.text.strip() if response.text else ""
-        if raw.startswith("```"):
-            raw = "\n".join(line for line in raw.splitlines() if not line.startswith("```")).strip()
-        if not raw:
-            logger.warning("Image parsing: empty response from Gemini")
-            return None
 
-        data: Dict[str, Any] = json.loads(raw)
+def _parse_with_claude(
+    image_bytes: bytes,
+    mime_type: str,
+    categories: List[str],
+    today: date,
+) -> Optional[ParsedImageExpense]:
+    """Read the image with Claude when Gemini is unavailable.
 
-        if data.get("amount") is None:
-            logger.info("Image parsing: amount not found in image")
-            return None
-
-        expense_date = today
-        if data.get("date"):
-            try:
-                expense_date = date.fromisoformat(str(data["date"]))
-            except ValueError:
-                expense_date = today
-
-        category = str(data.get("category", "otros"))
-        if category not in categories:
-            category = "otros"
-
-        installments = max(1, int(data.get("installments", 1)))
-
-        return ParsedImageExpense(
-            amount=float(data["amount"]),
-            description=str(data.get("description", "Gasto")).strip() or "Gasto",
-            category=category,
-            expense_date=expense_date,
-            payment_type=str(data.get("payment_type", "debit")),
-            confidence=str(data.get("confidence", "low")),
-            installments=installments,
-            currency=str(data.get("currency", "ARS")),
-        )
-
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Image expense parsing failed: %s", exc)
+    Reuses ANTHROPIC_API_KEY, already configured for the WhatsApp text parser, and the same
+    prompt as Gemini so both models are answering exactly the same question.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY not set — no fallback available for image parsing")
         return None
+
+    if mime_type not in CLAUDE_SUPPORTED_MEDIA_TYPES:
+        logger.warning("Cannot retry a %s image on Claude — unsupported media type", mime_type)
+        return None
+
+    import anthropic  # pylint: disable=import-outside-toplevel
+
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=CLAUDE_IMAGE_MODEL,
+        max_tokens=1024,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            # Narrowed above, so this is one of the four Claude accepts.
+                            "media_type": cast(Any, mime_type),
+                            "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
+                        },
+                    },
+                    {"type": "text", "text": _build_prompt(categories, today)},
+                ],
+            }
+        ],
+    )
+
+    raw = response.content[0].text.strip()  # type: ignore[union-attr]
+    return _to_parsed_expense(raw, categories, today)
+
+
+def _to_parsed_expense(raw: str, categories: List[str], today: date) -> Optional[ParsedImageExpense]:
+    """Turn a model's JSON reply into a ParsedImageExpense.
+
+    Shared by both providers so a screenshot cannot be interpreted differently depending on
+    which model happened to be available.
+    """
+    if raw.startswith("```"):
+        raw = "\n".join(line for line in raw.splitlines() if not line.startswith("```")).strip()
+    if not raw:
+        logger.warning("Image parsing: empty response from the model")
+        return None
+
+    data: Dict[str, Any] = json.loads(raw)
+
+    if data.get("amount") is None:
+        logger.info("Image parsing: amount not found in image")
+        return None
+
+    expense_date = today
+    if data.get("date"):
+        try:
+            expense_date = date.fromisoformat(str(data["date"]))
+        except ValueError:
+            expense_date = today
+
+    category = str(data.get("category", "otros"))
+    if category not in categories:
+        category = "otros"
+
+    return ParsedImageExpense(
+        amount=float(data["amount"]),
+        description=str(data.get("description", "Gasto")).strip() or "Gasto",
+        category=category,
+        expense_date=expense_date,
+        payment_type=str(data.get("payment_type", "debit")),
+        confidence=str(data.get("confidence", "low")),
+        installments=max(1, int(data.get("installments", 1))),
+        currency=str(data.get("currency", "ARS")),
+    )
