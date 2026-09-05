@@ -101,6 +101,50 @@ def unsettle_all(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/all/pdf")
+def download_aggregate_pdf(
+    service: ExpenseService = Depends(get_expense_service),
+    occasion: OccasionService = Depends(get_occasion_service),
+    current_member=Depends(get_current_member),
+) -> StreamingResponse:
+    """Download a one-time group's whole history as a single PDF.
+
+    The monthly report covers one month, which is exactly the thing an occasion does not have.
+    """
+    try:
+        aggregate = occasion.get_aggregate_balance()
+        if not aggregate.expenses:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No expenses found for this group",
+            )
+
+        group_name = service.get_group_name() or "Grupo"
+        # The header still takes a year/month for layout; the label overrides what is shown,
+        # so the date here is only a fallback and never reaches the page.
+        latest = max(e.date for e in aggregate.expenses)
+
+        pdf_bytes = build_monthly_report(
+            expenses=aggregate.expenses,
+            balances={str(k): v for k, v in aggregate.balances.items()},
+            member_names=service.get_member_names(),
+            year=latest.year,
+            month=latest.month,
+            is_settled=aggregate.is_settled,
+            title=f"📊 {group_name}",
+            period_label="Todos los gastos",
+        )
+
+        filename = f"balance_{group_name.lower().replace(' ', '_')}.pdf"
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/{year}/{month}", response_model=ResponseModel[MonthlyBalanceResponse])
 def get_monthly_balance(
     year: int = Path(..., ge=1900, le=9999),

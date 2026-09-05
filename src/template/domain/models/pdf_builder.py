@@ -117,7 +117,14 @@ class _ReportPDF(FPDF):
     # Header band
     # ------------------------------------------------------------------
 
-    def _draw_header(self, year: int, month: int, is_settled: bool) -> None:
+    def _draw_header(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        year: int,
+        month: int,
+        is_settled: bool,
+        title: Optional[str] = None,
+        period_label: Optional[str] = None,
+    ) -> None:
         band_h = 22
         self._fill_rect(0, 0, self.w, band_h, _SLATE_700)
         self.set_text_color(*_WHITE)
@@ -125,10 +132,11 @@ class _ReportPDF(FPDF):
         # Left: title
         self.set_font("Fira", "B", 15)
         self.set_xy(self.l_margin, 6)
-        self.cell(100, 10, "📊 Reporte Mensual de Gastos", align="L")
+        self.cell(100, 10, title or "📊 Reporte Mensual de Gastos", align="L")
 
-        # Right: month/year
-        month_label = f"{month_name_es(month)} {year}"
+        # Right: the period. A one-time group has no month, so it passes its own label
+        # rather than having one invented from a date that means nothing there.
+        month_label = period_label or f"{month_name_es(month)} {year}"
         self.set_font("Fira", "", 12)
         self.set_xy(self.w - self.r_margin - 50, 6)
         self.cell(50, 10, month_label, align="R")
@@ -333,13 +341,19 @@ def build_monthly_report(  # pylint: disable=too-many-arguments,too-many-positio
     year: int,
     month: int,
     is_settled: bool = False,
+    title: Optional[str] = None,
+    period_label: Optional[str] = None,
 ) -> bytes:
-    """Generate the monthly PDF report and return it as raw bytes."""
+    """Generate the PDF report and return it as raw bytes.
+
+    `title` and `period_label` let a caller with no month — a one-time group covering a whole
+    occasion — label the report for what it actually is.
+    """
     pdf = _ReportPDF()
     pdf.alias_nb_pages()
     pdf.add_page()
 
-    pdf._draw_header(year, month, is_settled)  # pylint: disable=protected-access
+    pdf._draw_header(year, month, is_settled, title, period_label)  # pylint: disable=protected-access
 
     total = sum(e.amount for e in expenses)
     pdf._draw_summary_cards(total, len(member_names))  # pylint: disable=protected-access
