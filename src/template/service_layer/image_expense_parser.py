@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 # Verify this model ID at https://ai.google.dev/gemini-api/docs/models before deployment
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 # Backup reader for when Gemini is at capacity. Reuses the key the WhatsApp text parser
-# already uses, so no new configuration is needed in Render.
-CLAUDE_IMAGE_MODEL = "claude-opus-5"
+# already uses, so no new configuration is needed in Render. Haiku is chosen for cost: this
+# only runs during a Gemini outage, and reading a receipt is a narrow extraction task.
+CLAUDE_IMAGE_MODEL = "claude-haiku-4-5"
 # Claude accepts only these four. Gemini is more permissive — an iPhone photo can arrive as
 # image/heic — so a fallback is not always possible, and saying so beats sending a type the
 # API will reject.
