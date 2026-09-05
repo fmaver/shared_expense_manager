@@ -224,3 +224,9 @@ def test_unsettle_all_reopens_every_month(populated_session):
     aggregate = _occasion(populated_session, group_id).unsettle_all()
 
     assert aggregate.is_settled is False
+
+
+def test_is_one_time_group_flag(populated_session):
+    """The router guards on this, so it must be right for both types."""
+    assert _service(populated_session, _one_time_group(populated_session)).is_one_time_group() is True
+    assert _service(populated_session, _regular_group(populated_session)).is_one_time_group() is False

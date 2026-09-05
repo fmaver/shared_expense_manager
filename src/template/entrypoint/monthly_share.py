@@ -163,6 +163,13 @@ def settle_monthly_share(  # pylint: disable=too-many-positional-arguments,too-m
     current_member=Depends(get_current_member),
 ) -> ResponseModel[MonthlyBalanceResponse]:
     """Settle the monthly share for a specific month."""
+    # A one-time group is settled as a whole. Letting a client close a single month here
+    # would leave the occasion half-settled behind a single balance that cannot show it.
+    if service.is_one_time_group():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This group has no months — use /shares/settle-all instead",
+        )
     try:
         monthly_share = service.settle_monthly_share(year, month)
         print("Monthly Share Settled")
