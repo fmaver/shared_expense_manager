@@ -206,3 +206,62 @@ def _web_push_error(status: int):
         raise _gone_exception(status)
 
     return _raise
+
+
+# ---------------------------------------------------------------------------
+# What the notification says and where it goes
+# ---------------------------------------------------------------------------
+
+
+def test_the_deep_link_carries_the_month_of_the_expense():
+    """An expense in another month is not on the screen the group opens to.
+
+    Without the month the notification would land the user on the group and leave them
+    hunting for the very thing it was about.
+    """
+    from datetime import date
+
+    from template.service_layer.push_service import push_url_for_expense
+
+    expense = MagicMock()
+    expense.id = 42
+    expense.date = date(2026, 5, 10)
+
+    url = push_url_for_expense(expense, group_id=7)
+
+    assert url == "/groups/7?year=2026&month=5&expense=42"
+
+
+def test_the_body_says_who_what_and_how_much():
+    """Enough to decide whether it matters, without opening the app."""
+    from template.service_layer.push_service import push_body_for_expense
+
+    expense = MagicMock()
+    expense.description = "Coto"
+    expense.amount = 4500.0
+    expense.currency = "ARS"
+    expense.payer_id = 2
+
+    member_service = MagicMock()
+    member_service.get_member.return_value = MagicMock(name="x")
+    member_service.get_member.return_value.name = "Guada"
+
+    body = push_body_for_expense(expense, MagicMock(), member_service)
+
+    assert body.startswith("Guada cargó Coto · $")
+
+
+def test_a_usd_expense_is_not_shown_as_pesos():
+    from template.service_layer.push_service import push_body_for_expense
+
+    expense = MagicMock()
+    expense.description = "Libro"
+    expense.amount = 20.0
+    expense.currency = "USD"
+    expense.payer_id = 2
+    member_service = MagicMock()
+    member_service.get_member.return_value.name = "Fran"
+
+    body = push_body_for_expense(expense, MagicMock(), member_service)
+
+    assert "US$" in body

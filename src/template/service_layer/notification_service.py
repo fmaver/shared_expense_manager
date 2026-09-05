@@ -13,6 +13,12 @@ from template.domain.models.member import Member
 from template.domain.models.models import Expense
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.service_layer.member_service import MemberService
+from template.service_layer.push_service import (
+    PUSH_CHANNEL,
+    push_body_for_expense,
+    push_url_for_expense,
+    resolve_channel,
+)
 from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
     notification_message_with_buttons,
@@ -32,20 +38,7 @@ class NotificationService:
     @staticmethod
     def _push_channel(member, push_repo) -> bool:
         """True when this member should be reached by push instead of their usual channel."""
-        if push_repo is None:
-            return False
-        # pylint: disable=import-outside-toplevel
-        from template.service_layer.push_service import PUSH_CHANNEL, resolve_channel
-
-        # pylint: enable=import-outside-toplevel
-        return resolve_channel(member, push_repo) == PUSH_CHANNEL
-
-    @staticmethod
-    def _push_body_for_expense(expense, creator, member_service) -> str:
-        """One short line: a push notification has no room for the full email body."""
-        payer = member_service.get_member(expense.payer_id) if expense.payer_id else None
-        who = payer.name if payer else creator.name
-        return f"{expense.description} — {who}"
+        return push_repo is not None and resolve_channel(member, push_repo) == PUSH_CHANNEL
 
     async def notify_expense_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
         self,
@@ -90,9 +83,11 @@ class NotificationService:
             if push_service is not None and self._push_channel(member, push_repo):
                 push_service.send_to_member(
                     member.id,
-                    subject,
-                    self._push_body_for_expense(expense, creator, member_service),
-                    f"/groups/{group_id}" if group_id else "/groups",
+                    # The group is the title: iOS already shows the app name above it, so
+                    # repeating "Jirens" there would waste the only prominent line.
+                    group_name or subject,
+                    push_body_for_expense(expense, creator, member_service),
+                    push_url_for_expense(expense, group_id),
                 )
 
             elif member.notification_preference == NotificationType.EMAIL and member.email:
