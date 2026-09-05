@@ -97,11 +97,20 @@ def create_group(
 
 @router.get("/", response_model=ResponseModel[list[GroupResponse]])
 def list_groups(
+    archived: bool = False,
     current_member=Depends(get_current_member),
     group_service: GroupService = Depends(get_group_service),
 ) -> ResponseModel[list[GroupResponse]]:
-    """List all groups the current member belongs to."""
-    groups = group_service.list_for_member(current_member.id)
+    """List the current member's groups.
+
+    `archived=true` returns the ones this member has archived. Archiving is per member, so
+    this says nothing about anyone else's view of the same groups.
+    """
+    groups = (
+        group_service.list_archived_for_member(current_member.id)
+        if archived
+        else group_service.list_for_member(current_member.id)
+    )
     result = [_to_response(g, group_service.list_members(g.id)) for g in groups]
     return ResponseModel(data=result)
 
@@ -286,6 +295,48 @@ def rotate_join_link(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+def _outstanding_balance(expense_repo: ExpenseRepository, group_id: int, member_id: int) -> float:
+    """Largest absolute balance this member carries in any unsettled month of the group.
+
+    Settled months are excluded: they are already resolved. Shared by leaving and archiving so
+    the two cannot drift apart.
+    """
+    shares = expense_repo.get_all_monthly_shares(group_id)
+    member_key = str(member_id)
+    return max(
+        (abs(share.balances.get(member_key, 0.0)) for share in shares.values() if not share.is_settled),
+        default=0.0,
+    )
+
+
+@router.post("/{group_id}/archive", status_code=status.HTTP_204_NO_CONTENT)
+def archive_group(
+    group_id: int,
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+    expense_repo: ExpenseRepository = Depends(get_repository),
+) -> None:
+    """Archive the group for the current member only. Blocked while they owe or are owed."""
+    try:
+        outstanding = _outstanding_balance(expense_repo, group_id, current_member.id)
+        group_service.archive(group_id, current_member.id, outstanding)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{group_id}/unarchive", status_code=status.HTTP_204_NO_CONTENT)
+def unarchive_group(
+    group_id: int,
+    current_member=Depends(get_current_member),
+    group_service: GroupService = Depends(get_group_service),
+) -> None:
+    """Bring an archived group back into the current member's list."""
+    try:
+        group_service.unarchive(group_id, current_member.id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.delete("/{group_id}/members/leave", status_code=status.HTTP_204_NO_CONTENT)
 def leave_group(
     group_id: int,
@@ -295,12 +346,7 @@ def leave_group(
 ) -> None:
     """Leave a group. Blocked if the member has an outstanding balance in any unsettled month."""
     try:
-        shares = expense_repo.get_all_monthly_shares(group_id)
-        member_key = str(current_member.id)
-        outstanding = max(
-            (abs(share.balances.get(member_key, 0.0)) for share in shares.values() if not share.is_settled),
-            default=0.0,
-        )
+        outstanding = _outstanding_balance(expense_repo, group_id, current_member.id)
         group_service.leave(group_id, current_member.id, outstanding)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

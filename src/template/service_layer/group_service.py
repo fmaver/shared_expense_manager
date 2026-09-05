@@ -80,6 +80,46 @@ class GroupService:
         self._repo.add_member(group_id, member.id)
         return member
 
+    def archive(self, group_id: int, member_id: int, outstanding_balance: float) -> None:
+        """Archive a group for one member.
+
+        Per member: the group stays exactly as it is for everyone else. Blocked while the
+        member still owes or is owed something — the same rule as leaving, since putting a
+        group away should not hide a debt.
+        """
+        self._assert_not_personal(group_id)
+        if abs(outstanding_balance) > 0.01:
+            raise ValueError("Cannot archive a group with an outstanding balance. Settle first.")
+        self._repo.set_archived(group_id, member_id, archived=True)
+
+    def unarchive(self, group_id: int, member_id: int) -> None:
+        """Bring an archived group back into the member's list."""
+        self._repo.set_archived(group_id, member_id, archived=False)
+
+    def list_archived_for_member(self, member_id: int) -> list[Group]:
+        """Return the groups this member has archived."""
+        return self._repo.list_for_member(member_id, archived=True)
+
+    def refresh_archived_state(self, group_id: int, expense_repo) -> None:
+        """Unarchive the group for any member whose balance is no longer zero.
+
+        This is what makes archiving safe to silence: debt cannot accumulate behind an
+        archived group, because acquiring debt is exactly what brings it back. Called after an
+        expense changes — the only moment a balance can move.
+        """
+        archived_ids = self._repo.list_archived_member_ids(group_id)
+        if not archived_ids:
+            return
+        shares = expense_repo.get_all_monthly_shares(group_id)
+        for member_id in archived_ids:
+            key = str(member_id)
+            outstanding = max(
+                (abs(share.balances.get(key, 0.0)) for share in shares.values() if not share.is_settled),
+                default=0.0,
+            )
+            if outstanding > 0.01:
+                self._repo.set_archived(group_id, member_id, archived=False)
+
     def leave(self, group_id: int, member_id: int, member_balance: float) -> None:
         """Remove a member from the group. Blocked if they have a non-zero balance."""
         self._assert_not_personal(group_id)
