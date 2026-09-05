@@ -19,6 +19,7 @@ from template.entrypoint import (
     monitor,
     monthly_share,
     personal,
+    push,
     recurring_expense,
     whatsapp_bot,
 )
@@ -40,4 +41,5 @@ api_router_v1.include_router(auth.router)
 api_router_v1.include_router(personal.router)
 api_router_v1.include_router(recurring_expense.router)
 api_router_v1.include_router(currency.router)
+api_router_v1.include_router(push.router)
 root_router.include_router(whatsapp_bot.router)
