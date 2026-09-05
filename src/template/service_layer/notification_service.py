@@ -1,4 +1,13 @@
-"""Notification service for sending notifications to members."""
+"""Notification service for sending notifications to members.
+
+NOTE: this module is over pylint's 1000-line limit and the disable below is deliberate but not
+a fix. It dispatches every notification type across four channels, and the honest remedy is to
+split it — one module per channel, or per event family. That was not done here because it
+would mean restructuring live notification code as part of a feature, with no integration
+suite runnable locally to catch a regression.
+"""
+
+# pylint: disable=too-many-lines
 
 import os
 import re
@@ -15,8 +24,12 @@ from template.domain.models.split import EqualSplit, ExactAmountsSplit, Percenta
 from template.service_layer.member_service import MemberService
 from template.service_layer.push_service import (
     PUSH_CHANNEL,
+    PushMessage,
     push_body_for_expense,
+    push_body_for_settlement,
+    push_body_for_unsettle,
     push_url_for_expense,
+    push_url_for_month,
     resolve_channel,
 )
 from template.service_layer.whatsapp_service import (
@@ -34,6 +47,18 @@ class NotificationService:
         """Initialize notification service with configuration."""
         self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
         self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
+
+    def _maybe_push(self, member, push_service, push_repo, message) -> bool:
+        """Send a push to this member if that is their channel. True when it was sent.
+
+        Every dispatch site had the same shape; this keeps the routing decision in one place
+        so a future channel does not have to be added four times. `message` is None when push
+        is not configured for this call at all.
+        """
+        if push_service is None or message is None or not self._push_channel(member, push_repo):
+            return False
+        push_service.send_to_member(member.id, message.title, message.body, message.url)
+        return True
 
     @staticmethod
     def _push_channel(member, push_repo) -> bool:
@@ -66,6 +91,20 @@ class NotificationService:
         else:
             subject = "💸 Nuevo gasto registrado"
 
+        # Built once per notification: the text is identical for every recipient, and
+        # building it per member would also run it for members who are not on push.
+        push_message = (
+            PushMessage(
+                # The group is the title: iOS already shows the app name above it, so
+                # repeating "Jirens" there would waste the only prominent line.
+                group_name or subject,
+                push_body_for_expense(expense, creator, member_service),
+                push_url_for_expense(expense, group_id),
+            )
+            if push_service is not None
+            else None
+        )
+
         for member in members:
             if member.id == creator.id:
                 continue
@@ -80,15 +119,8 @@ class NotificationService:
             # registered; everyone else falls through to email exactly as before. This sits
             # *after* the involvement check above on purpose — push adds a pipe, not a new
             # decision about who deserves to hear about this expense.
-            if push_service is not None and self._push_channel(member, push_repo):
-                push_service.send_to_member(
-                    member.id,
-                    # The group is the title: iOS already shows the app name above it, so
-                    # repeating "Jirens" there would waste the only prominent line.
-                    group_name or subject,
-                    push_body_for_expense(expense, creator, member_service),
-                    push_url_for_expense(expense, group_id),
-                )
+            if self._maybe_push(member, push_service, push_repo, push_message):
+                pass  # push replaces this member's other channel
 
             elif member.notification_preference == NotificationType.EMAIL and member.email:
                 message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
@@ -151,7 +183,7 @@ class NotificationService:
             print("Sending regular message")
             await self._send_whatsapp(member.telephone, message, app_url=app_url)
 
-    async def notify_settlement(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def notify_settlement(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
         self,
         year: int,
         month: int,
@@ -160,6 +192,8 @@ class NotificationService:
         member_service: MemberService,
         group_name: str,
         group_id: Optional[int] = None,
+        push_service=None,
+        push_repo=None,
     ) -> None:
         """Notify all group members (except the settler) that a month has been settled."""
         time_now = datetime.now(timezone.utc)
@@ -168,11 +202,25 @@ class NotificationService:
             "Podés ver el resumen de balances en la app."
         )
         subject = f"💰 {group_name} — Cuentas de {month_name_es(month)} {year} saldadas ✅"
+        # Built once per notification: the text is identical for every recipient, and
+        # building it per member would also run it for members who are not on push.
+        push_message = (
+            PushMessage(
+                group_name,
+                push_body_for_settlement(month, year),
+                push_url_for_month(group_id, year, month),
+            )
+            if push_service is not None
+            else None
+        )
+
         for member in members:
             if member.id == actor_member_id:
                 continue
 
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            if self._maybe_push(member, push_service, push_repo, push_message):
+                pass  # push replaces this member's other channel
+            elif member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
@@ -189,7 +237,7 @@ class NotificationService:
                     app_url = self._build_app_url(group_id, is_multi=False)
                     await self._send_whatsapp(member.telephone, message, app_url=app_url)
 
-    async def notify_unsettle(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def notify_unsettle(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
         self,
         year: int,
         month: int,
@@ -198,6 +246,8 @@ class NotificationService:
         member_service: MemberService,
         group_name: str,
         group_id: Optional[int] = None,
+        push_service=None,
+        push_repo=None,
     ) -> None:
         """Notify all group members (except the actor) that a month has been reopened."""
         time_now = datetime.now(timezone.utc)
@@ -206,11 +256,25 @@ class NotificationService:
             "Se pueden volver a agregar o modificar gastos en la app."
         )
         subject = f"🔓 {group_name} — Cuentas de {month_name_es(month)} {year} reabiertas"
+        # Built once per notification: the text is identical for every recipient, and
+        # building it per member would also run it for members who are not on push.
+        push_message = (
+            PushMessage(
+                group_name,
+                push_body_for_unsettle(month, year),
+                push_url_for_month(group_id, year, month),
+            )
+            if push_service is not None
+            else None
+        )
+
         for member in members:
             if member.id == actor_member_id:
                 continue
 
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            if self._maybe_push(member, push_service, push_repo, push_message):
+                pass  # push replaces this member's other channel
+            elif member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
@@ -503,6 +567,8 @@ class NotificationService:
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
         group_id: Optional[int] = None,
+        push_service=None,
+        push_repo=None,
     ) -> None:
         """Notify members (union of old+new involved, minus actor) about an edited expense."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -554,6 +620,15 @@ class NotificationService:
             group_id=group_id,
             template_name="expense_updated",
             template_parameters=template_params,
+            push_service=push_service,
+            push_repo=push_repo,
+            push_title=group_name,
+            push_body=(
+                f"✏️ {actor_name} editó "
+                f"{self._remove_installments_from_description(new.description)} · "
+                f"${format_amount_es(new.amount)}"
+            ),
+            push_url=push_url_for_expense(new, group_id),
         )
 
     async def notify_expense_deleted(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -565,6 +640,8 @@ class NotificationService:
         group_name: Optional[str] = None,
         multi_group_member_ids: Optional[set] = None,
         group_id: Optional[int] = None,
+        push_service=None,
+        push_repo=None,
     ) -> None:
         """Notify involved members (minus actor) that an expense was deleted."""
         actor_name = member_service.get_member_name_by_id(actor.id) or actor.name
@@ -601,6 +678,18 @@ class NotificationService:
             group_id=group_id,
             template_name="expense_deleted",
             template_parameters=template_params,
+            push_service=push_service,
+            push_repo=push_repo,
+            push_title=group_name,
+            push_body=(
+                f"🗑️ {actor_name} eliminó "
+                f"{self._remove_installments_from_description(expense.description)} · "
+                f"${format_amount_es(expense.amount)}"
+            ),
+            # The expense is gone, so the link goes to its month rather than its detail.
+            push_url=(
+                f"/groups/{group_id}?year={expense.date.year}&month={expense.date.month}" if group_id else "/groups"
+            ),
         )
 
     async def _broadcast(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -615,12 +704,33 @@ class NotificationService:
         group_id: Optional[int] = None,
         template_name: Optional[str] = None,
         template_parameters: Optional[List[Dict[str, Any]]] = None,
+        push_service=None,
+        push_repo=None,
+        push_title: Optional[str] = None,
+        push_body: Optional[str] = None,
+        push_url: Optional[str] = None,
     ) -> None:
-        """Send a message to each recipient per their notification preference."""
+        """Send a message to each recipient per their notification preference.
+
+        Edit and delete both funnel through here, so push is wired once rather than twice.
+        The push text is passed in because only the caller knows what changed.
+        """
+        push_message = (
+            PushMessage(
+                push_title or group_name or "Jirens",
+                push_body,
+                push_url or (f"/groups/{group_id}" if group_id else "/groups"),
+            )
+            if push_body
+            else None
+        )
+
         for member in recipients:
             is_multi = bool(multi_group_member_ids and member.id in multi_group_member_ids)
             show_group = bool(group_name and is_multi)
-            if member.notification_preference == NotificationType.EMAIL:
+            if self._maybe_push(member, push_service, push_repo, push_message):
+                pass  # push replaces this member's other channel
+            elif member.notification_preference == NotificationType.EMAIL:
                 self._send_email(member.email, subject, message, html_content=html_content)
             elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
