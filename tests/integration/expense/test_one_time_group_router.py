@@ -163,3 +163,48 @@ def test_aggregate_requires_authentication(client, auth_headers):
 
     assert client.get(f"/api/v1/groups/{group_id}/shares/all").status_code == 401
     assert client.post(f"/api/v1/groups/{group_id}/shares/settle-all").status_code == 401
+
+
+def _recurring_payload(payer_id: int) -> dict:
+    return {
+        "description": "Internet",
+        "amount": 500.0,
+        "category": "servicios",
+        "payerId": payer_id,
+        "paymentType": "debit",
+        "splitStrategy": {"type": "equal"},
+        "startYear": 2026,
+        "startMonth": 5,
+    }
+
+
+def test_recurring_expense_is_rejected_in_a_one_time_group(client, auth_headers):
+    """A monthly repeat is meaningless where there are no months.
+
+    Without this the materializer would keep minting expenses into an occasion that already
+    ended.
+    """
+    group_id = _create_group(client, auth_headers)
+    me = _me(client, auth_headers)
+
+    response = client.post(
+        f"/api/v1/groups/{group_id}/expenses/recurring/",
+        json=_recurring_payload(me),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+
+
+def test_recurring_expense_is_allowed_in_a_regular_group(client, auth_headers):
+    """The rule is scoped to one-time groups and must not leak."""
+    group_id = _create_group(client, auth_headers, group_type="regular", name="Casa")
+    me = _me(client, auth_headers)
+
+    response = client.post(
+        f"/api/v1/groups/{group_id}/expenses/recurring/",
+        json=_recurring_payload(me),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201, response.text

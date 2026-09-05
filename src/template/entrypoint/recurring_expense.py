@@ -2,7 +2,7 @@
 
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from template.adapters.repositories import (
     GroupRepository,
@@ -13,6 +13,7 @@ from template.dependencies import (
     get_member_service,
     get_recurring_group_expense_repository,
 )
+from template.domain.models.group import GroupType
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import (
     RecurringGroupExpenseCreate,
@@ -48,6 +49,14 @@ def create_recurring_expense(  # pylint: disable=too-many-arguments,too-many-pos
     is first viewed. No instance record is created here — the materializer is the sole
     writer of instance records so idempotency is maintained correctly.
     """
+    # "Repeats every month" is meaningless in a group that has no months, and the
+    # materializer would keep minting expenses into an occasion that already ended.
+    group = group_repo.get(group_id)
+    if group is not None and group.group_type == GroupType.ONE_TIME:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Recurring expenses are not allowed in a one-time group",
+        )
     _assert_group_membership(group_id, current_member, group_repo)
     template = repo.create(group_id, data)
 
