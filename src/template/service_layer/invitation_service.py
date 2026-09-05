@@ -24,6 +24,7 @@ from template.domain.schemas.group import (
     InvitationResponse,
 )
 from template.service_layer.member_merge_service import MemberMergeService
+from template.service_layer.push_service import push_body_for_invitation
 from template.service_layer.whatsapp_invite_client import WhatsAppInviteClient
 
 
@@ -61,11 +62,13 @@ class InvitationService:
         notification_service,
         wpp_invite_client: WhatsAppInviteClient,
         app_base_url: str,
+        push_service=None,
     ):
         self._member_repo = member_repo
         self._group_repo = group_repo
         self._invitation_repo = invitation_repo
         self._notification_service = notification_service
+        self._push_service = push_service
         self._wpp_invite = wpp_invite_client
         self._base_url = app_base_url.rstrip("/")
 
@@ -133,21 +136,7 @@ class InvitationService:
             target=contact,
         )
 
-        # Dispatch notification
-        if inv_channel == InvitationChannel.EMAIL and invitee_member and invitee_member.email:
-            self._notification_service.send_invitation_email(
-                to_email=invitee_member.email,
-                inviter_name=inviter.name,
-                group_name=group.name,
-                claim_url=claim_url,
-            )
-        elif inv_channel == InvitationChannel.PHONE and invitee_member and invitee_member.telephone:
-            self._wpp_invite.send_invitation(
-                to_phone=invitee_member.telephone,
-                inviter_name=inviter.name,
-                group_name=group.name,
-                claim_url=claim_url,
-            )
+        self._dispatch_invitation(invitee_member, inviter.name, group.name, claim_url, token)
 
         return InvitationResponse(
             id=invitation_row.id,
@@ -161,6 +150,53 @@ class InvitationService:
             expires_at=invitation_row.expires_at,
             share_url=claim_url,
         )
+
+    def _dispatch_invitation(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        invitee: Optional[Member],
+        inviter_name: str,
+        group_name: str,
+        claim_url: str,
+        token: str,
+    ) -> None:
+        """Send the invitation through whatever actually reaches this person.
+
+        Ordered by what the invitee *has*, not by how the inviter typed the contact — typing a
+        phone number used to mean WhatsApp even for someone whose account had an email on file.
+
+        Push comes first but rarely applies, and that is expected: a subscription lives on an
+        installed app tied to an account, and most invitees have no account yet. It pays off
+        for people who are already users being invited into another group. WhatsApp is last
+        because it is a paid template message, so it now covers only the case nothing else
+        can: someone invited by number who has neither an account nor an email.
+        """
+        if invitee is None:
+            return
+
+        if self._push_service is not None and self._push_service.send_if_subscribed(
+            invitee.id,
+            group_name,
+            push_body_for_invitation(inviter_name),
+            f"/invite/{token}",
+        ):
+            return
+
+        if invitee.email:
+            self._notification_service.send_invitation_email(
+                to_email=invitee.email,
+                inviter_name=inviter_name,
+                group_name=group_name,
+                claim_url=claim_url,
+            )
+            return
+
+        if invitee.telephone:
+            self._wpp_invite.send_invitation(
+                to_phone=invitee.telephone,
+                inviter_name=inviter_name,
+                group_name=group_name,
+                claim_url=claim_url,
+            )
 
     def list_invitations(self, group_id: int) -> list[InvitationResponse]:
         """Return pending invitations for a group."""
@@ -264,6 +300,15 @@ class InvitationService:
         claimed = self._member_repo.claim_stub(invitee.id, resolve_email, password_hash)
         self._invitation_repo.mark_accepted(row.id, claimed.id)
         return claimed
+
+    def group_id_for_token(self, token: str) -> Optional[int]:
+        """The group an invitation points at, or None if the token is unknown.
+
+        Read before accepting, because the caller needs to notify that group's members and
+        accepting is what makes the token unusable.
+        """
+        row = self._invitation_repo.get_by_token(token)
+        return row.group_id if row else None
 
     def revoke_invitation(self, token: str, revoker_member_id: int) -> None:
         """Revoke a pending invitation and clean up an orphan stub if applicable."""
@@ -391,6 +436,11 @@ class GroupJoinLinkService:
         else:
             self._group_repo.add_member(group_id, current_member.id)  # idempotent
         return self._member_repo.get(current_member.id)
+
+    def group_id_for_token(self, token: str) -> Optional[int]:
+        """The group a join link points at, or None if the token is unknown."""
+        row = self._join_link_repo.get_by_token(token)
+        return row.group_id if row else None
 
     def is_member_of_join_group(self, token: str, member_id: int) -> bool:
         """Return True if this member already belongs to the group the token points at."""

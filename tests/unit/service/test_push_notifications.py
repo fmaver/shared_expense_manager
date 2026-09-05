@@ -286,3 +286,31 @@ def test_a_usd_expense_is_not_shown_as_pesos():
     body = push_body_for_expense(_expense(currency="USD", amount=20.0), MagicMock(), _member_service("Fran"))
 
     assert "US$" in body
+
+
+class TestSendIfSubscribed:
+    """The channel-routing entry point: it must report whether it actually delivered.
+
+    Callers fall through to email on False, so a wrong answer here silently drops a
+    notification rather than sending it twice.
+    """
+
+    def test_returns_false_and_sends_nothing_without_a_device(self, populated_session):
+        service = PushService(populated_session)
+
+        with patch("template.service_layer.push_service.webpush") as webpush_mock:
+            assert service.send_if_subscribed(MEMBER_ID, "Viaje", "cuerpo", "/groups/1") is False
+
+        webpush_mock.assert_not_called()
+
+    def test_returns_true_once_a_device_is_registered(self, populated_session):
+        populated_session.add(
+            PushSubscriptionModel(endpoint="https://push.example/1", p256dh="k", auth="a", member_id=MEMBER_ID)
+        )
+        populated_session.commit()
+        service = PushService(populated_session)
+
+        with patch("template.service_layer.push_service.webpush") as webpush_mock:
+            assert service.send_if_subscribed(MEMBER_ID, "Viaje", "cuerpo", "/groups/1") is True
+
+        webpush_mock.assert_called_once()

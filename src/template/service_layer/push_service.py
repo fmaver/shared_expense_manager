@@ -9,6 +9,7 @@ losing notifications entirely when WhatsApp free-form replies end.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Optional, Union
 
 from pywebpush import WebPushException, webpush
@@ -18,11 +19,26 @@ from template.adapters.orm import MemberModel
 from template.adapters.repositories import PushSubscriptionRepository
 from template.domain.models.category import Category
 from template.domain.models.enums import NotificationType
-from template.domain.models.formatters import format_amount_es
+from template.domain.models.formatters import format_amount_es, month_name_es
 
 logger = logging.getLogger(__name__)
 
 PUSH_CHANNEL = "push"
+
+
+@dataclass(frozen=True)
+class PushMessage:
+    """One notification's text and destination.
+
+    The same three strings go to every recipient of an event, so callers build this once per
+    notification rather than once per member — that also keeps the (possibly expensive) text
+    construction out of the loop for members who are not on push at all.
+    """
+
+    title: str
+    body: str
+    url: str
+
 
 # A push service answers 404/410 when the subscription no longer exists — the browser was
 # uninstalled, or permission was revoked. Anything else is transient and the device is kept.
@@ -86,6 +102,44 @@ def push_url_for_expense(expense, group_id) -> str:
     return f"{base}?year={expense.date.year}&month={expense.date.month}&expense={expense.id}"
 
 
+def push_body_for_recurring_template(template, creator) -> str:
+    """A new recurring template, in the shape the expense notification already uses."""
+    return f"🔁 {creator.name} creó un recurrente de ${format_amount_es(template.amount)}\n{template.description}"
+
+
+def push_body_for_join(joiner_name: str, claimed_name: Optional[str] = None) -> str:
+    """Someone joined the group.
+
+    When they claimed a ghost, the claimed name is the useful half: the group has been
+    tracking that person as "Tomi" for weeks, so "Nico se sumó" alone reads like a stranger.
+    """
+    if claimed_name and claimed_name != joiner_name:
+        return f"👋 {joiner_name} se sumó como {claimed_name}"
+    return f"👋 {joiner_name} se sumó al grupo"
+
+
+def push_body_for_invitation(inviter_name: str) -> str:
+    """An invitation to a group. The group name is the title, so it is not repeated here."""
+    return f"👋 {inviter_name} te invitó a este grupo"
+
+
+def push_body_for_settlement(month: int, year: int) -> str:
+    """A settled month, in the few words a lock screen shows."""
+    return f"✅ Cuentas de {month_name_es(month)} {year} saldadas"
+
+
+def push_body_for_unsettle(month: int, year: int) -> str:
+    """A reopened month."""
+    return f"↩️ {month_name_es(month)} {year} fue reabierto"
+
+
+def push_url_for_month(group_id, year: int, month: int) -> str:
+    """Link to a specific month of a group, using the app's ?year=&month= convention."""
+    if not group_id:
+        return "/groups"
+    return f"/groups/{group_id}?year={year}&month={month}"
+
+
 class PushService:
     """Sends web push notifications to a member's registered devices."""
 
@@ -122,6 +176,18 @@ class PushService:
                 self._handle_failure(subscription.endpoint, exc)
             except Exception as exc:  # pylint: disable=broad-except
                 logger.warning("Push delivery failed for %s: %s", subscription.endpoint, exc)
+
+    def send_if_subscribed(self, member_id: int, title: str, body: str, url: str) -> bool:
+        """Deliver only if this member has a registered device. True when it was sent.
+
+        Callers that route between channels need the answer, not just the send: they fall
+        through to email when it is False. The subscription lookup uses this service's own
+        repository, so a caller needs no second push dependency.
+        """
+        if not self._repo.has_any(member_id):
+            return False
+        self.send_to_member(member_id, title, body, url)
+        return True
 
     def _handle_failure(self, endpoint: str, exc: WebPushException) -> None:
         """Drop the device only when the push service says it is gone."""

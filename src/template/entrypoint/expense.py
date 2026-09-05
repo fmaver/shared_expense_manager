@@ -136,7 +136,7 @@ def create_expense(
 
 
 @router.put("/{expense_id}", response_model=ResponseModel[ExpenseResponse])
-def update_expense(
+def update_expense(  # pylint: disable=too-many-locals
     expense_id: int,
     expense_data: ExpenseCreate,
     background_tasks: BackgroundTasks,
@@ -145,6 +145,7 @@ def update_expense(
     group_service: GroupService = Depends(get_group_service),
     repository: ExpenseRepository = Depends(get_repository),
     current_member=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> ResponseModel[ExpenseResponse]:
     """Update an existing expense."""
     try:
@@ -169,6 +170,8 @@ def update_expense(
                 group_name=group_name,
                 multi_group_member_ids=multi_group_ids,
                 group_id=service.group_id,
+                push_service=PushService(db),
+                push_repo=PushSubscriptionRepository(db),
             )
 
         response_data = ExpenseResponse(
@@ -203,6 +206,7 @@ def delete_expense(
     group_service: GroupService = Depends(get_group_service),
     repository: ExpenseRepository = Depends(get_repository),
     current_member=Depends(get_current_member),
+    db: Session = Depends(get_db),
 ) -> None:
     """Delete an expense."""
     try:
@@ -226,6 +230,8 @@ def delete_expense(
                 group_name=group_name,
                 multi_group_member_ids=multi_group_ids,
                 group_id=service.group_id,
+                push_service=PushService(db),
+                push_repo=PushSubscriptionRepository(db),
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
