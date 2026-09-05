@@ -12,7 +12,10 @@ from fastapi import (
     UploadFile,
     status,
 )
+from sqlalchemy.orm import Session
 
+from template.adapters.database import get_db
+from template.adapters.repositories import PushSubscriptionRepository
 from template.dependencies import (
     get_expense_service,
     get_group_service,
@@ -35,6 +38,7 @@ from template.service_layer.expense_service import ExpenseService, _strategy_to_
 from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
+from template.service_layer.push_service import PushService
 
 router = APIRouter(prefix="/groups/{group_id}/expenses", tags=["Expenses"])
 
@@ -77,6 +81,7 @@ def create_expense(
     member_service: MemberService = Depends(get_member_service),
     group_service: GroupService = Depends(get_group_service),
     repository: ExpenseRepository = Depends(get_repository),
+    db: Session = Depends(get_db),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[ExpenseResponse]:
     """Create a new expense."""
@@ -102,6 +107,8 @@ def create_expense(
                 group_name=group_name,
                 multi_group_member_ids=multi_group_ids,
                 group_id=service.group_id,
+                push_service=PushService(db),
+                push_repo=PushSubscriptionRepository(db),
             )
 
         # Create response data

@@ -29,6 +29,24 @@ class NotificationService:
         self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
         self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
 
+    @staticmethod
+    def _push_channel(member, push_repo) -> bool:
+        """True when this member should be reached by push instead of their usual channel."""
+        if push_repo is None:
+            return False
+        # pylint: disable=import-outside-toplevel
+        from template.service_layer.push_service import PUSH_CHANNEL, resolve_channel
+
+        # pylint: enable=import-outside-toplevel
+        return resolve_channel(member, push_repo) == PUSH_CHANNEL
+
+    @staticmethod
+    def _push_body_for_expense(expense, creator, member_service) -> str:
+        """One short line: a push notification has no room for the full email body."""
+        payer = member_service.get_member(expense.payer_id) if expense.payer_id else None
+        who = payer.name if payer else creator.name
+        return f"{expense.description} — {who}"
+
     async def notify_expense_created(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals  # noqa: E501
         self,
         expense: Expense,
@@ -39,8 +57,14 @@ class NotificationService:
         multi_group_member_ids: Optional[set] = None,
         group_id: Optional[int] = None,
         is_recurring: bool = False,
+        push_service=None,
+        push_repo=None,
     ) -> None:
-        """Notify members about a new expense based on their notification preferences."""
+        """Notify members about a new expense based on their notification preferences.
+
+        `push_service`/`push_repo` are optional so every existing caller and test keeps
+        working unchanged; without them the behaviour is exactly what it was.
+        """
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
         if is_loan:
             subject = "💰 Nuevo préstamo"
@@ -59,7 +83,19 @@ class NotificationService:
             is_multi = bool(multi_group_member_ids and member.id in multi_group_member_ids)
             effective_group = group_name if (group_name and is_multi) else None
 
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            # Push takes the place of the member's usual channel when they have a device
+            # registered; everyone else falls through to email exactly as before. This sits
+            # *after* the involvement check above on purpose — push adds a pipe, not a new
+            # decision about who deserves to hear about this expense.
+            if push_service is not None and self._push_channel(member, push_repo):
+                push_service.send_to_member(
+                    member.id,
+                    subject,
+                    self._push_body_for_expense(expense, creator, member_service),
+                    f"/groups/{group_id}" if group_id else "/groups",
+                )
+
+            elif member.notification_preference == NotificationType.EMAIL and member.email:
                 message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
                 if effective_group:
                     message = f"📁 *{effective_group}*\n\n{message}"

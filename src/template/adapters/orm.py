@@ -90,6 +90,28 @@ class GroupMembershipModel(Base):
     member: Mapped["MemberModel"] = relationship()
 
 
+class PushSubscriptionModel(Base):
+    """One browser's push registration.
+
+    A member can hold several — phone plus laptop is normal — which is why this is a table
+    rather than a column on members.
+    """
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    # The push service URL identifies the device; browsers re-send the same one, so it is
+    # unique and re-subscribing updates rather than duplicating.
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    member: Mapped["MemberModel"] = relationship()
+
+
 class MonthlyShareModel(Base):
     __tablename__ = "monthly_shares"
 

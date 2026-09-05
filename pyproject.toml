@@ -28,6 +28,7 @@ httpx = "0.25.2"
 fpdf2 = "^2.8.7"
 anthropic = "^1.4"
 google-genai = ">=1.0,<2.0"
+pywebpush = "^2.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"

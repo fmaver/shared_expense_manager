@@ -20,6 +20,7 @@ from template.adapters.orm import (
     MemberModel,
     MonthlyShareModel,
     ProcessedMessageModel,
+    PushSubscriptionModel,
     RecurringGroupExpenseInstanceModel,
     RecurringGroupExpenseModel,
     RecurringIncomeModel,
@@ -650,6 +651,55 @@ class ProcessedMessageRepository:
         """Delete entries older than 24 hours to keep the table small."""
         cutoff = datetime.utcnow() - timedelta(hours=24)
         self.session.query(ProcessedMessageModel).filter(ProcessedMessageModel.processed_at < cutoff).delete()
+        self.session.commit()
+
+
+class PushSubscriptionRepository:
+    """Stores the browsers a member registered for web push."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def save(self, member_id: int, endpoint: str, p256dh: str, auth: str) -> PushSubscriptionModel:
+        """Register a device, or refresh it if this endpoint is already known.
+
+        Browsers re-send the same endpoint on every subscribe call; inserting again would mean
+        sending every notification twice to the same device.
+        """
+        existing = self.session.query(PushSubscriptionModel).filter(PushSubscriptionModel.endpoint == endpoint).first()
+        if existing:
+            existing.member_id = member_id
+            existing.p256dh = p256dh
+            existing.auth = auth
+            self.session.commit()
+            return existing
+
+        subscription = PushSubscriptionModel(member_id=member_id, endpoint=endpoint, p256dh=p256dh, auth=auth)
+        self.session.add(subscription)
+        self.session.commit()
+        return subscription
+
+    def list_for_member(self, member_id: int) -> list[PushSubscriptionModel]:
+        """Every device this member registered."""
+        return self.session.query(PushSubscriptionModel).filter(PushSubscriptionModel.member_id == member_id).all()
+
+    def has_any(self, member_id: int) -> bool:
+        """True when the member can receive push at all."""
+        return (
+            self.session.query(PushSubscriptionModel).filter(PushSubscriptionModel.member_id == member_id).count() > 0
+        )
+
+    def delete_by_endpoint(self, endpoint: str) -> None:
+        """Drop a dead device. Called when the push service reports it is gone."""
+        self.session.query(PushSubscriptionModel).filter(PushSubscriptionModel.endpoint == endpoint).delete()
+        self.session.commit()
+
+    def delete_for_member(self, member_id: int, endpoint: str) -> None:
+        """Unsubscribe one of the member's own devices."""
+        self.session.query(PushSubscriptionModel).filter(
+            PushSubscriptionModel.member_id == member_id,
+            PushSubscriptionModel.endpoint == endpoint,
+        ).delete()
         self.session.commit()
 
 
