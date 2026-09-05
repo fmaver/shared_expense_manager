@@ -17,8 +17,14 @@ router = APIRouter(prefix="/members", tags=["Members"])
 
 
 @router.get("/", response_model=ResponseModel[list[MemberResponse]])
-def get_members(db: Session = Depends(get_db)) -> ResponseModel[list[MemberResponse]]:
-    """Get all members."""
+def get_members(
+    db: Session = Depends(get_db),
+    _=Depends(get_current_member),
+) -> ResponseModel[list[MemberResponse]]:
+    """Get all members.
+
+    Authenticated: this returns every member's name, email and telephone.
+    """
     repository = MemberRepository(db)
     members = repository.list()
 
