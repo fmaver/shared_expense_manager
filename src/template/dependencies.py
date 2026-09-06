@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from template.adapters.database import get_db
 from template.adapters.repositories import (
     ChatSessionRepository,
+    DueDateRepository,
     GroupRepository,
     IncomeRepository,
     MemberRepository,
@@ -97,6 +98,11 @@ def get_income_repository(db: Session = Depends(get_db)) -> IncomeRepository:
 def get_recurring_expense_repository(db: Session = Depends(get_db)) -> RecurringPersonalExpenseRepository:
     """Get recurring personal expense repository instance."""
     return RecurringPersonalExpenseRepository(db)
+
+
+def get_due_date_repository(db: Session = Depends(get_db)) -> DueDateRepository:
+    """Get due date repository instance."""
+    return DueDateRepository(db)
 
 
 def get_recurring_group_expense_repository(db: Session = Depends(get_db)) -> RecurringGroupExpenseRepository:

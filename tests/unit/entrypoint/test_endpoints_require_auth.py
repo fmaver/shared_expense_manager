@@ -20,6 +20,9 @@ PUBLIC_PREFIXES = (
     "/api/v1/join",
     "/api/v1/categories",  # a static list, no user data
     "/api/v1/currency",  # a public exchange rate
+    # No lleva JWT porque no hay un usuario detrás de un cron. Lo protege el header
+    # X-Task-Secret, y sin TASK_SECRET configurado responde 404 en vez de quedar abierto.
+    "/api/v1/tasks",
     "/docs",
     "/redoc",
     "/openapi.json",

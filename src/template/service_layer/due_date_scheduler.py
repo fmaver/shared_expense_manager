@@ -41,10 +41,9 @@ async def _loop() -> None:
                 sent = await DueDateReminderService(session).run(now_in_buenos_aires())
             if sent:
                 logger.info("Due date reminders sent: %s", sent)
-        except asyncio.CancelledError:
-            raise
         except Exception:  # pylint: disable=broad-except
             # Una vuelta que explota no puede matar el loop: mañana hay otro vencimiento.
+            # La cancelación del shutdown no cae acá: CancelledError hereda de BaseException.
             logger.exception("Due date reminder pass failed")
 
 
