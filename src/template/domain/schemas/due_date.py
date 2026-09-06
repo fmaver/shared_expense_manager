@@ -40,3 +40,14 @@ class DueDateResponse(CamelCaseModel):
     anchor_month: int
     notify_days_before: int
     active: bool
+
+
+class DueDateReminderRunResponse(CamelCaseModel):
+    """Resultado de una corrida del job.
+
+    Un modelo y no un `dict`: `ResponseModel` declara `data: S | list[S]` con S acotado a
+    CamelCaseModel, así que parametrizarlo con `dict` viola la cota y FastAPI valida el
+    contenido contra CamelCaseModel — que no tiene campos — devolviendo `{"data": []}`.
+    """
+
+    sent: int

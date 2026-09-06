@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
 from template.domain.schema_model import ResponseModel
+from template.domain.schemas.due_date import DueDateReminderRunResponse
 from template.service_layer.due_date_service import (
     DueDateReminderService,
     now_in_buenos_aires,
@@ -32,12 +33,12 @@ def _assert_task_secret(provided: Optional[str]) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid task secret")
 
 
-@router.post("/due-date-reminders", response_model=ResponseModel[dict])
+@router.post("/due-date-reminders", response_model=ResponseModel[DueDateReminderRunResponse])
 async def run_due_date_reminders(
     x_task_secret: Optional[str] = Header(default=None, alias="X-Task-Secret"),
     db: Session = Depends(get_db),
-) -> ResponseModel[dict]:
+) -> ResponseModel[DueDateReminderRunResponse]:
     """Correr ahora el envío de recordatorios. Idempotente: repetirlo no duplica avisos."""
     _assert_task_secret(x_task_secret)
     sent = await DueDateReminderService(db).run(now_in_buenos_aires())
-    return ResponseModel(data={"sent": sent})
+    return ResponseModel(data=DueDateReminderRunResponse(sent=sent))
