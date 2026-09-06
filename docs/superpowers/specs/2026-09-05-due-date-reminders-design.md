@@ -117,16 +117,26 @@ papel. Además el aviso es *antes* del vencimiento, así que el fin de semana no
 
 ## El job
 
-Un `asyncio.Task` lanzado en el `lifespan` de la app, que despierta **cada hora**. Es viable
-porque el proceso no se duerme: UptimeRobot le pega a `/liveness` cada 5 minutos.
+Un `asyncio.Task` lanzado en el `lifespan` de la app. Es viable porque el proceso no se
+duerme: UptimeRobot le pega a `/liveness` cada 5 minutos.
+
+**Duerme hasta la próxima hora en punto**, no una hora fija. Con `sleep(3600)` la hora de
+envío depende de cuándo arrancó el proceso —un deploy a las 14:37 mueve el aviso a las 09:37—
+y sería distinta después de cada deploy. Alineado a :00, la respuesta a "¿a qué hora avisa?"
+es una sola: **09:00 de Argentina**.
+
+Eso redefine la ventana 09:00–22:00: no es el horario de envío, es una red de seguridad. Si la
+app estuvo caída a las 9 y vuelve a las 14, el aviso sale a las 14 en vez de perderse; si
+vuelve a las 3 de la mañana, espera hasta las 9.
 
 En cada vuelta:
 
 1. `hoy` = fecha actual en **America/Argentina/Buenos_Aires**. El server corre en UTC; si se
    usara `date.today()` los vencimientos del día 1 se dispararían el día anterior a las 21hs.
-2. Si la hora local está **fuera de 09:00–22:00**, no manda nada y vuelve a dormir. Un push a
-   las 4 de la mañana por la boleta del gas es cómo se consigue que alguien apague las
-   notificaciones para siempre.
+2. Si la hora local está **fuera de 09:00–22:00**, no manda nada y vuelve a dormir. En el curso
+   normal esto solo descarta las vueltas de 22:00 a 08:00; el envío real ocurre en la vuelta de
+   las 09:00. Un push a las 4 de la mañana por la boleta del gas es cómo se consigue que
+   alguien apague las notificaciones para siempre.
 3. Para cada `due_date` activo: calcular la próxima ocurrencia. Si
    `(ocurrencia - hoy).days == notify_days_before`, para cada miembro del grupo dueño:
    a. Insertar la fila en `due_date_reminders` (`ON CONFLICT DO NOTHING`). Si no insertó,
@@ -195,7 +205,8 @@ gastos.
 - Predicado "hay que avisar hoy": frontera exacta de `notify_days_before`.
 - Zona horaria: un caso a las 21:00 UTC del día anterior debe resolver al día argentino
   correcto.
-- Ventana horaria: fuera de 09–22 no envía.
+- Ventana horaria: fuera de 09–22 no envía; a las 09:00 sí.
+- Alineación al reloj: el cálculo del sueño devuelve el tiempo hasta el próximo :00, no 3600.
 - Ruteo de notificación: push cuando hay dispositivo, mail cuando no.
 
 **Integración** (`make integration`, requiere `TEST_DATABASE_URL`):
