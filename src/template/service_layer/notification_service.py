@@ -11,7 +11,7 @@ suite runnable locally to catch a regression.
 
 import os
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -24,6 +24,7 @@ from template.domain.models.split import EqualSplit, ExactAmountsSplit, Percenta
 from template.service_layer.member_service import MemberService
 from template.service_layer.push_service import (
     PushMessage,
+    push_body_for_due_date,
     push_body_for_expense,
     push_body_for_join,
     push_body_for_occasion,
@@ -576,6 +577,44 @@ class NotificationService:
                 continue
             if self._maybe_push(member, push_service, push_message):
                 continue
+            if member.notification_preference == NotificationType.EMAIL and member.email:
+                self._send_email(member.email, subject, message)
+
+    async def notify_due_date(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        due_date_label: str,
+        due_on: date,
+        days_before: int,
+        members: List[Member],
+        group_name: Optional[str] = None,
+        group_id: Optional[int] = None,
+        push_service: Any = None,
+    ) -> None:
+        """Avisar que un vencimiento se acerca.
+
+        Push con mail de respaldo, sin rama de WhatsApp: no hay plantilla aprobada para esto y
+        el texto libre solo llegaría a quienes hayan chateado en las últimas 24 horas, que es
+        justo lo contrario de un recordatorio.
+        """
+        subject = f"📅 {due_date_label} vence pronto"
+        body = push_body_for_due_date(due_date_label, due_on, days_before)
+        message = f"📁 *{group_name}*\n\n{body}" if group_name else body
+
+        push_message = (
+            PushMessage(
+                group_name or subject,
+                body,
+                f"/groups/{group_id}/due-dates" if group_id else "/groups",
+            )
+            if push_service is not None
+            else None
+        )
+
+        for member in members:
+            if self._maybe_push(member, push_service, push_message):
+                continue
+            # `member.email` no es redundante: un miembro fantasma tiene preferencia pero no
+            # tiene a dónde recibir nada.
             if member.notification_preference == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
 

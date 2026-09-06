@@ -10,6 +10,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional, Union
 
 from pywebpush import WebPushException, webpush
@@ -121,6 +122,16 @@ def push_body_for_join(joiner_name: str, claimed_name: Optional[str] = None) -> 
 def push_body_for_invitation(inviter_name: str) -> str:
     """An invitation to a group. The group name is the title, so it is not repeated here."""
     return f"👋 {inviter_name} te invitó a este grupo"
+
+
+def push_body_for_due_date(label: str, due_on: date, days_before: int) -> str:
+    """Qué vence y cuándo, en las palabras que se usan al hablar.
+
+    "en 0 días" y "en 1 días" son las dos formas en que un contador de días suena a máquina,
+    así que esos dos casos se dicen como los diría una persona.
+    """
+    when = {0: "hoy", 1: "mañana"}.get(days_before, f"en {days_before} días")
+    return f"📅 {label} vence {when} ({due_on.day:02d}/{due_on.month:02d})"
 
 
 def push_body_for_settlement(month: int, year: int) -> str:

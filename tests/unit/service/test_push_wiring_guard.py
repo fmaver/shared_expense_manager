@@ -14,27 +14,36 @@ import pathlib
 
 import pytest
 
-ENTRYPOINTS = pathlib.Path(__file__).resolve().parents[2].parent / "src" / "template" / "entrypoint"
+SRC = pathlib.Path(__file__).resolve().parents[2].parent / "src" / "template"
 
-# Notifications that deliberately reach nobody who could hold a push subscription.
+# Los routers no son el único lugar que despacha notificaciones: el chatbot lo hace desde el
+# service layer, y ahí se coló uno de los tres bugs que este guard existe para evitar.
+SCANNED = (SRC / "entrypoint", SRC / "service_layer")
+
+# Se excluye el módulo que las define: ahí los `notify_*` son declaraciones, no llamadas.
+EXCLUDED_FILES = {"notification_service.py"}
+
+# Notificaciones que deliberadamente no llegan a nadie que pueda tener una suscripción push.
 EXEMPT: set[str] = set()
 
 
 def _dispatch_sites():
-    """Every `NotificationService().notify_*` call in the routers, with its keywords."""
-    for path in sorted(ENTRYPOINTS.rglob("*.py")):
-        tree = ast.parse(path.read_text())
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+    """Every `notify_*` dispatch in the routers and the service layer, with its keywords."""
+    for root in SCANNED:
+        for path in sorted(root.rglob("*.py")):
+            if path.name in EXCLUDED_FILES:
                 continue
-            for arg in [*node.args, *(kw.value for kw in node.keywords)]:
-                # Background tasks pass the bound method itself, uncalled.
-                if isinstance(arg, ast.Attribute) and arg.attr.startswith("notify_"):
-                    keywords = {kw.arg for kw in node.keywords}
-                    yield path.name, node.lineno, arg.attr, keywords
-            func = node.func
-            if isinstance(func, ast.Attribute) and func.attr.startswith("notify_"):
-                yield path.name, node.lineno, func.attr, {kw.arg for kw in node.keywords}
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                for arg in [*node.args, *(kw.value for kw in node.keywords)]:
+                    # Background tasks pass the bound method itself, uncalled.
+                    if isinstance(arg, ast.Attribute) and arg.attr.startswith("notify_"):
+                        yield path.name, node.lineno, arg.attr, {kw.arg for kw in node.keywords}
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr.startswith("notify_"):
+                    yield path.name, node.lineno, func.attr, {kw.arg for kw in node.keywords}
 
 
 def test_the_scan_actually_finds_call_sites():
