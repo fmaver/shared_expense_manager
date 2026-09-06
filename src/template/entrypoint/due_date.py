@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from template.adapters.repositories import DueDateRepository, GroupRepository
 from template.dependencies import get_due_date_repository, get_group_repository
 from template.domain.schema_model import ResponseModel
-from template.domain.schemas.due_date import DueDateCreate, DueDateResponse, DueDateUpdate
+from template.domain.schemas.due_date import (
+    DueDateCreate,
+    DueDateResponse,
+    DueDateUpdate,
+)
 from template.service_layer.auth_service import get_current_member
 
 router = APIRouter(prefix="/groups/{group_id}/due-dates", tags=["DueDates"])

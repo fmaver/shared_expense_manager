@@ -35,9 +35,7 @@ def test_create_and_list(client, auth_headers):
 
 def test_update_is_partial(client, auth_headers):
     group_id = _create_group(client, auth_headers)
-    created = client.post(
-        f"/api/v1/groups/{group_id}/due-dates/", json=_payload(), headers=auth_headers
-    ).json()["data"]
+    created = client.post(f"/api/v1/groups/{group_id}/due-dates/", json=_payload(), headers=auth_headers).json()["data"]
 
     updated = client.put(
         f"/api/v1/groups/{group_id}/due-dates/{created['id']}",
@@ -52,9 +50,7 @@ def test_update_is_partial(client, auth_headers):
 
 def test_delete(client, auth_headers):
     group_id = _create_group(client, auth_headers)
-    created = client.post(
-        f"/api/v1/groups/{group_id}/due-dates/", json=_payload(), headers=auth_headers
-    ).json()["data"]
+    created = client.post(f"/api/v1/groups/{group_id}/due-dates/", json=_payload(), headers=auth_headers).json()["data"]
 
     deleted = client.delete(f"/api/v1/groups/{group_id}/due-dates/{created['id']}", headers=auth_headers)
     assert deleted.status_code in (200, 204)
@@ -68,9 +64,9 @@ def test_a_non_member_cannot_read_or_write(client, auth_headers):
         "/api/v1/auth/register",
         json={"name": "Otro", "email": "otro@example.com", "password": "secret123", "telephone": "5411999999"},
     )
-    token = client.post(
-        "/api/v1/auth/token", data={"username": "otro@example.com", "password": "secret123"}
-    ).json()["access_token"]
+    token = client.post("/api/v1/auth/token", data={"username": "otro@example.com", "password": "secret123"}).json()[
+        "access_token"
+    ]
     other = {"Authorization": f"Bearer {token}"}
 
     assert client.get(f"/api/v1/groups/{group_id}/due-dates/", headers=other).status_code == 403
@@ -81,9 +77,7 @@ def test_editing_a_due_date_from_another_group_is_not_found(client, auth_headers
     """Pasar el group_id propio no debe habilitar el vencimiento de otro grupo."""
     mine = _create_group(client, auth_headers, name="Mío")
     theirs = _create_group(client, auth_headers, name="Otro")
-    created = client.post(
-        f"/api/v1/groups/{theirs}/due-dates/", json=_payload(), headers=auth_headers
-    ).json()["data"]
+    created = client.post(f"/api/v1/groups/{theirs}/due-dates/", json=_payload(), headers=auth_headers).json()["data"]
 
     response = client.put(
         f"/api/v1/groups/{mine}/due-dates/{created['id']}",
@@ -96,7 +90,5 @@ def test_editing_a_due_date_from_another_group_is_not_found(client, auth_headers
 
 def test_day_32_is_rejected(client, auth_headers):
     group_id = _create_group(client, auth_headers)
-    response = client.post(
-        f"/api/v1/groups/{group_id}/due-dates/", json=_payload(dayOfMonth=32), headers=auth_headers
-    )
+    response = client.post(f"/api/v1/groups/{group_id}/due-dates/", json=_payload(dayOfMonth=32), headers=auth_headers)
     assert response.status_code == 422
