@@ -157,9 +157,10 @@ porque UptimeRobot alerta cuando el servicio se cae, así que la falla no es sil
 ## Notificaciones
 
 `NotificationService.notify_due_date`, que hereda el ruteo existente: push si el miembro tiene
-la app instalada, mail si no. Queda cubierto por `test_push_wiring_guard.py`, el test que
-parsea los routers y falla si un `notify_*` se despacha sin `push_service` — el que evita el
-bug que ya apareció tres veces.
+la app instalada, mail si no. `test_push_wiring_guard.py` **hoy solo escanea `entrypoint/`**, y esta llamada vive en el
+service layer, así que no la cubriría. Se amplía el guard a `service_layer/` como parte de este
+trabajo: uno de los tres bugs que motivaron el guard (el saldado desde el chatbot) también
+estaba fuera de los routers, o sea que el agujero ya existía.
 
 **Destinatarios**: los miembros del grupo dueño que no lo tengan archivado. Se reutiliza
 `_notifiable_members`, la misma regla que ya usan las notificaciones de saldado — archivar un
