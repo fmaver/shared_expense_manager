@@ -7,6 +7,10 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from template.router import api_router_v1, root_router
+from template.service_layer.due_date_scheduler import (
+    start_due_date_scheduler,
+    stop_due_date_scheduler,
+)
 from template.service_layer.initialization import InitializationService
 from template.settings.api_settings import ApplicationSettings
 
@@ -25,6 +29,10 @@ async def on_startup(app: FastAPI):
     # Initialize database and default data
     await InitializationService.initialize()
 
+    # Recordatorios de vencimientos: un loop horario dentro del proceso. Viable porque el
+    # servicio no se duerme (UptimeRobot le pega a /liveness cada 5 minutos).
+    start_due_date_scheduler()
+
 
 async def on_shutdown():
     """
@@ -34,6 +42,8 @@ async def on_shutdown():
         1. https://fastapi.tiangolo.com/advanced/events/#shutdown-event
     """
     log.debug("Execute FastAPI shutdown event handler.")
+
+    stop_due_date_scheduler()
 
 
 @asynccontextmanager
