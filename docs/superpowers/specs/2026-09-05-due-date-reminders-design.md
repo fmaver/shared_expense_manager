@@ -117,8 +117,18 @@ papel. Además el aviso es *antes* del vencimiento, así que el fin de semana no
 
 ## El job
 
-Un `asyncio.Task` lanzado en el `lifespan` de la app. Es viable porque el proceso no se
-duerme: UptimeRobot le pega a `/liveness` cada 5 minutos.
+Un `asyncio.Task` lanzado en el `lifespan` de la app. Es viable **en producción**, donde
+UptimeRobot le pega a `/liveness` cada 5 minutos y el proceso no se duerme.
+
+**Esto es una dependencia real del feature, no un detalle de infraestructura**: si UptimeRobot
+deja de pinguear prod, el servicio se apaga a los 15 minutos de inactividad y los recordatorios
+dejan de salir sin que nada falle visiblemente. El endpoint `POST /tasks/due-date-reminders`
+existe también para eso: permite mover el disparador afuera sin tocar la lógica.
+
+En **staging** UptimeRobot no corre, así que el servicio está apagado casi siempre y el loop no
+es confiable ahí. Es esperado, no un bug: staging se prueba con el endpoint manual, y el loop
+solo se puede validar de punta a punta en producción o dejando el servicio despierto a través
+de un cambio de hora.
 
 **Duerme hasta la próxima hora en punto**, no una hora fija. Con `sleep(3600)` la hora de
 envío depende de cuándo arrancó el proceso —un deploy a las 14:37 mueve el aviso a las 09:37—

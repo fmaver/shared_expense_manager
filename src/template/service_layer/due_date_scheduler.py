@@ -32,19 +32,31 @@ def seconds_until_next_hour(now: datetime) -> float:
     return (next_hour - now).total_seconds()
 
 
+async def _run_once() -> None:
+    """Una pasada del servicio. Nunca propaga: una vuelta rota no puede matar el loop."""
+    try:
+        with SessionLocal() as session:
+            sent = await DueDateReminderService(session).run(now_in_buenos_aires())
+        if sent:
+            logger.info("Due date reminders sent: %s", sent)
+    except Exception:  # pylint: disable=broad-except
+        # Mañana hay otro vencimiento. La cancelación del shutdown no cae acá:
+        # CancelledError hereda de BaseException.
+        logger.exception("Due date reminder pass failed")
+
+
 async def _loop() -> None:
-    """Despertar cada hora en punto y delegar la decisión al servicio."""
+    """Correr al arrancar, y después una vez por hora en punto.
+
+    La corrida al arranque no es una optimización: dormir primero deja el feature inservible
+    en cualquier servicio que se apague por inactividad, porque lo apagan antes de que el loop
+    haya hecho nada. Así, alcanza con que el proceso esté vivo en algún momento de la ventana
+    del día, en vez de justo a una hora exacta. Es seguro porque el job es idempotente: la
+    tabla de recordatorios impide que correr de más duplique un aviso.
+    """
     while True:
+        await _run_once()
         await asyncio.sleep(seconds_until_next_hour(datetime.now()))
-        try:
-            with SessionLocal() as session:
-                sent = await DueDateReminderService(session).run(now_in_buenos_aires())
-            if sent:
-                logger.info("Due date reminders sent: %s", sent)
-        except Exception:  # pylint: disable=broad-except
-            # Una vuelta que explota no puede matar el loop: mañana hay otro vencimiento.
-            # La cancelación del shutdown no cae acá: CancelledError hereda de BaseException.
-            logger.exception("Due date reminder pass failed")
 
 
 def start_due_date_scheduler() -> Optional[asyncio.Task]:
