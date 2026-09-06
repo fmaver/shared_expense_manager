@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from template.adapters.orm import (
     ChatSessionModel,
+    DueDateModel,
+    DueDateReminderModel,
     ExpenseModel,
     GroupJoinLinkModel,
     GroupMembershipModel,
@@ -45,6 +47,11 @@ from template.domain.models.models import Expense, MonthlyShare
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import EqualSplit, ExactAmountsSplit, PercentageSplit
 from template.domain.phone import normalize_ar_phone
+from template.domain.schemas.due_date import (
+    DueDateCreate,
+    DueDateResponse,
+    DueDateUpdate,
+)
 from template.domain.schemas.expense import (
     RecurringGroupExpenseCreate,
     RecurringGroupExpenseResponse,
@@ -1844,3 +1851,106 @@ class RecurringGroupExpenseRepository:
             active=model.active,
             currency=getattr(model, "currency", "ARS") or "ARS",
         )
+
+
+class DueDateRepository:
+    """CRUD de vencimientos recurrentes."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    @staticmethod
+    def _to_response(model: DueDateModel) -> DueDateResponse:
+        return DueDateResponse(
+            id=model.id,
+            group_id=model.group_id,
+            label=model.label,
+            category_name=model.category_name,
+            day_of_month=model.day_of_month,
+            every_n_months=model.every_n_months,
+            anchor_year=model.anchor_year,
+            anchor_month=model.anchor_month,
+            notify_days_before=model.notify_days_before,
+            active=model.active,
+        )
+
+    def create(self, group_id: int, created_by_member_id: int, data: DueDateCreate) -> DueDateResponse:
+        """Crear un vencimiento en un grupo."""
+        model = DueDateModel(
+            group_id=group_id,
+            created_by_member_id=created_by_member_id,
+            label=data.label,
+            category_name=data.category_name,
+            day_of_month=data.day_of_month,
+            every_n_months=data.every_n_months,
+            anchor_year=data.anchor_year,
+            anchor_month=data.anchor_month,
+            notify_days_before=data.notify_days_before,
+            active=True,
+        )
+        self.session.add(model)
+        self.session.commit()
+        self.session.refresh(model)
+        return self._to_response(model)
+
+    def list_for_group(self, group_id: int) -> List[DueDateResponse]:
+        """Todos los vencimientos de un grupo, activos o no."""
+        rows = self.session.query(DueDateModel).filter(DueDateModel.group_id == group_id).all()
+        return [self._to_response(r) for r in rows]
+
+    def list_active(self) -> List[DueDateModel]:
+        """Los vencimientos activos de todos los grupos — lo que recorre el job."""
+        return self.session.query(DueDateModel).filter(DueDateModel.active.is_(True)).all()
+
+    def get(self, due_date_id: int) -> Optional[DueDateModel]:
+        """Un vencimiento por id, o None."""
+        return self.session.query(DueDateModel).filter(DueDateModel.id == due_date_id).first()
+
+    def update(self, due_date_id: int, data: DueDateUpdate) -> DueDateResponse:
+        """Update parcial: solo se escriben los campos presentes en el payload."""
+        model = self.get(due_date_id)
+        if model is None:
+            raise ValueError(f"Due date {due_date_id} not found")
+        for field, value in data.model_dump(exclude_unset=True, by_alias=False).items():
+            setattr(model, field, value)
+        self.session.commit()
+        self.session.refresh(model)
+        return self._to_response(model)
+
+    def delete(self, due_date_id: int) -> None:
+        """Borrar un vencimiento; sus recordatorios caen por cascada."""
+        model = self.get(due_date_id)
+        if model is not None:
+            self.session.delete(model)
+            self.session.commit()
+
+
+class DueDateReminderRepository:
+    """Reserva y libera el derecho a enviar un aviso concreto."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def claim(self, due_date_id: int, member_id: int, due_on: date) -> bool:
+        """Reservar el aviso. False si ya estaba reservado — o sea, ya se envió.
+
+        El que decide es el UNIQUE de la base, no una consulta previa: dos procesos podrían
+        leer "no existe" a la vez, pero solo uno puede insertar.
+        """
+        model = DueDateReminderModel(due_date_id=due_date_id, member_id=member_id, due_on=due_on)
+        self.session.add(model)
+        try:
+            self.session.commit()
+            return True
+        except IntegrityError:
+            self.session.rollback()
+            return False
+
+    def release(self, due_date_id: int, member_id: int, due_on: date) -> None:
+        """Devolver la reserva cuando el envío falló, para que se reintente."""
+        self.session.query(DueDateReminderModel).filter(
+            DueDateReminderModel.due_date_id == due_date_id,
+            DueDateReminderModel.member_id == member_id,
+            DueDateReminderModel.due_on == due_on,
+        ).delete()
+        self.session.commit()

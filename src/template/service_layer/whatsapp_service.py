@@ -866,7 +866,15 @@ def administrar_chatbot(  # pylint: disable=too-many-arguments,too-many-position
     elif estado_actual_usuario["estado"] == "esperando_confirmacion":
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_waiting_for_confirmation(
-            number, estado_actual_usuario, text, service, member_service, interactive_id, recurring_repo, groups
+            number,
+            estado_actual_usuario,
+            text,
+            service,
+            member_service,
+            interactive_id,
+            recurring_repo,
+            groups,
+            push_service=push_service,
         )
         user_responses.extend(responses)
 
@@ -880,7 +888,7 @@ def administrar_chatbot(  # pylint: disable=too-many-arguments,too-many-position
     elif estado_actual_usuario["estado"] == "esperando_respuesta_mes_saldado":
         update_member_last_chat(number, member_service)
         responses, estado_actual_usuario = handle_waiting_for_settled_response(
-            number, estado_actual_usuario, text, service, member_service, interactive_id
+            number, estado_actual_usuario, text, service, member_service, interactive_id, push_service=push_service
         )
         user_responses.extend(responses)
 
@@ -967,6 +975,7 @@ def create_expense(
     split_strategy_dict: Dict[str, Any],
     member_service: MemberService,
     recurring_repo: Optional["RecurringGroupExpenseRepository"] = None,
+    push_service: Optional[Any] = None,
 ):
     """create expense"""
     # pylint: disable=too-many-locals
@@ -1031,6 +1040,7 @@ def create_expense(
                 group_name=group_name,
                 multi_group_member_ids=multi_group_ids,
                 is_recurring=estado_actual_usuario["expense_data"].get("is_recurring", False),
+                push_service=push_service,
             )
         )
 
@@ -2874,6 +2884,7 @@ def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals,too-many
     interactive_id: Optional[str] = None,
     recurring_repo: Optional["RecurringGroupExpenseRepository"] = None,
     groups: Optional[List[Any]] = None,
+    push_service: Optional[Any] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """handle waiting for confirmation"""
     user_responses = []
@@ -2919,6 +2930,7 @@ def handle_waiting_for_confirmation(  # pylint: disable=too-many-locals,too-many
                     split_strategy_dict=split_strategy,
                     member_service=member_service,
                     recurring_repo=recurring_repo,
+                    push_service=push_service,
                 )
                 clean_estado_usuario(estado_actual_usuario)
                 body = "✨ ¡Genial! El gasto ha sido registrado exitosamente.\n\n¿Deseas realizar otra operación?"
@@ -2963,6 +2975,7 @@ def handle_waiting_for_settled_response(  # pylint: disable=too-many-arguments,t
     service: ExpenseService,
     member_service: MemberService,
     interactive_id: Optional[str] = None,
+    push_service: Optional[Any] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """User chose to reopen the month or change the date after a settled-month error."""
     user_responses = []
@@ -2983,6 +2996,7 @@ def handle_waiting_for_settled_response(  # pylint: disable=too-many-arguments,t
                 service,
                 split_strategy_dict=split_strategy,
                 member_service=member_service,
+                push_service=push_service,
             )
             clean_estado_usuario(estado_actual_usuario)
             body = "✨ ¡El mes fue reabierto y el gasto registrado exitosamente!\n\n¿Deseas realizar otra operación?"

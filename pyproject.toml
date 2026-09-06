@@ -29,6 +29,7 @@ fpdf2 = "^2.8.7"
 anthropic = "^1.4"
 google-genai = ">=1.0,<2.0"
 pywebpush = "^2.5.0"
+tzdata = "^2026.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"

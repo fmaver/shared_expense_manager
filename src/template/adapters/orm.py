@@ -1,6 +1,6 @@
 """ORM adapter"""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -392,3 +392,42 @@ class RecurringGroupExpenseInstanceModel(Base):
 
     recurring_expense: Mapped["RecurringGroupExpenseModel"] = relationship()
     group: Mapped["GroupModel"] = relationship(foreign_keys=[group_id])
+
+
+class DueDateModel(Base):
+    """Un vencimiento recurrente: la luz, el alquiler, Netflix."""
+
+    __tablename__ = "due_dates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
+    created_by_member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    label: Mapped[str] = mapped_column(String(255))
+    category_name: Mapped[str] = mapped_column(String(50), default="servicios")
+    day_of_month: Mapped[int] = mapped_column(Integer)
+    every_n_months: Mapped[int] = mapped_column(Integer, default=1)
+    anchor_year: Mapped[int] = mapped_column(Integer)
+    anchor_month: Mapped[int] = mapped_column(Integer)
+    notify_days_before: Mapped[int] = mapped_column(Integer, default=3)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    group: Mapped["GroupModel"] = relationship(foreign_keys=[group_id])
+
+
+class DueDateReminderModel(Base):
+    """Un aviso ya enviado.
+
+    El UNIQUE es el mecanismo de seguridad del feature, no un log: es lo que hace que correr
+    el job de más no pueda duplicar un aviso, y por eso el disparador puede cambiar sin tocar
+    la lógica.
+    """
+
+    __tablename__ = "due_date_reminders"
+    __table_args__ = (UniqueConstraint("due_date_id", "member_id", "due_on", name="uq_due_date_reminder"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    due_date_id: Mapped[int] = mapped_column(ForeignKey("due_dates.id", ondelete="CASCADE"))
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    due_on: Mapped[date] = mapped_column(Date)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

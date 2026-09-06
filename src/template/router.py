@@ -12,6 +12,7 @@ from template.entrypoint import (
     auth,
     category,
     currency,
+    due_date,
     expense,
     group,
     invitation,
@@ -21,6 +22,7 @@ from template.entrypoint import (
     personal,
     push,
     recurring_expense,
+    tasks,
     whatsapp_bot,
 )
 
@@ -36,6 +38,8 @@ api_router_v1.include_router(invitation.router)
 api_router_v1.include_router(expense.router)
 api_router_v1.include_router(member.router)
 api_router_v1.include_router(monthly_share.router)
+api_router_v1.include_router(due_date.router)
+api_router_v1.include_router(tasks.router)
 api_router_v1.include_router(category.router)
 api_router_v1.include_router(auth.router)
 api_router_v1.include_router(personal.router)
