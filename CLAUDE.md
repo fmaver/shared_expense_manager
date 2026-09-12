@@ -146,6 +146,8 @@ tests/
 | `ProcessedWhatsappMessage` | message_id (PK), processed_at | Idempotency table — prevents duplicate processing on Meta retries |
 | `Invitation` | id, token, group_id, stub_member_id, channel, status, expires_at | Pending invite; creates a stub `Member` on creation; accept upgrades stub to full member |
 | `GroupJoinLink` | id, group_id, token, created_by_member_id | Shareable open-join URL; `rotate` invalidates old token |
+| `DueDate` | id, group_id, label, day_of_month, every_n_months, anchor_year/month, notify_days_before, active | Vencimiento recurrente. El dueño es **siempre un grupo**: lo personal apunta al grupo personal, así que no hay dos tipos de dueño. `every_n_months=1` es el caso mensual — una fórmula, no dos patrones. `DueDateRule` en `domain/models/due_date.py` tiene toda la aritmética (día 31 se recorta al último del mes; **no** se corre por fin de semana ni feriado) |
+| `DueDateReminder` | due_date_id, member_id, due_on, sent_at | Aviso ya enviado. El `UNIQUE` es el mecanismo de seguridad, no un log |
 
 **Member bootstrapping** — `InitializationService` reads `MEMBERS_BOOTSTRAP_JSON` (a JSON array of `{name, email, telephone}` objects) and upserts by email on startup. If unset (production default), no seeding runs — existing rows (e.g. Fran at id=1, Guada at id=2 in prod) are untouched. New members register via `POST /api/v1/auth/register`.
 
@@ -243,6 +245,12 @@ All routes under `/api/v1` except monitor and webhook.
 - `POST /join/{token}` — join the group. Reads an **optional** JWT (`_get_optional_member`): an authenticated caller joins with no credentials in the body, and `claimMemberId` then **merges** the ghost into their account; anonymous callers must send `name`/`email`/`password`, and `claimMemberId` upgrades the ghost via `claim_stub`
 - `GET /join/resolve/{token}` also returns `alreadyMember` when called with a JWT
 
+**Due dates** `/api/v1/groups/{group_id}/due-dates`
+- `GET /`, `POST /`, `PUT /{id}`, `DELETE /{id}` — vencimientos recurrentes del grupo. Cualquier miembro puede crear y editar. Un `{id}` de otro grupo responde 404, no 403
+
+**Tasks** `/api/v1/tasks` (sin JWT)
+- `POST /due-date-reminders` — dispara el envío de recordatorios. Protegido por el header `X-Task-Secret`; **sin `TASK_SECRET` configurado responde 404**, no 401, para no anunciar un endpoint sin proteger. Idempotente
+
 **Categories** `/api/v1/categories`
 - `GET /`, `GET /with-emojis`
 
@@ -272,6 +280,10 @@ All routes under `/api/v1` except monitor and webhook.
 - **Archiving is per member** — `group_memberships.archived_at`, not a group status. One member archives while everyone else keeps using the group unchanged; a group-wide archive would duplicate `GroupStatus.CLOSED`, which already exists and is unused. Blocked while the member has a non-zero balance in any unsettled month (same rule as leaving, shared via `_outstanding_balance`). `GroupService.refresh_archived_state` runs after every expense create/update/delete and unarchives anyone whose balance stopped being zero — that is what makes it safe to silence settlement notifications for archived members, since debt cannot accumulate behind an archived group. Expense notifications need no change: they already skip anyone the expense does not involve.
 - **Ghost members** — a stub (`hashed_password IS NULL`) with **no email and no telephone**. Tracked by name inside a group, never notified, and created by `POST /{group_id}/members`. Only these are **claimable** through a join link: a stub created by an email or WhatsApp invitation carries a contact detail and is structurally excluded, so nobody holding the link can seize an invitation addressed to someone else. `claimable_members()` in `invitation_service.py` is the single definition, re-validated on the join itself — the resolve response is a UI convenience, never the authority.
 - **Default members re-seeded every startup** — safe because `InitializationService` checks for existence first.
+- **Los recordatorios de vencimiento corren dentro del proceso** — `due_date_scheduler.py` lanza un `asyncio.Task` en el `lifespan` que corre **al arrancar** y después cada hora en punto (alineado al reloj: con `sleep(3600)` la hora de envío dependía de cuándo arrancó el proceso). El envío real ocurre a las **09:00 de Argentina**; la ventana 09–22 es una red de seguridad para que un arranque tardío todavía avise en vez de perder el día, y nunca de madrugada. **Depende de que UptimeRobot mantenga prod despierto**: si eso se cae, el servicio se apaga a los 15 minutos y los recordatorios dejan de salir sin fallar visiblemente. En staging UptimeRobot no corre, así que ahí el loop no es confiable y se prueba con el endpoint manual.
+- **La idempotencia de los recordatorios vive en la base, no en el código** — `UNIQUE(due_date_id, member_id, due_on)` en `due_date_reminders`. El servicio **reserva antes de enviar y libera si el envío falla**, así el peor caso es una hora de demora en lugar de un aviso duplicado o uno perdido. Eso es lo que hace que el disparador sea intercambiable (loop interno, cron externo, endpoint manual) sin tocar la lógica.
+- **`ResponseModel[T]` exige que `T` sea un `CamelCaseModel`** — `data: S | list[S]` con `S` acotado. Parametrizarlo con `dict` **no falla en ningún lado**: FastAPI valida el contenido contra `CamelCaseModel`, que no tiene campos, y responde `200` con `{"data": []}`. `tests/unit/entrypoint/test_response_envelope_shapes.py` recorre los routers y lo rechaza.
+- **`tests/unit/service/test_push_wiring_guard.py` parsea `entrypoint/` y `service_layer/`** y falla si un `notify_*` se despacha sin `push_service`. Existe porque el mismo defecto se repitió **cuatro veces**: el código de push estaba escrito pero el llamador no pasaba la dependencia, así que caía a `notification_preference` — que por defecto de columna es `NONE`, o sea, nada. Si agregás una notificación nueva, pasá `push_service`.
 - **`get_expense` raises `ValueError` for missing IDs** — the expense endpoint catches this as HTTP 400, not 404. Integration tests should assert `status_code in (400, 404)` for the not-found case.
 
 ---
@@ -316,6 +328,8 @@ Loaded from `.env` via `python-dotenv` + `pydantic-settings`.
 | `VAPID_PUBLIC_KEY` | Web push — handed to the browser so it can subscribe |
 | `VAPID_PRIVATE_KEY` | Web push — signs the send. Unset disables push silently and email keeps working |
 | `VAPID_SUBJECT` | `mailto:` contact for the push service; defaults to `mailto:noreply@jirens.app` |
+| `TASK_SECRET` | Protege `POST /api/v1/tasks/due-date-reminders`. Sin ella el endpoint responde 404 |
+| `DUE_DATE_REMINDERS_ENABLED` | `true` por defecto. `false` apaga el loop de recordatorios sin deploy |
 
 > **Note:** `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` are no longer used.
 > Remove them from Render if they are set. Email now goes through SendGrid's HTTP API (port 443),
