@@ -133,6 +133,7 @@ class NotificationService:
                     creator,
                     member_service,
                     effective_group,
+                    group_name=group_name,
                     group_id=group_id,
                     is_multi=is_multi,
                     is_recurring=is_recurring,
@@ -148,6 +149,7 @@ class NotificationService:
         creator: Member,
         member_service: MemberService,
         effective_group: Optional[str],
+        group_name: Optional[str] = None,
         group_id: Optional[int] = None,
         is_multi: bool = False,
         is_recurring: bool = False,
@@ -164,7 +166,7 @@ class NotificationService:
             await self._send_whatsapp_template(
                 member.telephone,
                 "expense_notification",
-                self._create_expense_template_parameters(expense, creator, member_service),
+                self._create_expense_template_parameters(expense, creator, member_service, group_name=group_name),
             )
         else:
             message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
@@ -1162,9 +1164,18 @@ class NotificationService:
         return self._html_card("🗑️", title, intro + deleted_box)
 
     def _create_expense_template_parameters(  # pylint: disable=too-many-locals
-        self, expense: Expense, creator: Member, member_service: MemberService
+        self,
+        expense: Expense,
+        creator: Member,
+        member_service: MemberService,
+        group_name: Optional[str] = None,
     ) -> List[Dict[str, str]]:
-        """Create template parameters for WhatsApp template notification."""
+        """Create template parameters for WhatsApp template notification.
+
+        The list must match the approved `expense_notification` template variable for
+        variable: Meta rejects the whole send when the counts differ, so a variable added
+        to the template without a matching entry here silently kills every notification.
+        """
         payer = member_service.get_member_name_by_id(expense.payer_id)
         is_loan = expense.category and expense.category.name.lower() == "prestamo"
         description = (
@@ -1173,6 +1184,7 @@ class NotificationService:
         creator_label = f"{payer} te prestó" if is_loan else creator.name
 
         parameters = [
+            {"type": "text", "parameter_name": "grupo", "text": group_name or "-"},
             {"type": "text", "parameter_name": "creator_name", "text": creator_label},
             {"type": "text", "parameter_name": "descripcion", "text": description},
             {"type": "text", "parameter_name": "monto", "text": f"{expense.amount * expense.installments:.2f}"},
