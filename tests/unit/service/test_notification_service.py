@@ -176,3 +176,46 @@ class TestSendEmailBrevo:
         _, kwargs = mock_post.call_args
         payload = kwargs["json"]
         assert "htmlContent" not in payload
+
+
+class TestExpenseTemplateParameters:
+    """Regression: the approved `expense_notification` template declares 10 variables
+    (`grupo` first), but the payload only carried 9 — Meta rejected every send with
+    `(#132000) number of localizable_params (9) does not match the expected number (10)`.
+    The parameter list must stay in lockstep with the template."""
+
+    EXPECTED_NAMES = [
+        "grupo",
+        "creator_name",
+        "descripcion",
+        "monto",
+        "fecha",
+        "categoria",
+        "pagador",
+        "pago",
+        "cuotas",
+        "division",
+    ]
+
+    def _params(self, group_name):
+        service = NotificationService()
+        member_service = MagicMock()
+        member_service.get_member_name_by_id.return_value = "Fran"
+        return service._create_expense_template_parameters(
+            _make_expense(EqualSplit()),
+            Member(id=1, name="Fran"),
+            member_service,
+            group_name=group_name,
+        )
+
+    def test_parameter_names_match_the_template(self):
+        assert [p["parameter_name"] for p in self._params("Casa")] == self.EXPECTED_NAMES
+
+    def test_group_name_is_sent(self):
+        assert self._params("Casa")[0]["text"] == "Casa"
+
+    def test_group_falls_back_when_unknown(self):
+        """Every variable must carry a non-empty string — Meta rejects blanks."""
+        params = self._params(None)
+        assert params[0]["text"] == "-"
+        assert all(p["text"] for p in params)
