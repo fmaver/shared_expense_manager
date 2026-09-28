@@ -73,3 +73,40 @@ def test_unsettled_requires_membership(client, auth_headers, primary_group_id):
 
     r = client.get(f"/api/v1/groups/{primary_group_id}/shares/unsettled", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
+
+
+def test_unsettled_returns_empty_for_one_time_group(client, auth_headers):
+    r = client.post("/api/v1/groups/", json={"name": "Viaje", "groupType": "one_time"}, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    group_id = r.json()["data"]["id"]
+
+    r = client.post(f"/api/v1/groups/{group_id}/members", json={"name": "Ghost"}, headers=auth_headers)
+    assert r.status_code in (200, 201), r.text
+    ghost_id = r.json()["data"]["memberId"]
+
+    past = _months_ago(2)
+    r = client.post(f"/api/v1/groups/{group_id}/expenses/", json=_expense(ghost_id, past), headers=auth_headers)
+    assert r.status_code == 201, r.text
+
+    r = client.get(f"/api/v1/groups/{group_id}/shares/unsettled", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"] == []
+
+
+def test_unsettled_returns_empty_for_personal_group(client, auth_headers):
+    r = client.get("/api/v1/personal/group", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    personal_group_id = r.json()["data"]["id"]
+
+    past = _months_ago(2)
+    r = client.get("/api/v1/members/me", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    owner_id = r.json()["data"]["id"]
+    r = client.post(
+        f"/api/v1/groups/{personal_group_id}/expenses/", json=_expense(owner_id, past), headers=auth_headers
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.get(f"/api/v1/groups/{personal_group_id}/shares/unsettled", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"] == []
