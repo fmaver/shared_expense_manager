@@ -35,6 +35,8 @@ def _wipe_tables(session) -> None:
     session.execute(text("DELETE FROM group_invitations"))
     session.execute(text("DELETE FROM group_join_links"))
     session.execute(text("DELETE FROM group_memberships"))
+    session.execute(text("DELETE FROM recurring_personal_expense_instances"))
+    session.execute(text("DELETE FROM recurring_personal_expenses"))
     session.execute(text("DELETE FROM groups"))
     session.execute(text("DELETE FROM members"))
     session.commit()
