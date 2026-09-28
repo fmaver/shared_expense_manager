@@ -26,6 +26,7 @@ from template.dependencies import (
     get_recurring_group_expense_materializer,
 )
 from template.domain.models.expense_manager import compute_debt_transfers
+from template.domain.models.group import GroupType
 from template.domain.models.pdf_builder import build_monthly_report
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.expense import (
@@ -34,12 +35,14 @@ from template.domain.schemas.expense import (
     MonthlyBalanceResponse,
     MonthTrendPoint,
 )
+from template.domain.schemas.search import UnsettledMonth
 from template.service_layer.auth_service import get_current_member
 from template.service_layer.expense_service import ExpenseService
 from template.service_layer.member_service import MemberService
 from template.service_layer.notification_service import NotificationService
 from template.service_layer.occasion_service import OccasionService
 from template.service_layer.push_service import PushService
+from template.service_layer.unsettled_months import unsettled_periods
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
 
@@ -75,6 +78,24 @@ def get_group_trend(
         for p in raw
     ]
     return ResponseModel(data=points)
+
+
+@router.get("/unsettled", response_model=ResponseModel[List[UnsettledMonth]])
+def get_unsettled_months(
+    group_id: int,
+    service: ExpenseService = Depends(get_expense_service),
+    group_repo: GroupRepository = Depends(get_group_repository),
+    current_member=Depends(get_current_member),
+) -> ResponseModel[List[UnsettledMonth]]:
+    """Past months of this group left unsettled with a balance, for the month picker."""
+    if not group_repo.is_member(group_id, current_member.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this group")
+    group = group_repo.get(group_id)
+    if group is None or group.group_type != GroupType.REGULAR:
+        return ResponseModel(data=[])
+    shares = service.get_all_monthly_shares().values()
+    periods = unsettled_periods(shares, datetime.now().date())
+    return ResponseModel(data=[UnsettledMonth(year=y, month=m) for y, m in periods])
 
 
 # Literal routes must be declared before /{year}/{month}, or "all" and "settle-all" would be
