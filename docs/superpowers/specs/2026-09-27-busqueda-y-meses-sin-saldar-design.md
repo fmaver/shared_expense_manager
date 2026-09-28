@@ -36,8 +36,9 @@ pasado sin saldar.
 
 - Gastos de los grupos y gastos personales (`expenses`), incluidos los fijos de grupo, que ya
   viven como filas de `expenses`.
-- Fijos personales (`recurring_personal_expense_instances`): sin fecha ni pagador, así que su
-  "fecha" es el día 1 del mes de la instancia y el pagador es el dueño del grupo personal.
+- Fijos personales (`recurring_personal_expense_instances`): no tienen fecha ni pagador. Se
+  devuelven **sin fecha** (`date: null`), sólo con su período, y el pagador es el dueño del grupo
+  personal. Para ordenar cuentan como el comienzo de su mes, pero eso nunca se muestra.
 - **Quedan afuera** los ingresos, las transferencias (`prestamo`) y los pagos del saldado
   (`balance`).
 - Cuotas: **una fila por cuota**, cada una con su número (`2/6`), su período y su estado. Así se ve
@@ -52,11 +53,12 @@ pasado sin saldar.
 
 ### Resultado
 
-Orden: fecha del gasto, de más nueva a más vieja (desempate por id). Tope: **50 resultados**, con
+Orden: fecha del gasto, de más nueva a más vieja (desempate por id). Un fijo personal, que no
+tiene fecha, se ordena como si fuera el comienzo de su período. Tope: **50 resultados**, con
 `hasMore` si había más.
 
 Cada resultado trae: `kind` (`expense` | `recurring_personal`), `id`, `description`, `amount`,
-`currency`, `date`, `category`, `groupId`, `groupName`, `groupType`, `payerId`, `payerName`,
+`currency`, `date` (`null` en los fijos personales), `category`, `groupId`, `groupName`, `groupType`, `payerId`, `payerName`,
 `installmentNo`, `installments`, `periodYear`, `periodMonth` (el mes en que entró: el de su
 `monthly_share`), y `periodSettled` (`is_settled` de ese mes; `null` para el grupo personal, que
 no se salda).
@@ -113,7 +115,8 @@ lupa del mes. Los pagos y transferencias vuelven a verse siempre en la lista.
   2 caracteres); el filtro de meses sin saldar (actual y futuros afuera, saldados afuera, todo en
   cero afuera).
 - Integración (`make integration`): coincidencia por descripción, por pagador, por monto exacto,
-  sin acentos, multi-palabra; excluye `balance`/`prestamo`; incluye fijos personales; una fila por
+  sin acentos, multi-palabra; excluye `balance`/`prestamo`; incluye fijos personales, sin fecha y
+  con su período; una fila por
   cuota con su período y estado; **un gasto de un grupo ajeno nunca aparece**; `groupId` de un grupo
   ajeno da 403; tope de 50 con `hasMore`; `unsettled` con los casos de arriba.
 
@@ -131,7 +134,9 @@ No hay migración.
   pantalla se reemplaza por los resultados. Sin texto se ve la pantalla normal. Mientras llega la
   respuesta siguen los resultados anteriores (sin parpadeo). Se descartan respuestas viejas que
   lleguen tarde (ver la memoria de carreras en hooks con clave).
-- Resultados agrupados por **fecha del gasto** ("8 jun 2026"), cada fila con emoji de categoría,
+- Resultados agrupados por **fecha del gasto** ("8 jun 2026"). Los fijos personales, que no
+  tienen fecha, van bajo un encabezado que es sólo el mes ("Septiembre 2026") y su fila dice "Cada
+  mes · sep 2026" en lugar de una fecha. Cada fila lleva emoji de categoría,
   descripción (+ `2/6`), "Casa · Pagó Fran" (en la del grupo, sin el grupo), monto, y dos chips: el
   **período** ("jul 2026") y el **estado** ("✓ Saldado" en verde, "Sin saldar" en gris; en rojo suave
   si el período ya pasó). Los gastos personales no llevan chip de estado.
