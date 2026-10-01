@@ -3,6 +3,7 @@
 import io
 from datetime import datetime
 from typing import Any, Callable, List
+from zoneinfo import ZoneInfo
 
 from fastapi import (
     APIRouter,
@@ -45,6 +46,8 @@ from template.service_layer.push_service import PushService
 from template.service_layer.unsettled_months import unsettled_periods
 
 router = APIRouter(prefix="/groups/{group_id}/shares", tags=["MonthlyShares"])
+
+BUENOS_AIRES = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 def _notifiable_members(members, group_repo, group_id: int):
@@ -94,7 +97,7 @@ def get_unsettled_months(
     if group is None or group.group_type != GroupType.REGULAR:
         return ResponseModel(data=[])
     shares = service.get_all_monthly_shares().values()
-    periods = unsettled_periods(shares, datetime.now().date())
+    periods = unsettled_periods(shares, datetime.now(BUENOS_AIRES).date())
     return ResponseModel(data=[UnsettledMonth(year=y, month=m) for y, m in periods])
 
 

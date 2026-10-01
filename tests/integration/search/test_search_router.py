@@ -2,6 +2,10 @@
 
 from datetime import date
 
+from sqlalchemy import text
+
+from template.adapters.database import SessionLocal
+
 
 def _expense(payer_id, description, amount=1000.0, when="2026-05-10", category="comida", **extra):
     payload = {
@@ -158,3 +162,40 @@ def test_caps_at_fifty_with_has_more(client, auth_headers, primary_member_id, pr
 def test_too_short_query_returns_empty(client, auth_headers, primary_member_id, primary_group_id):
     _post(client, auth_headers, primary_group_id, _expense(primary_member_id, "Agua"))
     assert _search(client, auth_headers, "a")["results"] == []
+
+
+def _mark_group_deleted(group_id: int) -> None:
+    with SessionLocal() as session:
+        session.execute(text("UPDATE groups SET status = 'deleted' WHERE id = :id"), {"id": group_id})
+        session.commit()
+
+
+def test_deleted_group_is_forbidden_even_for_a_member(client, auth_headers, primary_member_id, primary_group_id):
+    _post(client, auth_headers, primary_group_id, _expense(primary_member_id, "Alquiler"))
+    _mark_group_deleted(primary_group_id)
+    r = client.get(
+        "/api/v1/search/expenses", params={"q": "alquiler", "groupId": primary_group_id}, headers=auth_headers
+    )
+    assert r.status_code == 403
+
+
+def test_general_search_never_returns_expenses_of_a_deleted_group(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    _post(client, auth_headers, primary_group_id, _expense(primary_member_id, "Alquiler"))
+    _mark_group_deleted(primary_group_id)
+    assert _search(client, auth_headers, "alquiler")["results"] == []
+
+
+def test_another_members_personal_group_is_forbidden(client, auth_headers):
+    stranger = _other_user(client)
+    r = client.get("/api/v1/personal/group", headers=stranger)
+    assert r.status_code == 200, r.text
+    stranger_personal_group_id = r.json()["data"]["id"]
+
+    r = client.get(
+        "/api/v1/search/expenses",
+        params={"q": "algo", "groupId": stranger_personal_group_id},
+        headers=auth_headers,
+    )
+    assert r.status_code == 403

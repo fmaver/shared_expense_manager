@@ -28,9 +28,10 @@ class SearchService:
             return ExpenseSearchResponse(results=[], has_more=False)
 
         if group_id is not None:
-            if not self._groups.is_member(group_id, member.id):
-                personal = self._groups.get_personal_for_owner(member.id)
-                if personal is None or personal.id != group_id:
+            personal = self._groups.get_personal_for_owner(member.id)
+            is_own_personal = personal is not None and personal.id == group_id
+            if not is_own_personal:
+                if self._groups.get(group_id) is None or not self._groups.is_member(group_id, member.id):
                     raise NotAMemberError()
             group_ids = [group_id]
         else:
