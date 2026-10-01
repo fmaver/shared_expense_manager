@@ -1990,12 +1990,22 @@ class SearchRepository:
             *[or_(*[self._norm(col).like(self._like(term), escape="\\") for col in columns]) for term in query.terms]
         )
 
-    def search_expenses(self, group_ids: list[int], query: ParsedQuery, limit: int) -> list[tuple]:
-        """Rows of (ExpenseModel, MonthlyShareModel, GroupModel, MemberModel), newest first."""
+    def search_expenses(self, group_ids: list[int], query: ParsedQuery, purchase_limit: int) -> list[tuple]:
+        """Rows of (ExpenseModel, MonthlyShareModel, GroupModel, MemberModel), newest first.
+
+        The cap is by *purchase* (all installments sharing `coalesce(parent_expense_id, id)`),
+        not by row: we first pick the `purchase_limit` most recent matching purchase keys, then
+        bring back every matching row for those keys — which can be more than `purchase_limit`
+        rows when a purchase has several installments.
+        """
         match = self._text_match(query, ExpenseModel.description, MemberModel.name)
         if query.amount is not None:
             match = or_(match, func.abs(ExpenseModel.amount - query.amount) < 0.005)
-        return (
+
+        purchase_key = func.coalesce(  # pylint: disable=assignment-from-no-return
+            ExpenseModel.parent_expense_id, ExpenseModel.id
+        )
+        base = (
             self.session.query(ExpenseModel, MonthlyShareModel, GroupModel, MemberModel)
             .join(MonthlyShareModel, ExpenseModel.monthly_share_id == MonthlyShareModel.id)
             .join(GroupModel, ExpenseModel.group_id == GroupModel.id)
@@ -2005,10 +2015,24 @@ class SearchRepository:
                 ExpenseModel.category.notin_(self.EXCLUDED_CATEGORIES),
                 match,
             )
-            .order_by(ExpenseModel.date.desc(), ExpenseModel.id.desc())
-            .limit(limit)
-            .all()
         )
+
+        keys = [
+            row.key
+            for row in base.with_entities(
+                purchase_key.label("key"),
+                func.min(ExpenseModel.date).label("key_date"),
+                func.max(ExpenseModel.id).label("key_id"),
+            )
+            .group_by(purchase_key)
+            .order_by(func.min(ExpenseModel.date).desc(), func.max(ExpenseModel.id).desc())
+            .limit(purchase_limit)
+            .all()
+        ]
+        if not keys:
+            return []
+
+        return base.filter(purchase_key.in_(keys)).order_by(ExpenseModel.date.desc(), ExpenseModel.id.desc()).all()
 
     def search_personal_fixed(
         self, personal_group_id: int, owner_name: str, query: ParsedQuery, limit: int

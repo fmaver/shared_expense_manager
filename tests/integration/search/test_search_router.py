@@ -164,6 +164,113 @@ def test_too_short_query_returns_empty(client, auth_headers, primary_member_id, 
     assert _search(client, auth_headers, "a")["results"] == []
 
 
+def test_credit_installments_share_the_same_parent_expense_id(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    _post(
+        client,
+        auth_headers,
+        primary_group_id,
+        _expense(primary_member_id, "Heladera nueva", amount=3000.0, paymentType="credit", installments=3),
+    )
+    results = _search(client, auth_headers, "heladera")["results"]
+    assert len(results) == 3
+    first_installment_id = min(r["id"] for r in results if r["installmentNo"] == 1)
+    assert all(r["parentExpenseId"] == first_installment_id for r in results)
+
+
+def test_simple_expense_parent_expense_id_is_its_own_id(client, auth_headers, primary_member_id, primary_group_id):
+    _post(client, auth_headers, primary_group_id, _expense(primary_member_id, "Pan"))
+    results = _search(client, auth_headers, "pan")["results"]
+    assert len(results) == 1
+    assert results[0]["parentExpenseId"] == results[0]["id"]
+
+
+def test_your_share_equal_split_two_members(client, auth_headers, primary_member_id, primary_group_id):
+    client.post(f"/api/v1/groups/{primary_group_id}/members", json={"name": "Ghost"}, headers=auth_headers)
+    _post(client, auth_headers, primary_group_id, _expense(primary_member_id, "Cena compartida", amount=1000.0))
+    results = _search(client, auth_headers, "compartida")["results"]
+    assert len(results) == 1
+    assert results[0]["yourShare"] == 500.0
+
+
+def test_your_share_zero_when_not_a_participant(client, auth_headers, primary_member_id, primary_group_id):
+    ghost = client.post(
+        f"/api/v1/groups/{primary_group_id}/members", json={"name": "Ghost"}, headers=auth_headers
+    ).json()["data"]["memberId"]
+    _post(
+        client,
+        auth_headers,
+        primary_group_id,
+        _expense(
+            primary_member_id,
+            "Gasto solo del ghost",
+            amount=1000.0,
+            splitStrategy={"type": "exact", "amounts": {str(ghost): 1000.0}},
+        ),
+    )
+    results = _search(client, auth_headers, "ghost")["results"]
+    assert len(results) == 1
+    assert results[0]["yourShare"] == 0.0
+
+
+def test_your_share_is_null_for_personal_group_and_recurring_personal(client, auth_headers, primary_member_id):
+    today = date.today()
+    personal_group_id = client.get("/api/v1/personal/group", headers=auth_headers).json()["data"]["id"]
+    _post(client, auth_headers, personal_group_id, _expense(primary_member_id, "Supermercado personal"))
+
+    r = client.post(
+        "/api/v1/personal/expenses/recurring",
+        json={
+            "label": "Gimnasio",
+            "amount": 20000.0,
+            "categoryName": "salud",
+            "startYear": today.year,
+            "startMonth": today.month,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    client.get(f"/api/v1/personal/ledger/{today.year}/{today.month}", headers=auth_headers)  # materializes
+
+    results = _search(client, auth_headers, "personal")["results"]
+    assert len(results) == 1
+    assert results[0]["yourShare"] is None
+    assert results[0]["parentExpenseId"] == results[0]["id"]
+
+    fixed_results = _search(client, auth_headers, "gimnasio")["results"]
+    assert len(fixed_results) == 1
+    assert fixed_results[0]["kind"] == "recurring_personal"
+    assert fixed_results[0]["yourShare"] is None
+    assert fixed_results[0]["parentExpenseId"] is None
+
+
+def test_caps_at_fifty_purchases_not_rows(client, auth_headers, primary_member_id, primary_group_id):
+    for i in range(49):
+        _post(
+            client, auth_headers, primary_group_id, _expense(primary_member_id, f"Kiosco purchase {i}", amount=1.0 + i)
+        )
+    _post(
+        client,
+        auth_headers,
+        primary_group_id,
+        _expense(primary_member_id, "Kiosco purchase credito", amount=600.0, paymentType="credit", installments=6),
+    )
+    data = _search(client, auth_headers, "kiosco purchase")
+    assert len(data["results"]) == 55
+    assert data["hasMore"] is False
+
+
+def test_caps_at_fifty_purchases_with_has_more(client, auth_headers, primary_member_id, primary_group_id):
+    for i in range(51):
+        _post(client, auth_headers, primary_group_id, _expense(primary_member_id, f"Kiosco cap {i}", amount=1.0 + i))
+    data = _search(client, auth_headers, "kiosco cap")
+    assert len(data["results"]) == 50
+    assert data["hasMore"] is True
+    purchase_keys = {r["parentExpenseId"] for r in data["results"]}
+    assert len(purchase_keys) == 50
+
+
 def _mark_group_deleted(group_id: int) -> None:
     with SessionLocal() as session:
         session.execute(text("UPDATE groups SET status = 'deleted' WHERE id = :id"), {"id": group_id})

@@ -18,9 +18,11 @@ class ExpenseSearchResult(CamelCaseModel):
 
     kind: Literal["expense", "recurring_personal"]
     id: int
+    parent_expense_id: Optional[int]
     description: str
     amount: float
     currency: str
+    your_share: Optional[float]
     date: Optional[date]
     category: str
     group_id: int
