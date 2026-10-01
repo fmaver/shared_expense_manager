@@ -134,7 +134,7 @@ tests/
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| `Member` | id, name, telephone, email, hashed_password, notification_preference, last_wpp_chat_datetime | `notification_preference`: WHATSAPP / EMAIL / NONE; `is_stub` computed (`hashed_password is None`) |
+| `Member` | id, name, telephone, email, hashed_password, notification_preference, last_wpp_chat_datetime | `notification_preference`: WHATSAPP / EMAIL / NONE — new members (register, stubs) default to **EMAIL** (Python-side ORM default, no server_default); `is_stub` computed (`hashed_password is None`) |
 | `Group` | id, name, status, group_type, created_at | Container for members and expenses. `group_type`: `regular` (ongoing, month-scoped) / `one_time` (an occasion — months collapsed, credit rejected) / `personal`. Stored as `String(20)`, so new values need **no migration**. Immutable after creation. |
 | `GroupMembership` | group_id, member_id | Many-to-many join table |
 | `Expense` | id, description, amount, date, category, payer_id, payment_type, installments, installment_no, split_strategy (JSON), parent_expense_id, group_id | `parent_expense_id` self-FK, cascade delete |
@@ -152,6 +152,28 @@ tests/
 ---
 
 ## WhatsApp / chatbot architecture
+
+### Kill switch — WhatsApp is OFF by default (`WHATSAPP_ENABLED`)
+WhatsApp started charging per conversation, so every outbound send is gated on
+`service_layer/whatsapp_switch.py::whatsapp_enabled()` (true only for `WHATSAPP_ENABLED=true/1/yes/on`;
+**unset = off**). Read per call, never cached. With it off:
+- **Notifications** route push → mail. `NotificationService._preference(member)` reads a stored
+  `WHATSAPP` as `EMAIL` (mail if they have an address, else nothing). `NONE` is respected. Stored
+  values are never rewritten, so switching on restores everyone's choice. Push still wins first.
+- **Chatbot**: `POST /webhook` still returns 200 and still does the idempotency insert, but does
+  not run the chatbot. The first message from a phone gets ONE plain-text notice
+  (`whatsapp_off_notice()`, links to `APP_BASE_URL`); `ChatSessionRepository.claim_estado` records
+  `chat_sessions.estado = "whatsapp_off_notificado"` with an atomic upsert, so later messages
+  (and racing duplicates) get nothing. Switching back on resets that state to `inicial`.
+- **Invitations**: `_dispatch_invitation` skips WhatsApp (push → email only). A phone-only invitee
+  gets nothing sent; the inviter shares the returned `shareUrl`. SMS is a TODO there.
+- **Preference**: `PATCH /members/me` with `notification_preference=WHATSAPP` → 400.
+- Backstops: `enviar_mensaje_whatsapp`, `obtener_media_id`, `MetaWhatsAppInviteClient` and
+  `MetaWhatsAppClient.upload_media` refuse while off. `MetaWhatsAppClient.send_message` is left
+  ungated on purpose — the webhook is its only caller and needs it for the notice.
+- Tests: `tests/integration/whatsapp/conftest.py` turns the switch on for the chatbot tests;
+  `whatsapp_on` fixture (root conftest) for single tests; `test_whatsapp_off.py` (unit + integration)
+  cover the off path.
 
 The chatbot was refactored (M3) for testability and to fix two production bugs:
 
@@ -310,6 +332,7 @@ Loaded from `.env` via `python-dotenv` + `pydantic-settings`.
 | `QA_DATABASE_URL` | local/staging postgres URL |
 | `DATABASE_URL` | prod postgres URL (Render-provided) |
 | `NEON_DATABASE_URL` | Neon serverless postgres — used for Alembic migrations |
+| `WHATSAPP_ENABLED` | Kill switch, **default false** (unset = off). Off: notifications push → mail, chatbot sends a one-time "no disponible" notice then stays silent, invites skip WhatsApp (SMS pending), WHATSAPP can't be chosen as preference |
 | `WHATSAPP_TOKEN` | Meta Cloud API bearer token |
 | `WHATSAPP_URL` | Meta messages endpoint |
 | `WHATSAPP_URL_MEDIA` | Meta media upload endpoint |

@@ -6,6 +6,7 @@ from template.service_layer.whatsapp_service import (
     enviar_mensaje_whatsapp,
     template_message,
 )
+from template.service_layer.whatsapp_switch import whatsapp_enabled
 
 
 @runtime_checkable
@@ -39,7 +40,11 @@ class MetaWhatsAppInviteClient:
         """Send the group_invitation template to the invitee's phone number.
 
         Template positional variables: {{1}} inviter_name, {{2}} group_name, {{3}} claim_url.
+        Does nothing while WhatsApp is switched off — the template is a paid conversation.
         """
+        if not whatsapp_enabled():
+            print(f"[MetaWhatsAppInviteClient] WhatsApp off, not sending invitation to {to_phone}")
+            return
         parameters = [
             {"type": "text", "text": inviter_name},
             {"type": "text", "text": group_name},

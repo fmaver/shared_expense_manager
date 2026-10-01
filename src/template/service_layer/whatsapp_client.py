@@ -6,6 +6,8 @@ from typing import Any, Dict, Protocol, Tuple
 
 import requests
 
+from template.service_layer.whatsapp_switch import whatsapp_enabled
+
 log = logging.getLogger(__name__)
 
 
@@ -23,7 +25,13 @@ class WhatsAppClient(Protocol):
 
 
 class MetaWhatsAppClient:
-    """Sends messages and uploads media via the Meta WhatsApp Cloud API."""
+    """Sends messages and uploads media via the Meta WhatsApp Cloud API.
+
+    `send_message` is deliberately not gated by `whatsapp_enabled()`: the chatbot is its only
+    caller, and the webhook (`entrypoint/whatsapp_bot.py`) already stops the chatbot when
+    WhatsApp is off — it must still be able to send the one-time "ya no disponible" notice.
+    `upload_media` (balance PDFs) is chatbot-only output and is refused while off.
+    """
 
     def send_message(self, data: str) -> Dict[str, Any]:
         """Send a pre-serialised JSON message to the WhatsApp Cloud API."""
@@ -48,6 +56,8 @@ class MetaWhatsAppClient:
 
     def upload_media(self, file_path: str) -> Tuple[str, int]:
         """Upload a PDF file and return (media_id, status_code)."""
+        if not whatsapp_enabled():
+            return "WhatsApp desactivado (WHATSAPP_ENABLED)", 503
         try:
             token = os.getenv("WHATSAPP_TOKEN")
             url = os.getenv("WHATSAPP_URL_MEDIA")

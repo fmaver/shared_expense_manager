@@ -13,7 +13,7 @@ class MemberBase(CamelCaseModel):
     name: str
     telephone: Optional[str] = None
     email: EmailStr
-    notification_preference: NotificationType = NotificationType.NONE
+    notification_preference: NotificationType = NotificationType.EMAIL
 
 
 class MemberCreate(MemberBase):

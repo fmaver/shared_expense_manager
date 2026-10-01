@@ -40,6 +40,7 @@ from template.service_layer.image_expense_parser import parse_image_expense
 from template.service_layer.member_service import MemberService
 from template.service_layer.quick_expense_parser import parse_quick_expense
 from template.service_layer.whatsapp_client import WhatsAppClient
+from template.service_layer.whatsapp_switch import whatsapp_enabled
 
 
 def obtener_mensaje_whatsapp(message: Dict[str, Any]) -> str:
@@ -75,6 +76,8 @@ def obtener_interactive_id_whatsapp(message: Dict[str, Any]) -> Optional[str]:
 
 def obtener_media_id(file_path: str) -> Tuple[str, int]:
     """get media id"""
+    if not whatsapp_enabled():
+        return "WhatsApp desactivado (WHATSAPP_ENABLED)", 503
     try:
         whatsapp_token = os.getenv("WHATSAPP_TOKEN")
         url = os.getenv("WHATSAPP_URL_MEDIA")
@@ -110,7 +113,13 @@ def obtener_media_id(file_path: str) -> Tuple[str, int]:
 
 
 def enviar_mensaje_whatsapp(data: str) -> Dict[str, Any]:
-    """send message"""
+    """Send a pre-serialised message to Meta — the path notifications and invitations use.
+
+    Refuses outright while WhatsApp is switched off. Callers check the switch too; this is the
+    backstop so a forgotten check costs nothing instead of a paid conversation.
+    """
+    if not whatsapp_enabled():
+        return {"detail": "no enviado: WhatsApp desactivado (WHATSAPP_ENABLED)"}
     try:
         whatsapp_token = os.getenv("WHATSAPP_TOKEN")
         whatsapp_url = os.getenv("WHATSAPP_URL")

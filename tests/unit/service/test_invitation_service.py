@@ -172,7 +172,7 @@ class TestCreateInvitationEmailChannel:
 
 
 class TestCreateInvitationPhoneChannel:
-    def test_unknown_phone_creates_stub_and_whatsapp_mock(self, service):
+    def test_unknown_phone_creates_stub_and_whatsapp_mock(self, service, whatsapp_on):  # pylint: disable=W0613
         svc, member_repo, group_repo, invitation_repo, notification_service, mock_wpp = service
         inviter = _make_member(id_=1)
         stub = _make_stub(id_=99, telephone="541199999999")

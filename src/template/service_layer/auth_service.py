@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 from template.adapters.database import get_db
 from template.adapters.orm import MemberModel
 from template.adapters.repositories import MemberRepository
+from template.domain.models.enums import NotificationType
 from template.domain.models.member import Member
 from template.domain.phone import normalize_ar_phone
 from template.domain.schemas.member import MemberCreate, MemberUpdate, TokenData
+from template.service_layer.whatsapp_switch import whatsapp_enabled
 
 # Configuration
 SECRET_KEY = "your-secret-key"  # Change this to a secure secret key
@@ -67,6 +69,9 @@ class AuthService:
 
     def update_member(self, member: Member, update_data: MemberUpdate) -> Member:
         """Update member information."""
+        # A stored WHATSAPP stays stored (and is routed as EMAIL); it just cannot be chosen anew.
+        if update_data.notification_preference == NotificationType.WHATSAPP and not whatsapp_enabled():
+            raise ValueError("WhatsApp ya no está disponible para avisos. Elegí email o ninguna.")
         # If email is being updated, check if it's already taken
         if update_data.email is not None:
             existing = self.get_member_by_email(update_data.email)

@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from sqlalchemy import and_, case, func, or_, true
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -113,7 +114,9 @@ class MemberRepository:
             email=email,
             telephone=telephone,
             hashed_password=None,
-            notification_preference=NotificationType.NONE,
+            # EMAIL, like every new member. A ghost has no address, so nothing is sent anyway;
+            # an invited stub that later claims an account starts out hearing about expenses.
+            notification_preference=NotificationType.EMAIL,
         )
         self.session.add(db_member)
         self.session.commit()
@@ -638,6 +641,32 @@ class ChatSessionRepository:
             row.expense_data = expense_data
             row.updated_at = datetime.utcnow()
         self.session.commit()
+
+    def claim_estado(self, telephone: str, estado: str) -> bool:
+        """Move this phone's session to `estado`; True only for the call that moved it.
+
+        One atomic upsert, so two webhook deliveries racing for the same phone cannot both
+        see "not yet" — exactly one gets True. Creates the row if the phone never chatted, and
+        leaves `expense_data` (the group picked, a half-loaded expense) as it was.
+        """
+        stmt = (
+            pg_insert(ChatSessionModel)
+            .values(
+                telephone=telephone,
+                estado=estado,
+                expense_data=dict(_DEFAULT_EXPENSE_DATA),
+                updated_at=datetime.utcnow(),
+            )
+            .on_conflict_do_update(
+                index_elements=[ChatSessionModel.telephone],
+                set_={"estado": estado, "updated_at": datetime.utcnow()},
+                where=ChatSessionModel.estado != estado,
+            )
+            .returning(ChatSessionModel.telephone)
+        )
+        claimed = self.session.execute(stmt).first() is not None
+        self.session.commit()
+        return claimed
 
 
 class ProcessedMessageRepository:

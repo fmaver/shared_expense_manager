@@ -26,6 +26,7 @@ from template.domain.schemas.group import (
 from template.service_layer.member_merge_service import MemberMergeService
 from template.service_layer.push_service import push_body_for_invitation
 from template.service_layer.whatsapp_invite_client import WhatsAppInviteClient
+from template.service_layer.whatsapp_switch import whatsapp_enabled
 
 
 def claimable_members(group_repo: GroupRepository, group_id: int) -> list[Member]:
@@ -169,6 +170,10 @@ class InvitationService:
         for people who are already users being invited into another group. WhatsApp is last
         because it is a paid template message, so it now covers only the case nothing else
         can: someone invited by number who has neither an account nor an email.
+
+        With WhatsApp switched off (`WHATSAPP_ENABLED`, off by default) that last case gets
+        nothing sent. The invitation is still created and its `share_url` returned, so the
+        inviter can pass the link on by hand — the invite dialog says so.
         """
         if invitee is None:
             return
@@ -190,7 +195,9 @@ class InvitationService:
             )
             return
 
-        if invitee.telephone:
+        # TODO(sms): this is where an SMS invitation goes once there is a provider. Until then a
+        # phone-only invitee is reached only by the inviter sharing the link themselves.
+        if invitee.telephone and whatsapp_enabled():
             self._wpp_invite.send_invitation(
                 to_phone=invitee.telephone,
                 inviter_name=inviter_name,
