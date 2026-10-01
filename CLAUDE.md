@@ -213,6 +213,7 @@ All routes under `/api/v1` except monitor and webhook.
 
 **Monthly Shares** `/api/v1/groups/{group_id}/shares`
 - `GET /all` — every expense and one net balance with months collapsed (one-time groups). Declared **before** `/{year}/{month}` or "all" is parsed as a year
+- `GET /unsettled` — past months left unsettled with a non-zero balance (regular groups only). Declared before /{year}/{month}.
 - `POST /settle-all` — settle every month holding expenses, closing an occasion in one step
 - `GET /{year}/{month}`
 - `POST /settle/{year}/{month}` — close out, generate balancing expenses
@@ -242,6 +243,9 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /join/resolve/{token}` — resolve join-link token; returns `claimableMembers` (name-only members the joiner may claim)
 - `POST /join/{token}` — join the group. Reads an **optional** JWT (`_get_optional_member`): an authenticated caller joins with no credentials in the body, and `claimMemberId` then **merges** the ghost into their account; anonymous callers must send `name`/`email`/`password`, and `claimMemberId` upgrades the ghost via `claim_stub`
 - `GET /join/resolve/{token}` also returns `alreadyMember` when called with a JWT
+
+**Search** `/api/v1/search`
+- `GET /expenses?q=&groupId=` — text (every word in description or payer name, accent-insensitive) or exact amount; your groups (archived included) + your personal group, or only `groupId` (403 if not a member). One row per installment with its period and `periodSettled`. Excludes `balance`/`prestamo`. Max 50, `hasMore`.
 
 **Categories** `/api/v1/categories`
 - `GET /`, `GET /with-emojis`

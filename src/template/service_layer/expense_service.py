@@ -349,3 +349,7 @@ class ExpenseService:
             b["by_payer"][payer_key] = b["by_payer"].get(payer_key, 0.0) + row.amount
 
         return sorted(buckets.values(), key=lambda x: (x["year"], x["month"]))
+
+    def get_all_monthly_shares(self) -> Dict[str, MonthlyShare]:
+        """Every monthly share of this service's group, keyed YYYY-MM."""
+        return self._repository.get_all_monthly_shares(self._group_id)

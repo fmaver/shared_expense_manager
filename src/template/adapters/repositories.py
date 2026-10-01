@@ -5,7 +5,7 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -59,6 +59,8 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.domain.schemas.member import MemberUpdate
+from template.service_layer.search_query import ACCENTS_FROM, ACCENTS_TO, ParsedQuery
+from template.service_layer.search_query import normalize as normalize_python
 
 
 class MemberRepository:
@@ -895,6 +897,20 @@ class GroupRepository:
             is not None
         )
 
+    def list_ids_for_member_all(self, member_id: int) -> list[int]:
+        """Ids of every non-deleted group the member belongs to, archived and personal included."""
+        rows = (
+            self.session.query(GroupModel.id)
+            .join(GroupMembershipModel, GroupModel.id == GroupMembershipModel.group_id)
+            .filter(GroupMembershipModel.member_id == member_id, GroupModel.status != "deleted")
+            .all()
+        )
+        ids = {row.id for row in rows}
+        personal = self.get_personal_for_owner(member_id)
+        if personal is not None and personal.id is not None:
+            ids.add(personal.id)
+        return sorted(ids)
+
     def _to_domain(self, model: GroupModel) -> Group:
         """Convert ORM GroupModel to domain Group."""
         return Group(
@@ -1215,7 +1231,6 @@ class IncomeRepository:
         Past months (before the given year/month) are left unchanged (forward-only semantics).
         Not-yet-materialized future months will pick up the new template amount automatically.
         """
-        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
 
         values: dict = {"label": new_label, "amount": new_amount}
         if new_currency is not None:
@@ -1322,7 +1337,6 @@ class IncomeRepository:
         self, personal_group_id: int, recurring_income_id: int, year: int, month: int
     ) -> None:
         """Delete all recurring snapshots for this template from (year, month) onwards."""
-        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
 
         self.session.query(IncomeInstanceModel).filter(
             IncomeInstanceModel.personal_group_id == personal_group_id,
@@ -1555,7 +1569,6 @@ class RecurringPersonalExpenseRepository:
         new_currency: Optional[str] = None,
     ) -> None:
         """Bulk-update label/amount/category_name for all instances from (year, month) onwards."""
-        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
 
         values: dict = {"label": new_label, "amount": new_amount, "category_name": new_category_name}
         if new_currency is not None:
@@ -1581,7 +1594,6 @@ class RecurringPersonalExpenseRepository:
         month: int,
     ) -> None:
         """Delete all instances for this template from (year, month) onwards."""
-        from sqlalchemy import and_  # pylint: disable=import-outside-toplevel
 
         self.session.query(RecurringPersonalExpenseInstanceModel).filter(
             RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id,
@@ -1779,7 +1791,7 @@ class RecurringGroupExpenseRepository:
         Deletes both the idempotency instance rows and the corresponding Expense rows so the
         materializer re-creates them with up-to-date data on the next monthly share read.
         """
-        from sqlalchemy import and_, extract  # pylint: disable=import-outside-toplevel
+        from sqlalchemy import extract  # pylint: disable=import-outside-toplevel
 
         self.session.query(RecurringGroupExpenseInstanceModel).filter(
             RecurringGroupExpenseInstanceModel.recurring_expense_id == template_id,
@@ -1954,3 +1966,104 @@ class DueDateReminderRepository:
             DueDateReminderModel.due_on == due_on,
         ).delete()
         self.session.commit()
+
+
+class SearchRepository:
+    """Expense search across a set of groups. Matching mirrors `search_query.parse_query`."""
+
+    EXCLUDED_CATEGORIES = ("balance", "prestamo")
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    @staticmethod
+    def _norm(column):
+        return func.translate(func.lower(column), ACCENTS_FROM, ACCENTS_TO)
+
+    @staticmethod
+    def _like(term: str) -> str:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    def _text_match(self, query: ParsedQuery, *columns):
+        return and_(
+            *[or_(*[self._norm(col).like(self._like(term), escape="\\") for col in columns]) for term in query.terms]
+        )
+
+    def search_expenses(self, group_ids: list[int], query: ParsedQuery, purchase_limit: int) -> list[tuple]:
+        """Rows of (ExpenseModel, MonthlyShareModel, GroupModel, MemberModel), newest first.
+
+        The cap is by *purchase* (all installments sharing `coalesce(parent_expense_id, id)`),
+        not by row: we first pick the `purchase_limit` most recent matching purchase keys, then
+        bring back every row (every cuota) for those keys — which can be more than `purchase_limit`
+        rows when a purchase has several installments.
+        """
+        match = self._text_match(query, ExpenseModel.description, MemberModel.name)
+        if query.amount is not None:
+            installments = func.coalesce(ExpenseModel.installments, 1)  # pylint: disable=assignment-from-no-return
+            match = or_(
+                match,
+                func.abs(ExpenseModel.amount - query.amount) < 0.005,
+                # a credit purchase also matches by its total (the row stores one cuota)
+                and_(installments > 1, func.abs(ExpenseModel.amount * installments - query.amount) < 0.005),
+            )
+
+        purchase_key = func.coalesce(  # pylint: disable=assignment-from-no-return
+            ExpenseModel.parent_expense_id, ExpenseModel.id
+        )
+        scoped = (
+            self.session.query(ExpenseModel, MonthlyShareModel, GroupModel, MemberModel)
+            .join(MonthlyShareModel, ExpenseModel.monthly_share_id == MonthlyShareModel.id)
+            .join(GroupModel, ExpenseModel.group_id == GroupModel.id)
+            .join(MemberModel, ExpenseModel.payer_id == MemberModel.id)
+            .filter(
+                ExpenseModel.group_id.in_(group_ids),
+                ExpenseModel.category.notin_(self.EXCLUDED_CATEGORIES),
+            )
+        )
+        base = scoped.filter(match)
+
+        keys = [
+            row.key
+            for row in base.with_entities(
+                purchase_key.label("key"),
+                func.min(ExpenseModel.date).label("key_date"),
+                func.max(ExpenseModel.id).label("key_id"),
+            )
+            .group_by(purchase_key)
+            .order_by(func.min(ExpenseModel.date).desc(), func.max(ExpenseModel.id).desc())
+            .limit(purchase_limit)
+            .all()
+        ]
+        if not keys:
+            return []
+
+        # Every cuota of a matched purchase, even one whose own row does not match (a total-amount
+        # match, or a last cuota that absorbed the rounding).
+        return scoped.filter(purchase_key.in_(keys)).order_by(ExpenseModel.date.desc(), ExpenseModel.id.desc()).all()
+
+    def search_personal_fixed(
+        self, personal_group_id: int, owner_name: str, query: ParsedQuery, limit: int
+    ) -> list[RecurringPersonalExpenseInstanceModel]:
+        """Personal fixed-expense months. The owner's name counts as the payer."""
+        owner = normalize_python(owner_name)
+        # A term that is part of the owner's name matches every fixed expense, like a payer would.
+        terms = tuple(t for t in query.terms if t not in owner)
+        match = (
+            self._text_match(ParsedQuery(terms=terms, amount=None), RecurringPersonalExpenseInstanceModel.label)
+            if terms
+            else true()  # every term was the owner's name
+        )
+        if query.amount is not None:
+            match = or_(match, func.abs(RecurringPersonalExpenseInstanceModel.amount - query.amount) < 0.005)
+        return (
+            self.session.query(RecurringPersonalExpenseInstanceModel)
+            .filter(RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id, match)
+            .order_by(
+                RecurringPersonalExpenseInstanceModel.year.desc(),
+                RecurringPersonalExpenseInstanceModel.month.desc(),
+                RecurringPersonalExpenseInstanceModel.id.desc(),
+            )
+            .limit(limit)
+            .all()
+        )

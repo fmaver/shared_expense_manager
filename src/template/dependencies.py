@@ -13,6 +13,7 @@ from template.adapters.repositories import (
     ProcessedMessageRepository,
     RecurringGroupExpenseRepository,
     RecurringPersonalExpenseRepository,
+    SearchRepository,
     SQLAlchemyExpenseRepository,
 )
 from template.domain.models.expense_manager import ExpenseManager
@@ -22,6 +23,7 @@ from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
 from template.service_layer.occasion_service import OccasionService
 from template.service_layer.personal_ledger_service import PersonalLedgerService
+from template.service_layer.search_service import SearchService
 from template.service_layer.whatsapp_client import MetaWhatsAppClient, WhatsAppClient
 
 
@@ -73,6 +75,11 @@ def get_member_service(
 ) -> MemberService:
     """Get member service instance."""
     return MemberService(repository)
+
+
+def get_search_service(db: Session = Depends(get_db)) -> SearchService:
+    """Get search service instance."""
+    return SearchService(GroupRepository(db), SearchRepository(db))
 
 
 def get_whatsapp_client() -> WhatsAppClient:
