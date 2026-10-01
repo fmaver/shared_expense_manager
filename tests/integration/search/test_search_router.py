@@ -348,3 +348,139 @@ def test_amount_matches_the_total_of_a_credit_purchase(client, auth_headers, pri
     assert len(results) == 3
     assert all(r["amount"] == 100000.0 for r in results)
     assert sorted(r["installmentNo"] for r in results) == [1, 2, 3]
+
+
+def _recurring_group_template(client, headers, group_id, payer_id, description, start=(2026, 1), amount=1000.0):
+    r = client.post(
+        f"/api/v1/groups/{group_id}/expenses/recurring/",
+        json={
+            "description": description,
+            "amount": amount,
+            "category": "servicios",
+            "payerId": payer_id,
+            "paymentType": "debit",
+            "splitStrategy": {"type": "equal"},
+            "startYear": start[0],
+            "startMonth": start[1],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["data"]
+
+
+def _materialize_group_months(client, headers, group_id, year, months):
+    for month in months:
+        r = client.get(f"/api/v1/groups/{group_id}/shares/{year}/{month:02d}", headers=headers)
+        assert r.status_code == 200, r.text
+
+
+def test_recurring_group_expense_rows_share_recurring_template_id(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    template = _recurring_group_template(client, auth_headers, primary_group_id, primary_member_id, "Alquiler depto")
+    _materialize_group_months(client, auth_headers, primary_group_id, 2026, [1, 2, 3, 4])
+
+    results = _search(client, auth_headers, "alquiler")["results"]
+    assert len(results) == 4
+    assert {r["recurringTemplateId"] for r in results} == {template["id"]}
+    assert sorted(r["periodMonth"] for r in results) == [1, 2, 3, 4]
+
+
+def test_non_recurring_expense_has_null_recurring_template_id(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    _post(client, auth_headers, primary_group_id, _expense(primary_member_id, "Pan"))
+    _post(
+        client,
+        auth_headers,
+        primary_group_id,
+        _expense(primary_member_id, "Pancho cuotas", amount=300.0, paymentType="credit", installments=3),
+    )
+    results = _search(client, auth_headers, "pan")["results"]
+    assert len(results) == 4
+    assert all(r["recurringTemplateId"] is None for r in results)
+
+
+def test_recurring_template_counts_as_one_purchase_toward_the_cap(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    for i in range(49):
+        _post(
+            client,
+            auth_headers,
+            primary_group_id,
+            _expense(primary_member_id, f"Kiosco rec {i}", amount=1.0 + i, when="2025-05-10"),
+        )
+    _recurring_group_template(client, auth_headers, primary_group_id, primary_member_id, "Kiosco rec mensual")
+    _materialize_group_months(client, auth_headers, primary_group_id, 2026, [1, 2, 3, 4])
+
+    data = _search(client, auth_headers, "kiosco rec")
+    assert len(data["results"]) == 53
+    assert data["hasMore"] is False
+
+
+def test_recurring_template_ranks_by_its_latest_occurrence(client, auth_headers, primary_member_id, primary_group_id):
+    # 50 simple purchases dated between the recurring's first and last occurrence: the recurring
+    # (latest occurrence 2026-04-01) must stay inside the cap, and an older simple one drops out.
+    for i in range(50):
+        _post(
+            client,
+            auth_headers,
+            primary_group_id,
+            _expense(primary_member_id, f"Kiosco rank {i}", amount=1.0 + i, when="2026-02-10"),
+        )
+    template = _recurring_group_template(client, auth_headers, primary_group_id, primary_member_id, "Kiosco rank mes")
+    _materialize_group_months(client, auth_headers, primary_group_id, 2026, [1, 2, 3, 4])
+
+    data = _search(client, auth_headers, "kiosco rank")
+    assert data["hasMore"] is True
+    recurring_rows = [r for r in data["results"] if r["recurringTemplateId"] == template["id"]]
+    assert len(recurring_rows) == 4
+    assert len(data["results"]) == 49 + 4
+
+
+def _personal_fixed_template(client, headers, label, start=(2026, 1), amount=20000.0):
+    client.get("/api/v1/personal/group", headers=headers)
+    r = client.post(
+        "/api/v1/personal/expenses/recurring",
+        json={
+            "label": label,
+            "amount": amount,
+            "categoryName": "salud",
+            "startYear": start[0],
+            "startMonth": start[1],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["data"]
+
+
+def test_personal_fixed_rows_share_recurring_template_id(client, auth_headers):
+    template = _personal_fixed_template(client, auth_headers, "Prepaga fija")
+    for month in (1, 2, 3):
+        client.get(f"/api/v1/personal/ledger/2026/{month}", headers=auth_headers)  # materializes
+
+    results = _search(client, auth_headers, "prepaga")["results"]
+    assert len(results) == 3
+    assert all(r["kind"] == "recurring_personal" for r in results)
+    assert {r["recurringTemplateId"] for r in results} == {template["id"]}
+
+
+def test_personal_fixed_template_counts_as_one_purchase(client, auth_headers, primary_member_id):
+    personal_group_id = client.get("/api/v1/personal/group", headers=auth_headers).json()["data"]["id"]
+    for i in range(49):
+        _post(
+            client,
+            auth_headers,
+            personal_group_id,
+            _expense(primary_member_id, f"Kiosco fijo {i}", amount=1.0 + i, when="2025-05-10"),
+        )
+    _personal_fixed_template(client, auth_headers, "Kiosco fijo mensual")
+    for month in (1, 2, 3):
+        client.get(f"/api/v1/personal/ledger/2026/{month}", headers=auth_headers)
+
+    data = _search(client, auth_headers, "kiosco fijo")
+    assert len(data["results"]) == 52
+    assert data["hasMore"] is False

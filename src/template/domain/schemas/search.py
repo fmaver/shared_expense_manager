@@ -35,6 +35,9 @@ class ExpenseSearchResult(CamelCaseModel):
     period_year: int
     period_month: int
     period_settled: Optional[bool]
+    # Template a recurring row was materialized from (group recurring expense or personal fixed
+    # expense); rows sharing it are one recurring "purchase". None for everything else.
+    recurring_template_id: Optional[int] = None
 
 
 class ExpenseSearchResponse(CamelCaseModel):

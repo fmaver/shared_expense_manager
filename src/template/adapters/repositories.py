@@ -5,7 +5,7 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from sqlalchemy import and_, func, or_, true
+from sqlalchemy import and_, case, func, or_, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -2022,10 +2022,11 @@ class SearchRepository:
     def search_expenses(self, group_ids: list[int], query: ParsedQuery, purchase_limit: int) -> list[tuple]:
         """Rows of (ExpenseModel, MonthlyShareModel, GroupModel, MemberModel), newest first.
 
-        The cap is by *purchase* (all installments sharing `coalesce(parent_expense_id, id)`),
-        not by row: we first pick the `purchase_limit` most recent matching purchase keys, then
-        bring back every row (every cuota) for those keys — which can be more than `purchase_limit`
-        rows when a purchase has several installments.
+        The cap is by *purchase*, not by row: all installments sharing `coalesce(parent_expense_id, id)`
+        are one purchase, and so are all the months materialized from one recurring template (keyed
+        by the negated template id so it cannot collide with an expense id). We first pick the
+        `purchase_limit` purchases with the most recent occurrence, then bring back every row for
+        those keys — which can be more than `purchase_limit` rows.
         """
         match = self._text_match(query, ExpenseModel.description, MemberModel.name)
         if query.amount is not None:
@@ -2037,8 +2038,9 @@ class SearchRepository:
                 and_(installments > 1, func.abs(ExpenseModel.amount * installments - query.amount) < 0.005),
             )
 
-        purchase_key = func.coalesce(  # pylint: disable=assignment-from-no-return
-            ExpenseModel.parent_expense_id, ExpenseModel.id
+        purchase_key = case(
+            (ExpenseModel.recurring_template_id.is_not(None), -ExpenseModel.recurring_template_id),
+            else_=func.coalesce(ExpenseModel.parent_expense_id, ExpenseModel.id),
         )
         scoped = (
             self.session.query(ExpenseModel, MonthlyShareModel, GroupModel, MemberModel)
@@ -2056,13 +2058,12 @@ class SearchRepository:
             row.key
             for row in base.with_entities(
                 purchase_key.label("key"),
-                func.min(ExpenseModel.date).label("key_date"),
+                func.max(ExpenseModel.date).label("key_date"),
                 func.max(ExpenseModel.id).label("key_id"),
-            )
-            .group_by(purchase_key)
-            .order_by(func.min(ExpenseModel.date).desc(), func.max(ExpenseModel.id).desc())
-            .limit(purchase_limit)
-            .all()
+            ).group_by(purchase_key)
+            # Cuotas of a credit purchase share its date, so max == min there; a recurring
+            # template ranks by its latest occurrence.
+            .order_by(func.max(ExpenseModel.date).desc(), func.max(ExpenseModel.id).desc()).limit(purchase_limit).all()
         ]
         if not keys:
             return []
@@ -2074,7 +2075,11 @@ class SearchRepository:
     def search_personal_fixed(
         self, personal_group_id: int, owner_name: str, query: ParsedQuery, limit: int
     ) -> list[RecurringPersonalExpenseInstanceModel]:
-        """Personal fixed-expense months. The owner's name counts as the payer."""
+        """Personal fixed-expense months. The owner's name counts as the payer.
+
+        Capped by *template*: `limit` templates with the most recent matching month, then every
+        month of those templates (like the installments of a purchase in `search_expenses`).
+        """
         owner = normalize_python(owner_name)
         # A term that is part of the owner's name matches every fixed expense, like a payer would.
         terms = tuple(t for t in query.terms if t not in owner)
@@ -2085,14 +2090,23 @@ class SearchRepository:
         )
         if query.amount is not None:
             match = or_(match, func.abs(RecurringPersonalExpenseInstanceModel.amount - query.amount) < 0.005)
-        return (
-            self.session.query(RecurringPersonalExpenseInstanceModel)
-            .filter(RecurringPersonalExpenseInstanceModel.personal_group_id == personal_group_id, match)
-            .order_by(
-                RecurringPersonalExpenseInstanceModel.year.desc(),
-                RecurringPersonalExpenseInstanceModel.month.desc(),
-                RecurringPersonalExpenseInstanceModel.id.desc(),
-            )
+        instance = RecurringPersonalExpenseInstanceModel
+        in_group = instance.personal_group_id == personal_group_id
+        period = instance.year * 100 + instance.month
+        keys = [
+            row.key
+            for row in self.session.query(instance.recurring_expense_id.label("key"))
+            .filter(in_group, match)
+            .group_by(instance.recurring_expense_id)
+            .order_by(func.max(period).desc(), func.max(instance.id).desc())
             .limit(limit)
+            .all()
+        ]
+        if not keys:
+            return []
+        return (
+            self.session.query(instance)
+            .filter(in_group, instance.recurring_expense_id.in_(keys))
+            .order_by(instance.year.desc(), instance.month.desc(), instance.id.desc())
             .all()
         )
