@@ -83,19 +83,26 @@ class SearchService:
     def _group_into_purchases(
         expense_results: list[ExpenseSearchResult], fixed_results: list[ExpenseSearchResult]
     ) -> list[list[ExpenseSearchResult]]:
-        """Group rows into purchases: expense installments share `parentExpenseId`, each
-        personal fixed-expense row is its own purchase."""
+        """Group rows into purchases, mirroring the repository's cap keys: expense installments
+        share `parentExpenseId`, and every month of one recurring template (group recurring
+        expense or personal fixed expense) is a single purchase."""
         by_key: dict[tuple, list[ExpenseSearchResult]] = {}
         for result in expense_results:
-            by_key.setdefault(("expense", result.parent_expense_id), []).append(result)
-        purchases = list(by_key.values())
-        purchases += [[result] for result in fixed_results]
-        return purchases
+            if result.recurring_template_id is not None:
+                key: tuple = ("recurring", result.recurring_template_id)
+            else:
+                key = ("expense", result.parent_expense_id)
+            by_key.setdefault(key, []).append(result)
+        for result in fixed_results:
+            by_key.setdefault(("recurring_personal", result.recurring_template_id), []).append(result)
+        return list(by_key.values())
 
     @classmethod
     def _purchase_sort_key(cls, purchase: list[ExpenseSearchResult]) -> tuple:
+        """Latest occurrence first (cuotas share their purchase date, so for credit this is the
+        purchase date; a recurring template ranks by its most recent month)."""
         rows_key = [cls._sort_key(r) for r in purchase]
-        return (min(d for d, _ in rows_key), max(i for _, i in rows_key))
+        return (max(d for d, _ in rows_key), max(i for _, i in rows_key))
 
     @staticmethod
     def _sort_key(result: ExpenseSearchResult) -> tuple:
@@ -150,6 +157,7 @@ class SearchService:
             period_year=share.year,
             period_month=share.month,
             period_settled=None if is_personal else bool(share.is_settled),
+            recurring_template_id=expense.recurring_template_id,
         )
 
     @staticmethod
@@ -174,4 +182,5 @@ class SearchService:
             period_year=row.year,
             period_month=row.month,
             period_settled=None,
+            recurring_template_id=row.recurring_expense_id,
         )
