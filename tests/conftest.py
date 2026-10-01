@@ -25,6 +25,12 @@ from template.domain.models.models import Expense, MonthlyShare  # noqa: E402
 from template.domain.models.repository import ExpenseRepository  # noqa: E402
 
 
+@pytest.fixture
+def whatsapp_on(monkeypatch):
+    """Turn the WhatsApp kill switch on for one test (it is off when WHATSAPP_ENABLED is unset)."""
+    monkeypatch.setenv("WHATSAPP_ENABLED", "true")
+
+
 @pytest.fixture(name="test_client")
 def fixture_test_client() -> TestClient:
     """Test client without lifespan — safe to use without a live DB."""

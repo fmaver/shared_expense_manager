@@ -37,6 +37,11 @@ from template.service_layer.whatsapp_service import (
     replace_start,
     text_message,
 )
+from template.service_layer.whatsapp_switch import (
+    WHATSAPP_OFF_NOTICE_STATE,
+    whatsapp_enabled,
+    whatsapp_off_notice,
+)
 
 load_dotenv()
 
@@ -236,6 +241,19 @@ def _process_image_message(  # pylint: disable=too-many-locals
     session_repo.save(number, nuevo_estado)
 
 
+def _send_whatsapp_off_notice(number: str, wpp_client: WhatsAppClient) -> None:
+    """While WhatsApp is off: tell this phone once that the chat is gone, then never again.
+
+    The only Meta call left with the switch off. It is free — the person just wrote, so the
+    reply is inside the 24-hour window — and `claim_estado` makes it at most once per phone,
+    even when two deliveries race. The chatbot is not run, and no read receipt is sent.
+    """
+    with SessionLocal() as db:
+        if not ChatSessionRepository(db).claim_estado(number, WHATSAPP_OFF_NOTICE_STATE):
+            return
+    wpp_client.send_message(text_message(number, whatsapp_off_notice()))
+
+
 def _process_message(  # pylint: disable=too-many-locals,too-many-return-statements,too-many-statements
     text: str,
     number: str,
@@ -252,6 +270,9 @@ def _process_message(  # pylint: disable=too-many-locals,too-many-return-stateme
         member_service = MemberService(member_repo)
 
         estado = session_repo.get_or_create(number)
+        if estado.get("estado") == WHATSAPP_OFF_NOTICE_STATE:
+            # WhatsApp was switched back on after this phone got the "no disponible" notice.
+            estado["estado"] = "inicial"
 
         member = member_repo.get_member_by_phone(number)
         if not member:
@@ -433,6 +454,12 @@ async def recibir_mensajes(  # pylint: disable=too-many-locals
 
     if not processed_repo.mark_if_new(message_id):
         logger.info("Duplicate message_id %s ignored", message_id)
+        return "ok"
+
+    if not whatsapp_enabled():
+        # WhatsApp is off (WHATSAPP_ENABLED): the chatbot does not run. Still 200 and still
+        # deduplicated above, so Meta does not retry.
+        background_tasks.add_task(_send_whatsapp_off_notice, number, wpp_client)
         return "ok"
 
     background_tasks.add_task(

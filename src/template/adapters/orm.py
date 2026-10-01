@@ -42,7 +42,10 @@ class MemberModel(Base):
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notification_preference: Mapped[NotificationType] = mapped_column(
-        Enum(NotificationType), default=NotificationType.NONE
+        # Python-side default only (no server_default), so changing it needs no migration.
+        # EMAIL since WhatsApp went paid: a new member hears about expenses unless they opt out.
+        Enum(NotificationType),
+        default=NotificationType.EMAIL,
     )
     last_wpp_chat_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expenses: Mapped[list["ExpenseModel"]] = relationship(back_populates="payer")

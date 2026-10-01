@@ -81,8 +81,8 @@ class TestChannelRouting:
         notifications.send_invitation_email.assert_called_once()
         assert wpp.messages == [], "WhatsApp is the last resort, not the phone-shaped default"
 
-    def test_whatsapp_only_when_there_is_nothing_else(self):
-        """A brand-new person invited by number: no account, no device, no email."""
+    def test_whatsapp_only_when_there_is_nothing_else(self, whatsapp_on):  # pylint: disable=unused-argument
+        """A brand-new person invited by number: no account, no device, no email (switch on)."""
         invitee = Member(id=2, name="Nico", telephone="541199999999", email=None, hashed_password=None)
         service, notifications, wpp, push = _build(invitee, subscribed=False)
 

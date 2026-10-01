@@ -40,6 +40,7 @@ from template.service_layer.whatsapp_service import (
     template_message,
     text_message,
 )
+from template.service_layer.whatsapp_switch import whatsapp_enabled
 
 
 class NotificationService:
@@ -49,6 +50,20 @@ class NotificationService:
         """Initialize notification service with configuration."""
         self.brevo_api_key = os.getenv("BREVO_API_KEY", "")
         self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "")
+
+    @staticmethod
+    def _preference(member: Member) -> NotificationType:
+        """The preference to route by — the stored one, unless it names a channel that is off.
+
+        With WhatsApp switched off a WHATSAPP preference is read as EMAIL: the member asked to
+        be told, and mail is what is left. The stored value is not touched, so turning the
+        switch back on restores their choice. NONE stays NONE — nobody is mailed who opted out.
+        Push is not a preference and is decided before this, by `_maybe_push`.
+        """
+        preference = member.notification_preference
+        if preference == NotificationType.WHATSAPP and not whatsapp_enabled():
+            return NotificationType.EMAIL
+        return preference
 
     @staticmethod
     def _maybe_push(member, push_service, message) -> bool:
@@ -119,14 +134,14 @@ class NotificationService:
             if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
 
-            elif member.notification_preference == NotificationType.EMAIL and member.email:
+            elif self._preference(member) == NotificationType.EMAIL and member.email:
                 message = self._create_expense_message(expense, creator, member_service, is_recurring=is_recurring)
                 if effective_group:
                     message = f"📁 *{effective_group}*\n\n{message}"
                 html = self._build_html_expense_created(expense, creator, member_service, group_name=effective_group)
                 self._send_email(member.email, subject, message, html_content=html)
 
-            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+            elif self._preference(member) == NotificationType.WHATSAPP and member.telephone:
                 await self._send_wpp_expense_notification(
                     member,
                     expense,
@@ -218,9 +233,9 @@ class NotificationService:
 
             if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
-            elif member.notification_preference == NotificationType.EMAIL and member.email:
+            elif self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
-            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+            elif self._preference(member) == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
                 if last_interacted and not last_interacted.tzinfo:
                     last_interacted = last_interacted.replace(tzinfo=timezone.utc)
@@ -271,9 +286,9 @@ class NotificationService:
 
             if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
-            elif member.notification_preference == NotificationType.EMAIL and member.email:
+            elif self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
-            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+            elif self._preference(member) == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
                 if last_interacted and not last_interacted.tzinfo:
                     last_interacted = last_interacted.replace(tzinfo=timezone.utc)
@@ -392,6 +407,8 @@ class NotificationService:
 
     async def _send_whatsapp(self, phone_number: str, message: str, app_url: Optional[str] = None) -> None:
         """Send a WhatsApp notification, with interactive buttons when app_url is provided."""
+        if not whatsapp_enabled():
+            return
         try:
             if app_url:
                 message_data = notification_message_with_buttons(phone_number, message, app_url)
@@ -411,6 +428,8 @@ class NotificationService:
         self, phone_number: str, template_name: str, parameters: List[Dict[str, Any]]
     ) -> None:
         """Send a WhatsApp notification using a named template."""
+        if not whatsapp_enabled():
+            return
         try:
             message_data = template_message(phone_number, template_name, "es_AR", parameters)
             response = enviar_mensaje_whatsapp(message_data)
@@ -495,9 +514,9 @@ class NotificationService:
             if self._maybe_push(member, push_service, push_message):
                 continue
 
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            if self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
-            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+            elif self._preference(member) == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
                 time_now = datetime.now(timezone.utc)
                 if last_interacted and not last_interacted.tzinfo:
@@ -546,7 +565,7 @@ class NotificationService:
             if self._maybe_push(member, push_service, push_message):
                 continue
             # `member.email` is not redundant: ghost members carry a preference but nowhere to send.
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            if self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
 
     async def notify_occasion_settled(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -579,7 +598,7 @@ class NotificationService:
                 continue
             if self._maybe_push(member, push_service, push_message):
                 continue
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            if self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
 
     async def notify_due_date(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -617,7 +636,7 @@ class NotificationService:
                 continue
             # `member.email` no es redundante: un miembro fantasma tiene preferencia pero no
             # tiene a dónde recibir nada.
-            if member.notification_preference == NotificationType.EMAIL and member.email:
+            if self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message)
 
     def _create_expense_message(  # pylint: disable=too-many-branches
@@ -848,9 +867,9 @@ class NotificationService:
             show_group = bool(group_name and is_multi)
             if self._maybe_push(member, push_service, push_message):
                 pass  # push replaces this member's other channel
-            elif member.notification_preference == NotificationType.EMAIL:
+            elif self._preference(member) == NotificationType.EMAIL and member.email:
                 self._send_email(member.email, subject, message, html_content=html_content)
-            elif member.notification_preference == NotificationType.WHATSAPP and member.telephone:
+            elif self._preference(member) == NotificationType.WHATSAPP and member.telephone:
                 last_interacted = member_service.get_last_wpp_chat_time(member)
                 time_now = datetime.now(timezone.utc)
                 if last_interacted and not last_interacted.tzinfo:
