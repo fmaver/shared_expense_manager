@@ -245,7 +245,7 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /join/resolve/{token}` also returns `alreadyMember` when called with a JWT
 
 **Search** `/api/v1/search`
-- `GET /expenses?q=&groupId=` — text (every word in description or payer name, accent-insensitive) or exact amount; your groups (archived included) + your personal group, or only `groupId` (403 if not a member). One row per installment with its period and `periodSettled`. Excludes `balance`/`prestamo`. Max 50, `hasMore`.
+- `GET /expenses?q=&groupId=` — text (every word in description or payer name, accent-insensitive) or exact amount; your groups (archived included) + your personal group, or only `groupId` (403 if not a member). One row per installment with its period and `periodSettled`. Excludes `balance`/`prestamo`. Max 50 *purchases* (a credit purchase's cuotas, or every month of one recurring template — `recurringTemplateId` — count once, ranked by latest occurrence), `hasMore`.
 
 **Categories** `/api/v1/categories`
 - `GET /`, `GET /with-emojis`
