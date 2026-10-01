@@ -306,3 +306,45 @@ def test_another_members_personal_group_is_forbidden(client, auth_headers):
         headers=auth_headers,
     )
     assert r.status_code == 403
+
+
+def test_your_share_is_null_when_split_participants_left_the_group(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    ghost = client.post(
+        f"/api/v1/groups/{primary_group_id}/members", json={"name": "Ghost"}, headers=auth_headers
+    ).json()["data"]["memberId"]
+    _post(
+        client,
+        auth_headers,
+        primary_group_id,
+        _expense(
+            primary_member_id,
+            "Regalo del que se fue",
+            amount=1000.0,
+            splitStrategy={"type": "equal", "participant_ids": [ghost]},
+        ),
+    )
+    with SessionLocal() as session:
+        session.execute(
+            text("DELETE FROM group_memberships WHERE group_id = :g AND member_id = :m"),
+            {"g": primary_group_id, "m": ghost},
+        )
+        session.commit()
+
+    results = _search(client, auth_headers, "regalo")["results"]
+    assert len(results) == 1
+    assert results[0]["yourShare"] is None
+
+
+def test_amount_matches_the_total_of_a_credit_purchase(client, auth_headers, primary_member_id, primary_group_id):
+    _post(
+        client,
+        auth_headers,
+        primary_group_id,
+        _expense(primary_member_id, "Notebook", amount=300000.0, paymentType="credit", installments=3),
+    )
+    results = _search(client, auth_headers, "300000")["results"]
+    assert len(results) == 3
+    assert all(r["amount"] == 100000.0 for r in results)
+    assert sorted(r["installmentNo"] for r in results) == [1, 2, 3]

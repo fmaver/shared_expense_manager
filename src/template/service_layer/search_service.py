@@ -1,5 +1,6 @@
 """Expense search for one member: every group they are in, or one of them."""
 
+import logging
 from datetime import date
 from typing import Optional
 
@@ -11,6 +12,8 @@ from template.domain.schemas.search import ExpenseSearchResponse, ExpenseSearchR
 from template.service_layer.search_query import parse_query
 
 MAX_RESULTS = 50
+
+logger = logging.getLogger(__name__)
 
 
 class NotAMemberError(Exception):
@@ -111,9 +114,15 @@ class SearchService:
         raise ValueError(f"Unknown split strategy type: {data['type']}")
 
     @classmethod
-    def _your_share(cls, expense, searcher: Member, group_members: dict[int, Member]) -> float:
-        strategy = cls._deserialize_split_strategy(expense.split_strategy)
-        shares = strategy.calculate_shares(expense.amount, list(group_members.values()))
+    def _your_share(cls, expense, searcher: Member, group_members: dict[int, Member]) -> Optional[float]:
+        """`searcher`'s part of `expense`, or None when today's membership cannot split it
+        (e.g. an equal split whose participants have all left the group)."""
+        try:
+            strategy = cls._deserialize_split_strategy(expense.split_strategy)
+            shares = strategy.calculate_shares(expense.amount, list(group_members.values()))
+        except ValueError:
+            logger.warning("Cannot compute yourShare for expense %s", expense.id, exc_info=True)
+            return None
         return shares.get(searcher.id, 0.0)
 
     @classmethod

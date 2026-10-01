@@ -1995,17 +1995,23 @@ class SearchRepository:
 
         The cap is by *purchase* (all installments sharing `coalesce(parent_expense_id, id)`),
         not by row: we first pick the `purchase_limit` most recent matching purchase keys, then
-        bring back every matching row for those keys — which can be more than `purchase_limit`
+        bring back every row (every cuota) for those keys — which can be more than `purchase_limit`
         rows when a purchase has several installments.
         """
         match = self._text_match(query, ExpenseModel.description, MemberModel.name)
         if query.amount is not None:
-            match = or_(match, func.abs(ExpenseModel.amount - query.amount) < 0.005)
+            installments = func.coalesce(ExpenseModel.installments, 1)  # pylint: disable=assignment-from-no-return
+            match = or_(
+                match,
+                func.abs(ExpenseModel.amount - query.amount) < 0.005,
+                # a credit purchase also matches by its total (the row stores one cuota)
+                and_(installments > 1, func.abs(ExpenseModel.amount * installments - query.amount) < 0.005),
+            )
 
         purchase_key = func.coalesce(  # pylint: disable=assignment-from-no-return
             ExpenseModel.parent_expense_id, ExpenseModel.id
         )
-        base = (
+        scoped = (
             self.session.query(ExpenseModel, MonthlyShareModel, GroupModel, MemberModel)
             .join(MonthlyShareModel, ExpenseModel.monthly_share_id == MonthlyShareModel.id)
             .join(GroupModel, ExpenseModel.group_id == GroupModel.id)
@@ -2013,9 +2019,9 @@ class SearchRepository:
             .filter(
                 ExpenseModel.group_id.in_(group_ids),
                 ExpenseModel.category.notin_(self.EXCLUDED_CATEGORIES),
-                match,
             )
         )
+        base = scoped.filter(match)
 
         keys = [
             row.key
@@ -2032,7 +2038,9 @@ class SearchRepository:
         if not keys:
             return []
 
-        return base.filter(purchase_key.in_(keys)).order_by(ExpenseModel.date.desc(), ExpenseModel.id.desc()).all()
+        # Every cuota of a matched purchase, even one whose own row does not match (a total-amount
+        # match, or a last cuota that absorbed the rounding).
+        return scoped.filter(purchase_key.in_(keys)).order_by(ExpenseModel.date.desc(), ExpenseModel.id.desc()).all()
 
     def search_personal_fixed(
         self, personal_group_id: int, owner_name: str, query: ParsedQuery, limit: int
