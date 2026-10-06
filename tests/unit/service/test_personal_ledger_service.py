@@ -550,3 +550,24 @@ def test_group_balances_are_recalculated_with_the_usd_rate():
 
     _, kwargs = share.recalculate_balances.call_args
     assert kwargs["usd_rate"] == RATE
+
+
+def test_mirrored_usd_exact_split_is_split_in_dollars_then_converted():
+    """Regression: a USD exact split raised (US$ parts vs an ARS total) and /personal 500'd."""
+    # pylint: disable=import-outside-toplevel
+    from template.domain.models.models import MonthlyShare
+    from template.domain.models.split import ExactAmountsSplit
+
+    shared_group = _make_regular_group(group_id=2)
+    expense = _make_mock_expense(expense_id=10, amount=200.0, payer_id=2, category_name="viajes")
+    expense.currency = "USD"
+    expense.split_strategy = ExactAmountsSplit({1: 150.0, 2: 50.0})
+    share = MonthlyShare(2026, 10, 2)
+    share.expenses = [expense]
+
+    svc, *_ = _build_service(other_groups=[shared_group], other_shares={2: share}, members_per_group={2: _members()})
+    with patch("template.service_layer.currency_service.get_blue_rate", return_value=RATE):
+        ledger = svc.get_ledger(owner_member_id=1, year=2026, month=10)
+
+    assert ledger.mirrored_shares[0].share_amount == 225000.0
+    assert ledger.group_balances[0].net_balance == -225000.0

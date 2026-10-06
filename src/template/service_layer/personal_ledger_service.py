@@ -12,6 +12,7 @@ from template.domain.models.income import (
     IncomeInstance,
     RecurringPersonalExpenseInstance,
 )
+from template.domain.models.models import expense_shares_in_ars
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import (
     ExactAmountsSplit,
@@ -168,7 +169,7 @@ class PersonalLedgerService:
             members_dict = {m.id: m for m in members_list}
 
             if source_share.expenses:
-                source_share.recalculate_balances(members_dict, usd_rate=usd_rate)
+                self._recalculate_group_balances(source_share, members_dict, usd_rate)
 
             # Net group balance for this owner: positive = creditor, negative = debtor
             net_balance = round(source_share.balances.get(str(owner_member_id), 0.0), 2)
@@ -233,6 +234,19 @@ class PersonalLedgerService:
         )
 
     @staticmethod
+    def _recalculate_group_balances(source_share, members_dict: dict, usd_rate: float) -> None:
+        """Recompute a group month's balances in ARS from its current rows.
+
+        A row whose split no longer validates must not take /personal down: on ValueError
+        the stored balances are kept.
+        """
+        stored_balances = dict(source_share.balances or {})
+        try:
+            source_share.recalculate_balances(members_dict, usd_rate=usd_rate)
+        except ValueError:
+            source_share.balances = stored_balances
+
+    @staticmethod
     def _process_group_expenses(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         source_group_id: int,
         source_group_name: str,
@@ -243,8 +257,12 @@ class PersonalLedgerService:
     ) -> tuple[float, list[MirroredShareItem]]:
         """Process expenses in a single group share for one owner.
 
-        Amounts come out in ARS: a USD expense's share and paid amount are converted at
-        usd_rate, like the group's balances.
+        Amounts come out in ARS, computed exactly like the group's balances
+        (expense_shares_in_ars): split in the expense's own currency, then converted.
+
+        A settled month's USD rows are converted at today's rate too, not the rate it was
+        settled at (which is not stored). Its balances are frozen and correct; only these
+        display amounts drift with the rate.
 
         Returns (total_paid_as_payer, list_of_mirrored_share_items).
         """
@@ -254,14 +272,16 @@ class PersonalLedgerService:
         for expense in source_share.expenses:
             if Category.is_internal_category(expense.category.name):
                 continue
-            rate = usd_rate if getattr(expense, "currency", "ARS") == "USD" else 1.0
-            if not source_share.is_settled and expense.payer_id == owner_member_id:
-                paid += expense.amount * rate
             try:
-                shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
+                paid_ars, shares = expense_shares_in_ars(expense, list(members_dict.values()), usd_rate)
             except ValueError:
+                usd = getattr(expense, "currency", "ARS") == "USD"
+                paid_ars, shares = (round(expense.amount * usd_rate, 2) if usd else expense.amount), None
+            if not source_share.is_settled and expense.payer_id == owner_member_id:
+                paid += paid_ars
+            if shares is None:
                 continue
-            owner_share = shares.get(owner_member_id, 0.0) * rate
+            owner_share = shares.get(owner_member_id, 0.0)
             if owner_share < 0.005:
                 continue
             payer = members_dict.get(expense.payer_id)
@@ -278,7 +298,7 @@ class PersonalLedgerService:
                     installment_no=expense.installment_no,
                     installments=expense.installments,
                     # payer_amount: full expense amount if owner paid upfront, else 0
-                    payer_amount=round(expense.amount * rate, 2) if expense.payer_id == owner_member_id else 0.0,
+                    payer_amount=round(paid_ars, 2) if expense.payer_id == owner_member_id else 0.0,
                     payer_id=expense.payer_id,
                     payer_name=payer.name if payer else str(expense.payer_id),
                     is_recurring=expense.recurring_template_id is not None,

@@ -1,7 +1,7 @@
 """Domain models for the expense sharing application."""
 
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import Field, ValidationInfo, field_validator
 
@@ -37,6 +37,29 @@ class Expense(CamelCaseModel):
         if installments is not None and v > installments:
             raise ValueError("Installment number cannot be greater than total installments")
         return v
+
+
+def expense_shares_in_ars(
+    expense: Expense, members: List[Member], usd_rate: float = 1.0
+) -> Tuple[float, Dict[int, float]]:
+    """Return (paid, shares per member) for an expense, both in ARS.
+
+    The split runs in the expense's own currency — an exact split of a USD expense lists
+    dollars, so it has to be checked against the dollar total — and only then is each part
+    converted. Rounding each part to cents can leave the parts a cent off the paid amount;
+    that cent goes to the largest part, so a month's balances still net to zero.
+    """
+    shares = expense.split_strategy.calculate_shares(expense.amount, members)
+    if getattr(expense, "currency", "ARS") != "USD":
+        return expense.amount, shares
+
+    paid = round(expense.amount * usd_rate, 2)
+    converted = {member_id: round(share * usd_rate, 2) for member_id, share in shares.items()}
+    residual = round(paid - sum(converted.values()), 2)
+    if converted and residual and abs(residual) <= 0.05:
+        largest = max(converted, key=lambda member_id: converted[member_id])
+        converted[largest] = round(converted[largest] + residual, 2)
+    return paid, converted
 
 
 class MonthlyShare:
@@ -98,9 +121,8 @@ class MonthlyShare:
             print(f"{members[int(member_id)].name}: {balance}")
 
     def calculate_share_for_expense(self, expense: Expense, members: Dict[int, Member], usd_rate: float = 1.0) -> None:
-        """Calculates the share for a specific expense"""
-        amount = expense.amount * usd_rate if getattr(expense, "currency", "ARS") == "USD" else expense.amount
-        shares = expense.split_strategy.calculate_shares(amount, list(members.values()))
+        """Calculates the share for a specific expense, in ARS (see expense_shares_in_ars)."""
+        amount, shares = expense_shares_in_ars(expense, list(members.values()), usd_rate)
 
         # Add what the payer paid
         payer_id_str = str(expense.payer_id)
