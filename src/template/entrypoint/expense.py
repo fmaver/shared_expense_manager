@@ -236,17 +236,18 @@ def delete_expense(
 
 
 @router.get("/similar", response_model=ResponseModel[list[ExpenseResponse]])
-def find_similar_expenses(
+def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
     year: int,
     month: int,
     amount: float,
     description: str,
     expense_date: date = Query(..., alias="date"),
+    currency: str = "ARS",
     service: ExpenseService = Depends(get_expense_service),
     current_member=Depends(get_current_member),
 ) -> ResponseModel[list[ExpenseResponse]]:
-    """Find expenses in the same month that may be duplicates of a new entry."""
-    similar = service.find_similar_expenses(year, month, amount, description, expense_date)
+    """Find expenses that may be duplicates of a new entry (same currency only)."""
+    similar = service.find_similar_expenses(year, month, amount, description, expense_date, currency)
     return ResponseModel(data=similar)
 
 
