@@ -52,8 +52,16 @@ def _hex(r: int, g: int, b: int) -> str:
 _NBSP = " "
 
 
-def _split_breakdown(strategy: SplitStrategySchema, amount: float, member_names: Dict[int, str]) -> str:
-    """Per-member split breakdown, e.g. "Fran $200,00 · Mamá $100,00".
+def _currency_symbol(currency: Optional[str]) -> str:
+    """ "US$" for USD, "$" for ARS (and anything else) — never converts, just labels the unit."""
+    return "US$" if currency == "USD" else "$"
+
+
+def _split_breakdown(
+    strategy: SplitStrategySchema, amount: float, member_names: Dict[int, str], currency: str = "ARS"
+) -> str:
+    """Per-member split breakdown, e.g. "Fran $200,00 · Mamá $100,00" (or "US$" for a USD
+    expense — the figure is never converted, only labelled with the expense's own currency).
 
     Reuses the exact split math the app uses elsewhere (`domain.models.split`) so a row in the
     PDF always matches what each member actually owes — an equal-looking row width must never
@@ -86,10 +94,33 @@ def _split_breakdown(strategy: SplitStrategySchema, amount: float, member_names:
         # Malformed/legacy split_strategy data — don't fail the whole PDF over one bad row.
         return ""
 
+    symbol = _currency_symbol(currency)
     parts = [
-        f"{member_names.get(mid, f'Miembro {mid}')}{_NBSP}${format_amount_es(shares.get(mid, 0.0))}" for mid in ids
+        f"{member_names.get(mid, f'Miembro {mid}')}{_NBSP}{symbol}{format_amount_es(shares.get(mid, 0.0))}"
+        for mid in ids
     ]
     return " · ".join(parts)
+
+
+def _format_multi_currency_total(expenses: List[ExpenseResponse]) -> str:
+    """Sum amounts per currency and join them, e.g. "$238.000,00 + US$200,00".
+
+    ARS and USD face values are never added together — a $238.000 total and a US$200 total
+    are different units, and silently summing them would print a number that means nothing
+    (and would look like pesos to anyone reading the report — the exact confusion this column
+    exists to avoid). No conversion is applied; each currency keeps its own figure.
+    """
+    totals: Dict[str, float] = {}
+    for expense in expenses:
+        currency = expense.currency or "ARS"
+        totals[currency] = totals.get(currency, 0.0) + expense.amount
+
+    if not totals:
+        return f"{_currency_symbol('ARS')}{format_amount_es(0.0)}"
+
+    # Stable, predictable order: ARS first, then USD, then anything else alphabetically.
+    order = [c for c in ("ARS", "USD") if c in totals] + sorted(c for c in totals if c not in ("ARS", "USD"))
+    return " + ".join(f"{_currency_symbol(c)}{format_amount_es(totals[c])}" for c in order)
 
 
 class _ReportPDF(FPDF):
@@ -190,14 +221,16 @@ class _ReportPDF(FPDF):
     # Summary cards
     # ------------------------------------------------------------------
 
-    def _draw_summary_cards(self, total: float, member_count: int) -> None:
+    def _draw_summary_cards(self, total_label: str, member_count: int) -> None:
+        """`total_label` is already formatted (e.g. "$238.000,00" or "$238.000,00 + US$200,00") —
+        see `_format_multi_currency_total`, which never adds ARS and USD face values together."""
         card_h = 16
         margin = self.l_margin
         usable_w = self.w - 2 * margin
         card_w = (usable_w - 8) / 2  # two cards, 8mm gap
 
         cards = [
-            ("💰 Total gastado", f"${format_amount_es(total)}", _SLATE_50, _SLATE_700),
+            ("💰 Total gastado", total_label, _SLATE_50, _SLATE_700),
             ("👥 Miembros", str(member_count), _SLATE_50, _SLATE_700),
         ]
 
@@ -323,10 +356,10 @@ class _ReportPDF(FPDF):
         self.line(margin, self.get_y(), margin + self.epw, self.get_y())
         self.ln(2)
 
-        total = sum(e.amount for e in expenses)
+        total_label = _format_multi_currency_total(expenses)
         self.set_font("Fira", "B", 10)
         self.set_text_color(*_SLATE_700)
-        self.cell(0, 6, f"Total del mes: ${format_amount_es(total)}", align="R")
+        self.cell(0, 6, f"Total del mes: {total_label}", align="R")
         self.set_text_color(*_BLACK)
 
     def _draw_expense_row(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
@@ -347,8 +380,8 @@ class _ReportPDF(FPDF):
         payer_name = member_names.get(expense.payer_id, str(expense.payer_id))
         tipo = format_payment_type_es(expense.payment_type, expense.installments)
         date_str = expense.date.strftime("%d/%m/%Y")
-        amount_str = f"${format_amount_es(expense.amount)}"
-        split_text = _split_breakdown(expense.split_strategy, expense.amount, member_names) or "—"
+        amount_str = f"{_currency_symbol(expense.currency)}{format_amount_es(expense.amount)}"
+        split_text = _split_breakdown(expense.split_strategy, expense.amount, member_names, expense.currency) or "—"
 
         # Dry-run the División text to see how many lines it wraps to, then size the row
         # (and single-line columns) to the tallest content — never truncate a split away.
@@ -418,8 +451,8 @@ def build_monthly_report(  # pylint: disable=too-many-arguments,too-many-positio
 
     pdf._draw_header(year, month, is_settled, title, period_label)  # pylint: disable=protected-access
 
-    total = sum(e.amount for e in expenses)
-    pdf._draw_summary_cards(total, len(member_names))  # pylint: disable=protected-access
+    total_label = _format_multi_currency_total(expenses)
+    pdf._draw_summary_cards(total_label, len(member_names))  # pylint: disable=protected-access
 
     pdf._draw_balances(balances, member_names)  # pylint: disable=protected-access
 
