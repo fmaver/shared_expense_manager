@@ -236,6 +236,26 @@ def test_similar_no_match_different_group(client, auth_headers, primary_member_i
     assert r.json()["data"] == []
 
 
+def test_similar_matches_in_personal_group_by_amount_and_date(client, auth_headers, primary_member_id):
+    """The personal group is a group like any other: same amount + same date must still warn.
+
+    Regression test for a report that the "¿no lo cargaste ya?" warning only worked for regular
+    groups. The repository query itself never special-cased group_type, but there was no test
+    covering the personal group specifically — this closes that gap.
+    """
+    personal_group_id = client.get("/api/v1/personal/group", headers=auth_headers).json()["data"]["id"]
+    _create_expense(
+        client, auth_headers, personal_group_id, primary_member_id, "Helado con fran", 12150.0, "2026-09-27"
+    )
+    r = _get_similar(
+        client, auth_headers, personal_group_id, 12150.0, "Helado perlatto", dt="2026-09-27", year=2026, month=9
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert len(data) == 1
+    assert data[0]["description"] == "Helado con fran"
+
+
 def test_similar_skips_credit_installment_children(client, auth_headers, primary_member_id, primary_group_id):
     """Only the parent installment (installment_no=1) is returned, not child rows."""
     payload = {
