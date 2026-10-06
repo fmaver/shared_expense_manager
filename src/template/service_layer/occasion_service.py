@@ -11,7 +11,7 @@ unit should do, and "present a group with months collapsed" is its own responsib
 
 from typing import Dict, List
 
-from template.domain.models.expense_manager import compute_debt_transfers
+from template.domain.models.expense_manager import compute_debt_transfers, usd_rate_for
 from template.domain.models.repository import ExpenseRepository
 from template.domain.schemas.expense import (
     AggregateBalanceResponse,
@@ -81,7 +81,12 @@ class OccasionService:
     def settle_all(self) -> AggregateBalanceResponse:
         """Settle every month of this group that holds expenses, then return the aggregate."""
         shares = self._repository.get_all_monthly_shares(self._group_id)
-        for share in sorted(shares.values(), key=lambda s: (s.year, s.month)):
-            if share.expenses and not share.is_settled:
-                self._expenses.settle_monthly_share(share.year, share.month)
+        pending = [
+            s for s in sorted(shares.values(), key=lambda s: (s.year, s.month)) if s.expenses and not s.is_settled
+        ]
+        # Check the rate up front: failing on a USD month halfway through would leave the
+        # occasion half-settled, the state this endpoint exists to avoid.
+        usd_rate_for([e for share in pending for e in share.expenses], required=True)
+        for share in pending:
+            self._expenses.settle_monthly_share(share.year, share.month)
         return self.get_aggregate_balance()

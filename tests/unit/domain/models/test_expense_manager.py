@@ -389,3 +389,35 @@ class TestExpenseManager:
             recipient_ids = [mid for mid, pct in percentages.items() if pct == 100.0]
             assert len(recipient_ids) == 1
             assert recipient_ids[0] != be.payer_id
+
+
+def test_create_usd_expense_stores_balance_in_ars(mock_repository):
+    """Regression: adding a USD expense stored its balance in raw dollars (rate never applied)
+    until something else triggered a recalculation, so the month showed — and would settle —
+    US$200 as $200."""
+    from unittest.mock import MagicMock, patch
+
+    group_repo = MagicMock()
+    group_repo.list_members.return_value = [
+        Member(id=1, name="John", telephone="+1234567890", email="john@example.com"),
+        Member(id=2, name="Jane", telephone="+1234567891", email="jane@example.com"),
+    ]
+    manager = ExpenseManager(mock_repository, group_id=1, group_repo=group_repo)
+    category = Category()
+    category.name = "viajes"
+    expense = Expense(
+        description="Hotel",
+        amount=200.0,
+        date=date(2026, 10, 3),
+        category=category,
+        payer_id=1,
+        payment_type=PaymentType.DEBIT,
+        split_strategy=EqualSplit(),
+        currency="USD",
+    )
+    with patch("template.service_layer.currency_service.get_blue_rate", return_value=1500.0):
+        manager.create_and_add_expense(expense)
+
+    share = manager.get_monthly_balance(2026, 10)
+    assert share is not None
+    assert share.balances == {"1": 150000.0, "2": -150000.0}

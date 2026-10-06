@@ -187,3 +187,7 @@ class PersonalLedgerResponse(CamelCaseModel):
     current_balance: float
     # Net amount across all unsettled groups: positive = you'll receive, negative = you'll pay
     pending_settlements_total: float
+    # ARS per USD used for every total above. Item amounts keep their own currency (except
+    # mirrored shares, already in ARS); the client converts USD rows with this same rate so its
+    # subtotals add up to these totals.
+    usd_rate: float = 1.0

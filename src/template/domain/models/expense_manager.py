@@ -13,6 +13,32 @@ from .enums import PaymentType
 from .models import Expense, Member, MonthlyShare
 from .repository import ExpenseRepository
 
+USD_RATE_UNAVAILABLE = (
+    "No se puede saldar: hay gastos en dólares y no hay cotización del dólar blue disponible. "
+    "Probá de nuevo en unos minutos."
+)
+
+
+def usd_rate_for(expenses: List[Expense], *, required: bool = False) -> float:
+    """Blue rate to convert these expenses to ARS; 1.0 when none of them is in USD.
+
+    Without a rate a USD amount can only be counted as pesos. That is tolerable for a
+    provisional balance, which the next recalculation fixes, but not for a settlement, which
+    is final: with required=True a missing rate raises ValueError instead.
+    """
+    if not any(getattr(e, "currency", "ARS") == "USD" for e in expenses):
+        return 1.0
+    # pylint: disable=import-outside-toplevel
+    from template.service_layer.currency_service import get_blue_rate
+
+    # pylint: enable=import-outside-toplevel
+    rate = get_blue_rate()
+    if rate is None:
+        if required:
+            raise ValueError(USD_RATE_UNAVAILABLE)
+        return 1.0
+    return rate
+
 
 def compute_debt_transfers(balances: Dict[str, float]) -> List[Tuple[int, int, float]]:
     """Return the minimum list of (debtor_id, creditor_id, amount) transfers to clear all balances."""
@@ -83,6 +109,7 @@ class ExpenseManager:
             installments=expense.installments,
             installment_no=1,
             split_strategy=expense.split_strategy,
+            currency=expense.currency,
         )
         self._add_to_monthly_share(first_installment, start_date)
         if first_installment.id is None:
@@ -104,6 +131,7 @@ class ExpenseManager:
                 installment_no=installment_no,
                 split_strategy=expense.split_strategy,
                 parent_expense_id=first_installment.id,  # Set parent to first installment
+                currency=expense.currency,
             )
 
             self._add_to_monthly_share(installment_expense, installment_date)
@@ -126,8 +154,10 @@ class ExpenseManager:
             if not monthly_share:
                 raise ValueError("Failed to create monthly share")
 
-        # At this point, monthly_share is guaranteed to be non-None
-        monthly_share.add_expense(expense, self.members)
+        # At this point, monthly_share is guaranteed to be non-None.
+        # Balances are always in ARS: a USD expense is converted at the blue rate, the same
+        # as recalculate_monthly_share does.
+        monthly_share.add_expense(expense, self.members, usd_rate=usd_rate_for([expense]))
         print("EXPENSE ADDED - NOW SAVING THE EXPENSE")
         self.repository.save_monthly_share(monthly_share)
 
@@ -146,6 +176,13 @@ class ExpenseManager:
         monthly_share = self.repository.get_monthly_share(year, month, self.group_id)
         if not monthly_share:
             return None
+
+        if not monthly_share.is_settled:
+            # Settle from balances recomputed now, not the stored ones: those can be stale
+            # (USD rows stored in raw dollars before the rate was applied on create). A month
+            # with USD rows and no rate is refused rather than settling dollars as pesos.
+            rate = usd_rate_for(monthly_share.expenses, required=True)
+            monthly_share = self.recalculate_monthly_share(monthly_share, usd_rate=rate)
 
         if monthly_share.balances:
             self._generate_balancing_expenses(monthly_share, year, month)
@@ -443,13 +480,10 @@ class ExpenseManager:
         """Get monthly share for a given date."""
         return self.repository.get_monthly_share(expense_date.year, expense_date.month, self.group_id)
 
-    def recalculate_monthly_share(self, monthly_share: MonthlyShare) -> MonthlyShare:
-        """Recalculate a monthly share - resolve balances."""
-        # pylint: disable=import-outside-toplevel
-        from template.service_layer.currency_service import get_blue_rate
-
-        # pylint: enable=import-outside-toplevel
-        usd_rate = get_blue_rate() or 1.0
+    def recalculate_monthly_share(self, monthly_share: MonthlyShare, usd_rate: Optional[float] = None) -> MonthlyShare:
+        """Recalculate a monthly share - resolve balances (in ARS)."""
+        if usd_rate is None:
+            usd_rate = usd_rate_for(monthly_share.expenses)
         monthly_share.recalculate_balances(self.members, usd_rate=usd_rate)
         self.repository.save_monthly_share(monthly_share)
         print("Monthly share recalculated")

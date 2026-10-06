@@ -1,5 +1,7 @@
 """PersonalLedgerService — computes a member's personal financial ledger for a given month."""
 
+import logging
+
 from template.adapters.repositories import (
     GroupRepository,
     IncomeRepository,
@@ -12,6 +14,7 @@ from template.domain.models.income import (
     IncomeInstance,
     RecurringPersonalExpenseInstance,
 )
+from template.domain.models.models import expense_shares_in_ars
 from template.domain.models.repository import ExpenseRepository
 from template.domain.models.split import (
     ExactAmountsSplit,
@@ -30,6 +33,8 @@ from template.service_layer.group_service import GroupService
 from template.service_layer.recurring_group_expense_service import (
     materialize_recurring_group_expenses,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _strategy_to_schema(strategy: SplitStrategy) -> SplitStrategySchema:
@@ -168,7 +173,7 @@ class PersonalLedgerService:
             members_dict = {m.id: m for m in members_list}
 
             if source_share.expenses:
-                source_share.recalculate_balances(members_dict)
+                self._recalculate_group_balances(source_share, members_dict, usd_rate)
 
             # Net group balance for this owner: positive = creditor, negative = debtor
             net_balance = round(source_share.balances.get(str(owner_member_id), 0.0), 2)
@@ -189,6 +194,7 @@ class PersonalLedgerService:
                 source_share,
                 members_dict,
                 owner_member_id,
+                usd_rate,
             )
             total_paid_as_payer_unsettled += paid
             mirrored_shares.extend(new_shares)
@@ -228,7 +234,29 @@ class PersonalLedgerService:
             projected_balance=projected_balance,
             realized_balance=realized_balance,
             pending_settlements_total=pending_settlements_total,
+            usd_rate=usd_rate,
         )
+
+    @staticmethod
+    def _recalculate_group_balances(source_share, members_dict: dict, usd_rate: float) -> None:
+        """Recompute a group month's balances in ARS from its current rows.
+
+        A row whose split no longer validates must not take /personal down: on ValueError
+        the stored balances are kept.
+        """
+        stored_balances = dict(source_share.balances or {})
+        try:
+            source_share.recalculate_balances(members_dict, usd_rate=usd_rate)
+        except ValueError as error:
+            logger.warning(
+                "Personal ledger: could not recalculate group %s %s-%02d (expenses %s), keeping stored balances: %s",
+                source_share.group_id,
+                source_share.year,
+                source_share.month,
+                [e.id for e in source_share.expenses],
+                error,
+            )
+            source_share.balances = stored_balances
 
     @staticmethod
     def _process_group_expenses(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -237,22 +265,40 @@ class PersonalLedgerService:
         source_share,  # MonthlyShare domain object
         members_dict: dict,
         owner_member_id: int,
+        usd_rate: float = 1.0,
     ) -> tuple[float, list[MirroredShareItem]]:
         """Process expenses in a single group share for one owner.
+
+        Amounts come out in ARS, computed exactly like the group's balances
+        (expense_shares_in_ars): split in the expense's own currency, then converted.
+
+        A settled month's USD rows are converted at today's rate too, not the rate it was
+        settled at (which is not stored). Its balances are frozen and correct; only these
+        display amounts drift with the rate.
 
         Returns (total_paid_as_payer, list_of_mirrored_share_items).
         """
         paid = 0.0
         shares_out: list[MirroredShareItem] = []
-        status = "realized" if source_share.is_settled else "pending"
         for expense in source_share.expenses:
             if Category.is_internal_category(expense.category.name):
                 continue
-            if not source_share.is_settled and expense.payer_id == owner_member_id:
-                paid += expense.amount
             try:
-                shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
-            except ValueError:
+                paid_ars, shares = expense_shares_in_ars(expense, list(members_dict.values()), usd_rate)
+            except ValueError as error:
+                logger.warning(
+                    "Personal ledger: skipping expense %s of group %s %s-%02d, its split does not validate: %s",
+                    expense.id,
+                    source_group_id,
+                    source_share.year,
+                    source_share.month,
+                    error,
+                )
+                rate = usd_rate if getattr(expense, "currency", "ARS") == "USD" else 1.0
+                paid_ars, shares = round(expense.amount * rate, 2), None
+            if not source_share.is_settled and expense.payer_id == owner_member_id:
+                paid += paid_ars
+            if shares is None:
                 continue
             owner_share = shares.get(owner_member_id, 0.0)
             if owner_share < 0.005:
@@ -267,11 +313,11 @@ class PersonalLedgerService:
                     category=expense.category.name,
                     date=expense.date,
                     share_amount=round(owner_share, 2),
-                    status=status,
+                    status="realized" if source_share.is_settled else "pending",
                     installment_no=expense.installment_no,
                     installments=expense.installments,
                     # payer_amount: full expense amount if owner paid upfront, else 0
-                    payer_amount=round(expense.amount, 2) if expense.payer_id == owner_member_id else 0.0,
+                    payer_amount=round(paid_ars, 2) if expense.payer_id == owner_member_id else 0.0,
                     payer_id=expense.payer_id,
                     payer_name=payer.name if payer else str(expense.payer_id),
                     is_recurring=expense.recurring_template_id is not None,
