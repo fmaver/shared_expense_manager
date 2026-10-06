@@ -126,8 +126,17 @@ class ExpenseManager:
             if not monthly_share:
                 raise ValueError("Failed to create monthly share")
 
-        # At this point, monthly_share is guaranteed to be non-None
-        monthly_share.add_expense(expense, self.members)
+        # At this point, monthly_share is guaranteed to be non-None.
+        # Balances are always in ARS: a USD expense is converted at the blue rate, the same
+        # as recalculate_monthly_share does. Only a USD expense needs the rate.
+        usd_rate = 1.0
+        if getattr(expense, "currency", "ARS") == "USD":
+            # pylint: disable=import-outside-toplevel
+            from template.service_layer.currency_service import get_blue_rate
+
+            # pylint: enable=import-outside-toplevel
+            usd_rate = get_blue_rate() or 1.0
+        monthly_share.add_expense(expense, self.members, usd_rate=usd_rate)
         print("EXPENSE ADDED - NOW SAVING THE EXPENSE")
         self.repository.save_monthly_share(monthly_share)
 

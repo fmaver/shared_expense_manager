@@ -168,7 +168,7 @@ class PersonalLedgerService:
             members_dict = {m.id: m for m in members_list}
 
             if source_share.expenses:
-                source_share.recalculate_balances(members_dict)
+                source_share.recalculate_balances(members_dict, usd_rate=usd_rate)
 
             # Net group balance for this owner: positive = creditor, negative = debtor
             net_balance = round(source_share.balances.get(str(owner_member_id), 0.0), 2)
@@ -189,6 +189,7 @@ class PersonalLedgerService:
                 source_share,
                 members_dict,
                 owner_member_id,
+                usd_rate,
             )
             total_paid_as_payer_unsettled += paid
             mirrored_shares.extend(new_shares)
@@ -228,6 +229,7 @@ class PersonalLedgerService:
             projected_balance=projected_balance,
             realized_balance=realized_balance,
             pending_settlements_total=pending_settlements_total,
+            usd_rate=usd_rate,
         )
 
     @staticmethod
@@ -237,8 +239,12 @@ class PersonalLedgerService:
         source_share,  # MonthlyShare domain object
         members_dict: dict,
         owner_member_id: int,
+        usd_rate: float = 1.0,
     ) -> tuple[float, list[MirroredShareItem]]:
         """Process expenses in a single group share for one owner.
+
+        Amounts come out in ARS: a USD expense's share and paid amount are converted at
+        usd_rate, like the group's balances.
 
         Returns (total_paid_as_payer, list_of_mirrored_share_items).
         """
@@ -248,13 +254,14 @@ class PersonalLedgerService:
         for expense in source_share.expenses:
             if Category.is_internal_category(expense.category.name):
                 continue
+            rate = usd_rate if getattr(expense, "currency", "ARS") == "USD" else 1.0
             if not source_share.is_settled and expense.payer_id == owner_member_id:
-                paid += expense.amount
+                paid += expense.amount * rate
             try:
                 shares = expense.split_strategy.calculate_shares(expense.amount, list(members_dict.values()))
             except ValueError:
                 continue
-            owner_share = shares.get(owner_member_id, 0.0)
+            owner_share = shares.get(owner_member_id, 0.0) * rate
             if owner_share < 0.005:
                 continue
             payer = members_dict.get(expense.payer_id)
@@ -271,7 +278,7 @@ class PersonalLedgerService:
                     installment_no=expense.installment_no,
                     installments=expense.installments,
                     # payer_amount: full expense amount if owner paid upfront, else 0
-                    payer_amount=round(expense.amount, 2) if expense.payer_id == owner_member_id else 0.0,
+                    payer_amount=round(expense.amount * rate, 2) if expense.payer_id == owner_member_id else 0.0,
                     payer_id=expense.payer_id,
                     payer_name=payer.name if payer else str(expense.payer_id),
                     is_recurring=expense.recurring_template_id is not None,
