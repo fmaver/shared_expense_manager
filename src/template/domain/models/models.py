@@ -46,8 +46,9 @@ def expense_shares_in_ars(
 
     The split runs in the expense's own currency — an exact split of a USD expense lists
     dollars, so it has to be checked against the dollar total — and only then is each part
-    converted. Rounding each part to cents can leave the parts a cent off the paid amount;
-    that cent goes to the largest part, so a month's balances still net to zero.
+    converted. Whatever the parts miss the paid amount by goes to the largest part, so a
+    month's balances still net to zero: cents from rounding, and also the up-to-US$0.01 an
+    exact split is allowed to be off, which at the blue rate is over AR$10.
     """
     shares = expense.split_strategy.calculate_shares(expense.amount, members)
     if getattr(expense, "currency", "ARS") != "USD":
@@ -56,7 +57,7 @@ def expense_shares_in_ars(
     paid = round(expense.amount * usd_rate, 2)
     converted = {member_id: round(share * usd_rate, 2) for member_id, share in shares.items()}
     residual = round(paid - sum(converted.values()), 2)
-    if converted and residual and abs(residual) <= 0.05:
+    if converted and residual:
         largest = max(converted, key=lambda member_id: converted[member_id])
         converted[largest] = round(converted[largest] + residual, 2)
     return paid, converted
@@ -116,9 +117,10 @@ class MonthlyShare:
         for expense in self.expenses:
             self.calculate_share_for_expense(expense, members, usd_rate=usd_rate)
 
-        # print(f"Recalculated balances for {self.period_key}: {self.balances}")
+        # A balance can belong to someone who already left the group: fall back to the id.
         for member_id, balance in self.balances.items():
-            print(f"{members[int(member_id)].name}: {balance}")
+            member = members.get(int(member_id))
+            print(f"{member.name if member else member_id}: {balance}")
 
     def calculate_share_for_expense(self, expense: Expense, members: Dict[int, Member], usd_rate: float = 1.0) -> None:
         """Calculates the share for a specific expense, in ARS (see expense_shares_in_ars)."""

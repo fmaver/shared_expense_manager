@@ -1,5 +1,7 @@
 """PersonalLedgerService — computes a member's personal financial ledger for a given month."""
 
+import logging
+
 from template.adapters.repositories import (
     GroupRepository,
     IncomeRepository,
@@ -31,6 +33,8 @@ from template.service_layer.group_service import GroupService
 from template.service_layer.recurring_group_expense_service import (
     materialize_recurring_group_expenses,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _strategy_to_schema(strategy: SplitStrategy) -> SplitStrategySchema:
@@ -243,7 +247,15 @@ class PersonalLedgerService:
         stored_balances = dict(source_share.balances or {})
         try:
             source_share.recalculate_balances(members_dict, usd_rate=usd_rate)
-        except ValueError:
+        except ValueError as error:
+            logger.warning(
+                "Personal ledger: could not recalculate group %s %s-%02d (expenses %s), keeping stored balances: %s",
+                source_share.group_id,
+                source_share.year,
+                source_share.month,
+                [e.id for e in source_share.expenses],
+                error,
+            )
             source_share.balances = stored_balances
 
     @staticmethod
@@ -268,15 +280,22 @@ class PersonalLedgerService:
         """
         paid = 0.0
         shares_out: list[MirroredShareItem] = []
-        status = "realized" if source_share.is_settled else "pending"
         for expense in source_share.expenses:
             if Category.is_internal_category(expense.category.name):
                 continue
             try:
                 paid_ars, shares = expense_shares_in_ars(expense, list(members_dict.values()), usd_rate)
-            except ValueError:
-                usd = getattr(expense, "currency", "ARS") == "USD"
-                paid_ars, shares = (round(expense.amount * usd_rate, 2) if usd else expense.amount), None
+            except ValueError as error:
+                logger.warning(
+                    "Personal ledger: skipping expense %s of group %s %s-%02d, its split does not validate: %s",
+                    expense.id,
+                    source_group_id,
+                    source_share.year,
+                    source_share.month,
+                    error,
+                )
+                rate = usd_rate if getattr(expense, "currency", "ARS") == "USD" else 1.0
+                paid_ars, shares = round(expense.amount * rate, 2), None
             if not source_share.is_settled and expense.payer_id == owner_member_id:
                 paid += paid_ars
             if shares is None:
@@ -294,7 +313,7 @@ class PersonalLedgerService:
                     category=expense.category.name,
                     date=expense.date,
                     share_amount=round(owner_share, 2),
-                    status=status,
+                    status="realized" if source_share.is_settled else "pending",
                     installment_no=expense.installment_no,
                     installments=expense.installments,
                     # payer_amount: full expense amount if owner paid upfront, else 0

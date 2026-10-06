@@ -571,3 +571,28 @@ def test_mirrored_usd_exact_split_is_split_in_dollars_then_converted():
 
     assert ledger.mirrored_shares[0].share_amount == 225000.0
     assert ledger.group_balances[0].net_balance == -225000.0
+
+
+def test_a_split_that_no_longer_validates_is_logged_not_raised(caplog):
+    """/personal must keep loading, and the bad row must leave a trace in the logs."""
+    shared_group = _make_regular_group(group_id=2)
+    expense = _make_mock_expense(expense_id=77, amount=200.0, payer_id=2, category_name="viajes")
+    expense.currency = "ARS"
+    expense.split_strategy = MagicMock()
+    expense.split_strategy.calculate_shares.side_effect = ValueError("amounts must sum to 200.0, got 150.0")
+    share = MagicMock()
+    share.expenses = [expense]
+    share.is_settled = False
+    share.balances = {"1": -10.0}
+    share.group_id, share.year, share.month = 2, 2026, 10
+    share.recalculate_balances.side_effect = ValueError("amounts must sum to 200.0, got 150.0")
+
+    svc, *_ = _build_service(other_groups=[shared_group], other_shares={2: share}, members_per_group={2: _members()})
+    with caplog.at_level("WARNING", logger="template.service_layer.personal_ledger_service"):
+        ledger = svc.get_ledger(owner_member_id=1, year=2026, month=10)
+
+    assert ledger.group_balances[0].net_balance == -10.0
+    assert ledger.mirrored_shares == []
+    messages = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("group 2" in m and "2026-10" in m and "77" in m and "must sum" in m for m in messages)
+    assert len(messages) == 2  # one for the balances, one for the mirrored share

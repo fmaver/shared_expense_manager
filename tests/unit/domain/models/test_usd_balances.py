@@ -127,3 +127,25 @@ def test_settle_ars_month_needs_no_rate(manager):
     with patch(RATE_PATH, return_value=None):
         manager.settle_monthly_share(2026, 10)
     assert manager.get_monthly_balance(2026, 10).is_settled
+
+
+def test_usd_exact_split_at_the_tolerance_still_nets_to_zero():
+    """An exact split is accepted within US$0.01; at a high rate that cent is ~AR$15, which
+    must still land on a part instead of leaving the month unbalanced."""
+    expense = _expense(200.0, ExactAmountsSplit({1: 50.0, 2: 149.99}))
+    paid, shares = expense_shares_in_ars(expense, list(MEMBERS.values()), 1437.5)
+    assert paid == 287500.0
+    assert round(sum(shares.values()), 2) == paid
+
+    share = MonthlyShare(2026, 10, 1)
+    share.add_expense(expense, MEMBERS, usd_rate=1437.5)
+    assert round(sum(share.balances.values()), 2) == 0.0
+
+
+def test_settle_with_a_member_who_left_does_not_crash(manager):
+    """Settling recalculates; a balance key for someone no longer in the group must not
+    raise KeyError (it used to, in the debug print)."""
+    expense = _expense(300.0, EqualSplit(), currency="ARS", payer_id=3)  # 3 left the group
+    manager.create_and_add_expense(expense)
+    manager.settle_monthly_share(2026, 10)
+    assert manager.get_monthly_balance(2026, 10).is_settled
