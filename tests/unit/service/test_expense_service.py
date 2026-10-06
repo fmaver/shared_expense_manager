@@ -319,10 +319,14 @@ class TestFindSimilarExpenses:
         results = service.find_similar_expenses(2026, 5, 100.0, "agua", self.BASE_DATE)
         assert len(results) == 1
 
-    def test_no_match_across_different_month(self, service):
-        self._create(service, "supermercado", 100.0)  # May 2026
-        results = service.find_similar_expenses(2026, 4, 100.0, "supermercado", self.BASE_DATE)
-        assert results == []
+    def test_date_match_does_not_depend_on_requested_month(self, service):
+        """A credit expense is filed a month ahead of its own date (see repositories.py's
+        find_similar_expenses docstring), so the date+amount signal must match regardless of
+        which year/month the caller passes — otherwise a credit purchase's real duplicate is
+        missed just because the front computed year/month from the (unshifted) expense date."""
+        self._create(service, "supermercado", 100.0)  # dated May 15 2026, filed in the May share
+        results = service.find_similar_expenses(2026, 4, 100.0, "unrelated description", self.BASE_DATE)
+        assert len(results) == 1
 
     def test_no_match_different_amount_only(self, service):
         self._create(service, "supermercado", 100.0)

@@ -56,7 +56,14 @@ class ExpenseRepository(ABC):
         """Reverse a settlement: delete balancing expenses and mark as unsettled."""
 
     def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
-        self, group_id: int, year: int, month: int, amount: float, description: str, expense_date: date
+        self,
+        group_id: int,
+        year: int,
+        month: int,
+        amount: float,
+        description: str,
+        expense_date: date,
+        currency: str = "ARS",
     ) -> List[Expense]:
-        """Find parent expenses in the given month matching amount + description (case-insensitive) or amount + date."""
+        """Find parent expenses matching amount + description (case-insensitive) or amount + date."""
         return []

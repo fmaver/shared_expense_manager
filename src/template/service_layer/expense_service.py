@@ -116,9 +116,9 @@ class ExpenseService:
         return self._manager.create_and_add_expense(expense)
 
     def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
-        self, year: int, month: int, amount: float, description: str, expense_date: date
+        self, year: int, month: int, amount: float, description: str, expense_date: date, currency: str = "ARS"
     ) -> List[ExpenseResponse]:
-        """Return expenses in the same group/month that may be duplicates of a new entry."""
+        """Return expenses in the group that may be duplicates of a new entry."""
         expenses = self._repository.find_similar_expenses(
             group_id=self._group_id,
             year=year,
@@ -126,6 +126,7 @@ class ExpenseService:
             amount=amount,
             description=description,
             expense_date=expense_date,
+            currency=currency,
         )
         return [
             ExpenseResponse(

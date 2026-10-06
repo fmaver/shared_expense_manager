@@ -21,6 +21,8 @@ os.environ.setdefault(
 )
 
 # pylint: disable=wrong-import-position
+from template.adapters.repositories import _strip_installment_suffix  # noqa: E402
+from template.domain.models.enums import PaymentType  # noqa: E402
 from template.domain.models.models import Expense, MonthlyShare  # noqa: E402
 from template.domain.models.repository import ExpenseRepository  # noqa: E402
 
@@ -37,6 +39,37 @@ def fixture_test_client() -> TestClient:
     from template.main import app  # pylint: disable=import-outside-toplevel
 
     return TestClient(app)
+
+
+def _purchase_total(expense: Expense) -> float:
+    return expense.amount * expense.installments if expense.payment_type == PaymentType.CREDIT else expense.amount
+
+
+def _fake_find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+    monthly_shares, group_id: int, year: int, month: int, amount: float, description: str, expense_date, currency: str
+) -> List[Expense]:
+    """In-memory mirror of SQLAlchemyExpenseRepository.find_similar_expenses — see its docstring."""
+    tolerance = 0.005
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    normalized = _strip_installment_suffix(description).strip().lower()
+
+    matches: Dict[int, Expense] = {}
+    for ms in monthly_shares:
+        if ms.group_id != group_id:
+            continue
+        in_description_scope = (ms.year, ms.month) in {(year, month), (next_year, next_month)}
+        for e in ms.expenses:
+            if e.installment_no != 1 or e.currency != currency:
+                continue
+            total = _purchase_total(e)
+            same_total = abs(total - amount) < tolerance
+            if e.date == expense_date and same_total:
+                matches[e.id] = e
+                continue
+            same_description = _strip_installment_suffix(e.description).strip().lower() == normalized
+            if in_description_scope and same_description and same_total:
+                matches[e.id] = e
+    return list(matches.values())
 
 
 @pytest.fixture
@@ -96,17 +129,19 @@ def mock_repository():  # noqa: C901
             return [e for e in self.expenses if e.parent_expense_id == parent_expense_id]
 
         def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
-            self, group_id: int, year: int, month: int, amount: float, description: str, expense_date: date
+            self,
+            group_id: int,
+            year: int,
+            month: int,
+            amount: float,
+            description: str,
+            expense_date: date,
+            currency: str = "ARS",
         ) -> List[Expense]:
-            normalized = description.strip().lower()
-            results = []
-            for ms in self.monthly_shares.values():
-                if ms.year == year and ms.month == month and ms.group_id == group_id:
-                    for e in ms.expenses:
-                        desc_match = e.description.strip().lower() == normalized
-                        if e.amount == amount and e.installment_no == 1 and (desc_match or e.date == expense_date):
-                            results.append(e)
-            return results
+            """Mirrors SQLAlchemyExpenseRepository.find_similar_expenses — see its docstring."""
+            return _fake_find_similar_expenses(
+                self.monthly_shares.values(), group_id, year, month, amount, description, expense_date, currency
+            )
 
         def get_expenses_by_date(self, specific_date: date) -> List[Expense]:
             return [e for e in self.expenses if e.date == specific_date]

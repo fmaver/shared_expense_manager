@@ -2,6 +2,7 @@
 
 # pylint: disable=too-many-lines
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
@@ -35,6 +36,7 @@ from template.domain.models.enums import (
     InvitationChannel,
     InvitationStatus,
     NotificationType,
+    PaymentType,
 )
 from template.domain.models.group import Group, GroupStatus, GroupType
 from template.domain.models.income import (
@@ -226,6 +228,14 @@ class MemberRepository:
 
         self.session.commit()
         return self._to_domain(db_member)
+
+
+_INSTALLMENT_SUFFIX_RE = re.compile(r"\s*\(\d+/\d+\)\s*$")
+
+
+def _strip_installment_suffix(description: str) -> str:
+    """Drop the trailing " (n/N)" a credit expense's description gets expanded with."""
+    return _INSTALLMENT_SUFFIX_RE.sub("", description)
 
 
 class SQLAlchemyExpenseRepository(ExpenseRepository):
@@ -546,28 +556,77 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             currency=db_expense.currency,
         )
 
-    def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments
-        self, group_id: int, year: int, month: int, amount: float, description: str, expense_date: date
+    def find_similar_expenses(  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+        self,
+        group_id: int,
+        year: int,
+        month: int,
+        amount: float,
+        description: str,
+        expense_date: date,
+        currency: str = "ARS",
     ) -> List[Expense]:
-        """Find parent expenses in the same group/month that share amount + description or amount + date."""
-        normalized = description.strip().lower()
-        db_expenses = (
+        """Find parent expenses that may be duplicates of a new entry.
+
+        Two independent signals, each compared against the *purchase total* rather than the
+        row's own `amount` — a credit parent row's `amount` is just one installment's share, so
+        a credit purchase of N cuotas is reconstructed as `amount * installments` first:
+
+        - same date + same purchase total, regardless of which monthly share the row landed in.
+          A credit expense is filed a month ahead of its own `date` (see CLAUDE.md), so pinning
+          this signal to the requested year/month would miss every credit purchase dated in that
+          month — which is exactly the case this exists to catch.
+        - same purchase total + same description (the trailing " (n/N)" installment suffix
+          stripped before comparing), scoped to the month the new expense would land in: its own
+          month, or the next one if it turns out to be credit. The payment type of the
+          not-yet-created expense isn't known here, so both candidate months are considered
+          instead of guessing.
+
+        Both signals are restricted to the same `currency` — a same-looking amount in a
+        different currency is not a duplicate.
+        """
+        tolerance = 0.005
+        next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        normalized_query_description = _strip_installment_suffix(description).strip().lower()
+
+        def purchase_total(row: ExpenseModel) -> float:
+            return row.amount * row.installments if row.payment_type == PaymentType.CREDIT else row.amount
+
+        date_candidates = (
+            self.session.query(ExpenseModel)
+            .filter(
+                ExpenseModel.group_id == group_id,
+                ExpenseModel.installment_no == 1,
+                ExpenseModel.currency == currency,
+                ExpenseModel.date == expense_date,
+            )
+            .all()
+        )
+        matches: Dict[int, ExpenseModel] = {
+            e.id: e for e in date_candidates if abs(purchase_total(e) - amount) < tolerance
+        }
+
+        description_candidates = (
             self.session.query(ExpenseModel)
             .join(MonthlyShareModel, ExpenseModel.monthly_share_id == MonthlyShareModel.id)
             .filter(
                 ExpenseModel.group_id == group_id,
-                MonthlyShareModel.year == year,
-                MonthlyShareModel.month == month,
-                ExpenseModel.amount == amount,
                 ExpenseModel.installment_no == 1,
+                ExpenseModel.currency == currency,
                 or_(
-                    func.lower(ExpenseModel.description) == normalized,
-                    ExpenseModel.date == expense_date,
+                    and_(MonthlyShareModel.year == year, MonthlyShareModel.month == month),
+                    and_(MonthlyShareModel.year == next_year, MonthlyShareModel.month == next_month),
                 ),
             )
             .all()
         )
-        return [self._to_domain_expense(e) for e in db_expenses]
+        for e in description_candidates:
+            same_description = _strip_installment_suffix(e.description).strip().lower() == normalized_query_description
+            same_total = abs(purchase_total(e) - amount) < tolerance
+            if same_description and same_total:
+                matches[e.id] = e
+
+        return [self._to_domain_expense(e) for e in matches.values()]
 
 
 _DEFAULT_EXPENSE_DATA: Dict = {

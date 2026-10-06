@@ -2764,6 +2764,7 @@ def _make_confirmation_response(  # pylint: disable=too-many-locals
                 amount=expense_data["amount"],
                 description=expense_data["description"],
                 expense_date=expense_date,
+                currency=expense_data.get("currency", "ARS"),
             )
         except (ValueError, KeyError, TypeError):
             similar = []
