@@ -1,5 +1,6 @@
 """Expense manager"""
 
+import logging
 import re
 from datetime import date
 from typing import Dict, List, Optional, Tuple
@@ -12,6 +13,8 @@ from template.domain.models.split import PercentageSplit
 from .enums import PaymentType
 from .models import Expense, Member, MonthlyShare
 from .repository import ExpenseRepository
+
+logger = logging.getLogger(__name__)
 
 USD_RATE_UNAVAILABLE = (
     "No se puede saldar: hay gastos en dólares y no hay cotización del dólar blue disponible. "
@@ -139,26 +142,31 @@ class ExpenseManager:
         return first_installment
 
     def _add_to_monthly_share(self, expense: Expense, share_date: date) -> None:
-        """Create monthly Share if doesn't exists.
-        Add expense to monthly share and save both."""
-        print("creating balance expenses..")
-        # Get or create monthly share for the given date
-        monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
-        if not monthly_share:
-            print("Creating new monthly share: ", share_date.year, share_date.month)
-            monthly_share = MonthlyShare(share_date.year, share_date.month, self.group_id)
-            # Save to get an ID
-            self.repository.save_monthly_share(monthly_share)
-            # Fetch again to get the ID
-            monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
-            if not monthly_share:
-                raise ValueError("Failed to create monthly share")
+        """Add an expense to its month, creating the month if needed, in one locked commit.
 
-        # At this point, monthly_share is guaranteed to be non-None.
-        # Balances are always in ARS: a USD expense is converted at the blue rate, the same
-        # as recalculate_monthly_share does.
+        The month is locked from the moment it is read until the commit, so a concurrent add
+        or settlement of the same month waits instead of interleaving. Balances are recomputed
+        from all the month's rows rather than nudged by this expense's delta: applying a delta
+        to a stale base is what kept the Buzios balances wrong. Recomputing costs well under a
+        millisecond for a month of expenses, whose rows are loaded anyway.
+        """
+        monthly_share = self.repository.get_monthly_share_for_update(share_date.year, share_date.month, self.group_id)
+        # Rejects a settled month; also applies this expense's delta, kept below as a fallback.
         monthly_share.add_expense(expense, self.members, usd_rate=usd_rate_for([expense]))
-        print("EXPENSE ADDED - NOW SAVING THE EXPENSE")
+        incremental = dict(monthly_share.balances)
+        try:
+            monthly_share.recalculate_balances(self.members, usd_rate=usd_rate_for(monthly_share.expenses))
+        except ValueError as error:
+            # An older row whose split no longer validates must not block new expenses. Reads
+            # derive balances on their own, so the stored value here is only a snapshot.
+            logger.warning(
+                "Monthly share %s %s: could not recompute on add (expenses %s), applied the delta only: %s",
+                self.group_id,
+                monthly_share.period_key,
+                [e.id for e in monthly_share.expenses],
+                error,
+            )
+            monthly_share.balances = incremental
         self.repository.save_monthly_share(monthly_share)
 
     def get_monthly_balance(self, year: int, month: int) -> Optional[MonthlyShare]:
@@ -172,23 +180,25 @@ class ExpenseManager:
         matching the largest remaining creditor against the largest remaining debtor until
         balances net to zero. With two members this yields a single transfer; with N
         members it yields up to N-1 balancing expenses.
+
+        Runs under the month's lock and commits once — balancing rows, balances and the settled
+        flag together — so an expense added concurrently either lands before (and is part of
+        what gets settled) or waits and is then refused because the month is settled.
         """
-        monthly_share = self.repository.get_monthly_share(year, month, self.group_id)
-        if not monthly_share:
+        if not self.repository.has_monthly_share(year, month, self.group_id):
             return None
+        monthly_share = self.repository.get_monthly_share_for_update(year, month, self.group_id)
+        if monthly_share.is_settled:
+            return monthly_share
 
-        if not monthly_share.is_settled:
-            # Settle from balances recomputed now, not the stored ones: those can be stale
-            # (USD rows stored in raw dollars before the rate was applied on create). A month
-            # with USD rows and no rate is refused rather than settling dollars as pesos.
-            rate = usd_rate_for(monthly_share.expenses, required=True)
-            monthly_share = self.recalculate_monthly_share(monthly_share, usd_rate=rate)
-
-        if monthly_share.balances:
-            self._generate_balancing_expenses(monthly_share, year, month)
-
+        # Settle from balances recomputed now. A month with USD rows and no rate is refused
+        # rather than settling dollars as pesos.
+        rate = usd_rate_for(monthly_share.expenses, required=True)
+        monthly_share.recalculate_balances(self.members, usd_rate=rate)
+        monthly_share.expenses.extend(self._balancing_expenses(monthly_share.balances, year, month))
+        monthly_share.recalculate_balances(self.members, usd_rate=rate)
         monthly_share.settle()
-        self.repository.settle_monthly_share(monthly_share.year, monthly_share.month, self.group_id)
+        self.repository.save_monthly_share(monthly_share)
 
         return monthly_share
 
@@ -205,13 +215,14 @@ class ExpenseManager:
 
         return self.repository.get_monthly_share(year, month, self.group_id)
 
-    def _generate_balancing_expenses(self, monthly_share: MonthlyShare, year: int, month: int) -> None:
-        """Greedy debt reduction: emit one Expense per (debtor -> creditor) pair."""
+    @staticmethod
+    def _balancing_expenses(balances: Dict[str, float], year: int, month: int) -> List[Expense]:
+        """Greedy debt reduction: one Expense per (debtor -> creditor) pair, all in ARS."""
         category = Category()
         category.name = "balance"
 
-        for debtor_id, creditor_id, pay in compute_debt_transfers(monthly_share.balances):
-            balancing_expense = Expense(
+        return [
+            Expense(
                 description="Balancing Expense",
                 amount=pay,
                 date=date(year, month, 1),
@@ -221,7 +232,8 @@ class ExpenseManager:
                 installments=1,
                 split_strategy=PercentageSplit({debtor_id: 0.0, creditor_id: 100.0}),
             )
-            self.create_and_add_expense(balancing_expense)
+            for debtor_id, creditor_id, pay in compute_debt_transfers(balances)
+        ]
 
     def add_member(self, member: Member) -> None:
         """Adds a new member and recalculates all active monthly shares"""
@@ -264,13 +276,9 @@ class ExpenseManager:
                 self.recalculate_monthly_share(old_share)
 
             # Get or create the new monthly share and assign the expense to it
-            new_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
-            if not new_share:
-                new_share = MonthlyShare(new_share_date.year, new_share_date.month, self.group_id)
-                self.repository.save_monthly_share(new_share)
-                new_share = self.get_monthly_balance(new_share_date.year, new_share_date.month)
-                if not new_share:
-                    raise ValueError("Failed to create monthly share")
+            new_share = self.repository.get_monthly_share_for_update(
+                new_share_date.year, new_share_date.month, self.group_id
+            )
 
             # Update the FK on the expense row
             if updated_expense.id is None:
@@ -306,13 +314,7 @@ class ExpenseManager:
         """Point an existing expense row at the share for share_date, creating it if needed."""
         if expense.id is None:
             raise ValueError("Cannot reassign an expense without an ID")
-        monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
-        if not monthly_share:
-            monthly_share = MonthlyShare(share_date.year, share_date.month, self.group_id)
-            self.repository.save_monthly_share(monthly_share)
-            monthly_share = self.get_monthly_balance(share_date.year, share_date.month)
-            if not monthly_share:
-                raise ValueError("Failed to create monthly share")
+        monthly_share = self.repository.get_monthly_share_for_update(share_date.year, share_date.month, self.group_id)
         self.repository.reassign_expense_to_monthly_share(expense.id, share_date.year, share_date.month, self.group_id)
         # Keep the in-memory share consistent with the FK we just moved.
         if all(existing.id != expense.id for existing in monthly_share.expenses):

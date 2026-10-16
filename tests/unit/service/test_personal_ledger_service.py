@@ -531,25 +531,24 @@ def test_mirrored_usd_share_is_converted_to_ars():
     assert ledger.current_balance == -300000.0
 
 
-def test_group_balances_are_recalculated_with_the_usd_rate():
-    """Regression: the ledger recalculated each group's balances without the rate, so a USD
-    group expense moved the net balance (and the projected balance) by raw dollars."""
+def test_group_balances_come_from_the_repository_as_is():
+    """The repository derives an open month's balances (in ARS) from its rows; the ledger must
+    show those, not recompute its own — two computations is how the Buzios screens diverged."""
     shared_group = _make_regular_group(group_id=2)
     expense = _make_mock_expense(
         expense_id=10, amount=200.0, payer_id=1, category_name="viajes", owner_share=100.0, all_member_ids=[1, 2]
     )
-    expense.currency = "USD"
     share = MagicMock()
     share.expenses = [expense]
     share.is_settled = False
-    share.balances = {}
+    share.balances = {"1": 150000.0, "2": -150000.0}
 
     svc, *_ = _build_service(other_groups=[shared_group], other_shares={2: share}, members_per_group={2: _members()})
     with patch("template.service_layer.currency_service.get_blue_rate", return_value=RATE):
-        svc.get_ledger(owner_member_id=1, year=2026, month=10)
+        ledger = svc.get_ledger(owner_member_id=1, year=2026, month=10)
 
-    _, kwargs = share.recalculate_balances.call_args
-    assert kwargs["usd_rate"] == RATE
+    share.recalculate_balances.assert_not_called()
+    assert ledger.group_balances[0].net_balance == 150000.0
 
 
 def test_mirrored_usd_exact_split_is_split_in_dollars_then_converted():
@@ -564,6 +563,7 @@ def test_mirrored_usd_exact_split_is_split_in_dollars_then_converted():
     expense.split_strategy = ExactAmountsSplit({1: 150.0, 2: 50.0})
     share = MonthlyShare(2026, 10, 2)
     share.expenses = [expense]
+    share.balances = {"1": -225000.0, "2": 225000.0}  # as the repository derives them
 
     svc, *_ = _build_service(other_groups=[shared_group], other_shares={2: share}, members_per_group={2: _members()})
     with patch("template.service_layer.currency_service.get_blue_rate", return_value=RATE):
@@ -585,7 +585,6 @@ def test_a_split_that_no_longer_validates_is_logged_not_raised(caplog):
     share.is_settled = False
     share.balances = {"1": -10.0}
     share.group_id, share.year, share.month = 2, 2026, 10
-    share.recalculate_balances.side_effect = ValueError("amounts must sum to 200.0, got 150.0")
 
     svc, *_ = _build_service(other_groups=[shared_group], other_shares={2: share}, members_per_group={2: _members()})
     with caplog.at_level("WARNING", logger="template.service_layer.personal_ledger_service"):
@@ -595,4 +594,4 @@ def test_a_split_that_no_longer_validates_is_logged_not_raised(caplog):
     assert ledger.mirrored_shares == []
     messages = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert any("group 2" in m and "2026-10" in m and "77" in m and "must sum" in m for m in messages)
-    assert len(messages) == 2  # one for the balances, one for the mirrored share
+    assert len(messages) == 1  # the mirrored share; balances arrive already derived

@@ -117,6 +117,9 @@ class PushSubscriptionModel(Base):
 
 class MonthlyShareModel(Base):
     __tablename__ = "monthly_shares"
+    # Created by migration m7 on every alembic-managed database; declared here so create_all
+    # databases (CI, tests) have it too — get_monthly_share_for_update's ON CONFLICT needs it.
+    __table_args__ = (UniqueConstraint("group_id", "year", "month", name="uq_monthly_shares_group_year_month"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), default=1)
