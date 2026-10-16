@@ -316,12 +316,15 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
                 MonthlyShareModel.group_id == group_id,
             )
             .with_for_update()
+            .populate_existing()
             .first()
         )
 
         if not db_monthly_share:
             raise ValueError(f"Monthly share for {year}-{month} group {group_id} not found.")
 
+        # A settlement committed while we waited for the lock must be seen whole.
+        self.session.expire(db_monthly_share, ["expenses"])
         for expense in list(db_monthly_share.expenses):
             if expense.category == "balance":
                 self.session.delete(expense)
@@ -345,6 +348,19 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             return None
 
         return self._to_domain_monthly_share(db_monthly_share, self._group_members(group_id))
+
+    def has_monthly_share(self, year: int, month: int, group_id: int) -> bool:
+        """Whether the month exists — without loading its rows into the session, which a locked
+        load right after would otherwise reuse with whatever values they had before the lock."""
+        return self.session.query(
+            self.session.query(MonthlyShareModel)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
+            .exists()
+        ).scalar()
 
     def get_monthly_share_for_update(self, year: int, month: int, group_id: int) -> MonthlyShare:
         """Get-or-create the month's row and hold `SELECT ... FOR UPDATE` on it until commit.

@@ -254,3 +254,29 @@ def test_concurrent_adds_through_the_api_keep_every_row_and_the_snapshot(
             text("SELECT balances FROM monthly_shares WHERE group_id = :g"), {"g": primary_group_id}
         ).scalar_one()
     assert stored == derived["balances"]
+
+
+def test_two_concurrent_settles_produce_one_set_of_balancing_rows(
+    client, auth_headers, primary_member_id, primary_group_id
+):
+    _ghost(client, auth_headers, primary_group_id)
+    _add(client, auth_headers, primary_group_id, primary_member_id, 1000.0)
+
+    def settle():
+        r = client.post(
+            f"/api/v1/groups/{primary_group_id}/shares/settle/{TODAY.year}/{TODAY.month}", headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+
+    threads = [threading.Thread(target=settle) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+
+    with SessionLocal() as session:
+        balancing = session.execute(
+            text("SELECT count(*) FROM expenses WHERE group_id = :g AND category = 'balance'"),
+            {"g": primary_group_id},
+        ).scalar_one()
+    assert balancing == 1

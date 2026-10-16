@@ -1,5 +1,6 @@
 """Expense manager"""
 
+import logging
 import re
 from datetime import date
 from typing import Dict, List, Optional, Tuple
@@ -12,6 +13,8 @@ from template.domain.models.split import PercentageSplit
 from .enums import PaymentType
 from .models import Expense, Member, MonthlyShare
 from .repository import ExpenseRepository
+
+logger = logging.getLogger(__name__)
 
 USD_RATE_UNAVAILABLE = (
     "No se puede saldar: hay gastos en dólares y no hay cotización del dólar blue disponible. "
@@ -153,9 +156,16 @@ class ExpenseManager:
         incremental = dict(monthly_share.balances)
         try:
             monthly_share.recalculate_balances(self.members, usd_rate=usd_rate_for(monthly_share.expenses))
-        except ValueError:
+        except ValueError as error:
             # An older row whose split no longer validates must not block new expenses. Reads
             # derive balances on their own, so the stored value here is only a snapshot.
+            logger.warning(
+                "Monthly share %s %s: could not recompute on add (expenses %s), applied the delta only: %s",
+                self.group_id,
+                monthly_share.period_key,
+                [e.id for e in monthly_share.expenses],
+                error,
+            )
             monthly_share.balances = incremental
         self.repository.save_monthly_share(monthly_share)
 
@@ -175,7 +185,7 @@ class ExpenseManager:
         flag together — so an expense added concurrently either lands before (and is part of
         what gets settled) or waits and is then refused because the month is settled.
         """
-        if self.repository.get_monthly_share(year, month, self.group_id) is None:
+        if not self.repository.has_monthly_share(year, month, self.group_id):
             return None
         monthly_share = self.repository.get_monthly_share_for_update(year, month, self.group_id)
         if monthly_share.is_settled:

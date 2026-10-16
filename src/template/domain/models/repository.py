@@ -20,6 +20,10 @@ class ExpenseRepository(ABC):
     def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
         """Get a monthly share by year, month and group"""
 
+    def has_monthly_share(self, year: int, month: int, group_id: int) -> bool:
+        """Whether the month exists, without loading it."""
+        return self.get_monthly_share(year, month, group_id) is not None
+
     def get_monthly_share_for_update(self, year: int, month: int, group_id: int) -> MonthlyShare:
         """Get-or-create a monthly share and lock it until the next commit.
 

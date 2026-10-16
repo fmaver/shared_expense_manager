@@ -117,11 +117,6 @@ class MonthlyShare:
         for expense in self.expenses:
             self.calculate_share_for_expense(expense, members, usd_rate=usd_rate)
 
-        # A balance can belong to someone who already left the group: fall back to the id.
-        for member_id, balance in self.balances.items():
-            member = members.get(int(member_id))
-            print(f"{member.name if member else member_id}: {balance}")
-
     def calculate_share_for_expense(self, expense: Expense, members: Dict[int, Member], usd_rate: float = 1.0) -> None:
         """Calculates the share for a specific expense, in ARS (see expense_shares_in_ars)."""
         amount, shares = expense_shares_in_ars(expense, list(members.values()), usd_rate)
