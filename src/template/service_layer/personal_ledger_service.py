@@ -165,15 +165,10 @@ class PersonalLedgerService:
             if not source_share:
                 continue
 
-            # Load members upfront so we can recalculate balances from current expense rows.
-            # The DB-stored balance JSON can be stale (e.g. if recurring group expenses were
-            # materialised after the last recalculation), while source_share.expenses always
-            # reflects the current DB state.
+            # The repository derives an open month's balances from its rows, so these already
+            # agree with what the group's own screen shows.
             members_list = self._group_repo.list_members(source_group.id)
             members_dict = {m.id: m for m in members_list}
-
-            if source_share.expenses:
-                self._recalculate_group_balances(source_share, members_dict, usd_rate)
 
             # Net group balance for this owner: positive = creditor, negative = debtor
             net_balance = round(source_share.balances.get(str(owner_member_id), 0.0), 2)
@@ -236,27 +231,6 @@ class PersonalLedgerService:
             pending_settlements_total=pending_settlements_total,
             usd_rate=usd_rate,
         )
-
-    @staticmethod
-    def _recalculate_group_balances(source_share, members_dict: dict, usd_rate: float) -> None:
-        """Recompute a group month's balances in ARS from its current rows.
-
-        A row whose split no longer validates must not take /personal down: on ValueError
-        the stored balances are kept.
-        """
-        stored_balances = dict(source_share.balances or {})
-        try:
-            source_share.recalculate_balances(members_dict, usd_rate=usd_rate)
-        except ValueError as error:
-            logger.warning(
-                "Personal ledger: could not recalculate group %s %s-%02d (expenses %s), keeping stored balances: %s",
-                source_share.group_id,
-                source_share.year,
-                source_share.month,
-                [e.id for e in source_share.expenses],
-                error,
-            )
-            source_share.balances = stored_balances
 
     @staticmethod
     def _process_group_expenses(  # pylint: disable=too-many-arguments,too-many-positional-arguments

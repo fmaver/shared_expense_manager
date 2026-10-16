@@ -20,6 +20,21 @@ class ExpenseRepository(ABC):
     def get_monthly_share(self, year: int, month: int, group_id: int) -> Optional[MonthlyShare]:
         """Get a monthly share by year, month and group"""
 
+    def get_monthly_share_for_update(self, year: int, month: int, group_id: int) -> MonthlyShare:
+        """Get-or-create a monthly share and lock it until the next commit.
+
+        Writers that decide on a month's state (add an expense, settle) go through here, so two
+        of them on the same group and month run one after the other. This default has no lock:
+        it serves in-memory repositories, where there is no concurrency to guard against.
+        """
+        monthly_share = self.get_monthly_share(year, month, group_id)
+        if monthly_share is None:
+            self.save_monthly_share(MonthlyShare(year, month, group_id))
+            monthly_share = self.get_monthly_share(year, month, group_id)
+            if monthly_share is None:
+                raise ValueError("Failed to create monthly share")
+        return monthly_share
+
     @abstractmethod
     def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
         """Get all monthly shares for a group"""

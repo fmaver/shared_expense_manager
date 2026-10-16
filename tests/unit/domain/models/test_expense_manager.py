@@ -421,3 +421,35 @@ def test_create_usd_expense_stores_balance_in_ars(mock_repository):
     share = manager.get_monthly_balance(2026, 10)
     assert share is not None
     assert share.balances == {"1": 150000.0, "2": -150000.0}
+
+
+class TestAddRecalculatesTheWholeMonth:
+    """An add used to apply its own delta on top of whatever balances it was handed, so a stale
+    base stayed stale forever (the Buzios incident). It now recomputes the month from its rows."""
+
+    def test_add_over_stale_balances_leaves_the_derived_ones(self, mock_repository):
+        from unittest.mock import MagicMock
+
+        group_repo = MagicMock()
+        group_repo.list_members.return_value = [Member(id=1, name="Guadi"), Member(id=2, name="Marian")]
+        manager = ExpenseManager(mock_repository, group_id=8, group_repo=group_repo)
+        category = Category()
+        category.name = "otros"
+
+        def expense(amount, payer):
+            return Expense(
+                description="x",
+                amount=amount,
+                date=date(2026, 10, 12),
+                category=category,
+                payer_id=payer,
+                payment_type=PaymentType.DEBIT,
+                split_strategy=EqualSplit(),
+            )
+
+        manager.create_and_add_expense(expense(1000.0, 1))
+        mock_repository.get_monthly_share(2026, 10, 8).balances = {"1": 999999.0, "2": -999999.0}
+
+        manager.create_and_add_expense(expense(400.0, 2))
+
+        assert mock_repository.get_monthly_share(2026, 10, 8).balances == {"1": 300.0, "2": -300.0}

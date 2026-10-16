@@ -2,6 +2,7 @@
 
 # pylint: disable=too-many-lines
 
+import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -38,6 +39,7 @@ from template.domain.models.enums import (
     NotificationType,
     PaymentType,
 )
+from template.domain.models.expense_manager import usd_rate_for
 from template.domain.models.group import Group, GroupStatus, GroupType
 from template.domain.models.income import (
     IncomeInstance,
@@ -64,6 +66,8 @@ from template.domain.schemas.expense import (
 from template.domain.schemas.member import MemberUpdate
 from template.service_layer.search_query import ACCENTS_FROM, ACCENTS_TO, ParsedQuery
 from template.service_layer.search_query import normalize as normalize_python
+
+logger = logging.getLogger(__name__)
 
 
 class MemberRepository:
@@ -311,6 +315,7 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
                 MonthlyShareModel.month == month,
                 MonthlyShareModel.group_id == group_id,
             )
+            .with_for_update()
             .first()
         )
 
@@ -339,22 +344,65 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
         if not db_monthly_share:
             return None
 
-        return self._to_domain_monthly_share(db_monthly_share)
+        return self._to_domain_monthly_share(db_monthly_share, self._group_members(group_id))
+
+    def get_monthly_share_for_update(self, year: int, month: int, group_id: int) -> MonthlyShare:
+        """Get-or-create the month's row and hold `SELECT ... FOR UPDATE` on it until commit.
+
+        The insert is ON CONFLICT DO NOTHING, so two requests creating the first expense of a
+        month no longer race into the unique constraint: the second waits for the first to
+        commit and then just locks the row it made.
+        """
+        self.session.execute(
+            pg_insert(MonthlyShareModel)
+            .values(year=year, month=month, group_id=group_id, balances={}, is_settled=False)
+            .on_conflict_do_nothing(index_elements=["group_id", "year", "month"])
+        )
+        db_monthly_share = (
+            self.session.query(MonthlyShareModel)
+            .filter(
+                MonthlyShareModel.year == year,
+                MonthlyShareModel.month == month,
+                MonthlyShareModel.group_id == group_id,
+            )
+            .with_for_update()
+            .populate_existing()
+            .one()
+        )
+        # Rows committed while we waited for the lock must be seen: reload the collection.
+        self.session.expire(db_monthly_share, ["expenses"])
+        return self._to_domain_monthly_share(db_monthly_share, self._group_members(group_id))
 
     def get_all_monthly_shares(self, group_id: int) -> Dict[str, MonthlyShare]:
         """Get all monthly shares for a group from the database."""
         db_monthly_shares = self.session.query(MonthlyShareModel).filter(MonthlyShareModel.group_id == group_id).all()
+        members = self._group_members(group_id)
 
-        return {f"{share.year}-{share.month:02d}": self._to_domain_monthly_share(share) for share in db_monthly_shares}
+        return {
+            f"{share.year}-{share.month:02d}": self._to_domain_monthly_share(share, members)
+            for share in db_monthly_shares
+        }
 
-    def _to_domain_monthly_share(self, db_share: MonthlyShareModel) -> MonthlyShare:
-        """Convert database model to domain model."""
+    def _group_members(self, group_id: int) -> Dict[int, Member]:
+        """The members a group's equal splits divide among, keyed by id."""
+        return {member.id: member for member in GroupRepository(self.session).list_members(group_id)}
+
+    def _to_domain_monthly_share(self, db_share: MonthlyShareModel, members: Dict[int, Member]) -> MonthlyShare:
+        """Convert database model to domain model.
+
+        An open month's balances are derived from its rows on every load; the stored JSON is
+        only trusted once the month is settled, where it is the frozen snapshot (recomputing it
+        at today's blue rate would move a closed month). See
+        docs/superpowers/specs/2026-10-15-balance-consistency-design.md.
+        """
         monthly_share = MonthlyShare(db_share.year, db_share.month, db_share.group_id)
         if db_share.is_settled:
             monthly_share.settle()
         else:
             monthly_share.unsettle()
-        monthly_share.balances = db_share.balances
+        # A copy: mutating the ORM's own dict in place is invisible to SQLAlchemy's change
+        # tracking for a plain JSON column.
+        monthly_share.balances = dict(db_share.balances or {})
 
         # Convert expenses
         for db_expense in db_share.expenses:
@@ -379,7 +427,29 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             )
             monthly_share.expenses.append(expense)
 
+        if not monthly_share.is_settled:
+            self._derive_balances(monthly_share, members)
         return monthly_share
+
+    @staticmethod
+    def _derive_balances(monthly_share: MonthlyShare, members: Dict[int, Member]) -> None:
+        """Recompute an open month's balances in ARS from its rows.
+
+        A row whose split no longer validates must not take every screen of the group down:
+        on ValueError the stored balances are kept and the failure is logged.
+        """
+        stored = monthly_share.balances
+        try:
+            monthly_share.recalculate_balances(members, usd_rate=usd_rate_for(monthly_share.expenses))
+        except ValueError as error:
+            logger.warning(
+                "Monthly share %s %s: could not derive balances (expenses %s), keeping stored ones: %s",
+                monthly_share.group_id,
+                monthly_share.period_key,
+                [e.id for e in monthly_share.expenses],
+                error,
+            )
+            monthly_share.balances = stored
 
     def _serialize_split_strategy(self, strategy) -> dict:
         """Convert split strategy to JSON-serializable format."""
@@ -423,7 +493,9 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
             currency=getattr(expense, "currency", "ARS"),
         )
         self.session.add(db_expense)
-        self.session.commit()
+        # Flush, not commit: save_monthly_share commits the rows and the balances together, and
+        # committing here would release the month's lock halfway through.
+        self.session.flush()
         expense.id = db_expense.id
         print(f"Successfully saved expense with ID: {expense.id}")
 
