@@ -1,5 +1,6 @@
 """Esquemas de carga rápida (atajo de iOS y borradores). camelCase en el cable."""
 
+import datetime as dt
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -46,3 +47,21 @@ class QuickCaptureMessage(CamelCaseModel):
     """Text for the shortcut's closing notification."""
 
     message: str
+
+
+class DraftResponse(CamelCaseModel):
+    """A pending draft as the app lists it. The image is fetched apart (`has_image` says if any)."""
+
+    id: int
+    amount: Optional[float] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    date: Optional[dt.date] = None
+    payment_type: Optional[str] = None
+    installments: Optional[int] = None
+    currency: Optional[str] = None
+    confidence: Optional[str] = None
+    suggested_group_id: Optional[int] = None
+    suggested_group_name: Optional[str] = None
+    has_image: bool
+    created_at: datetime

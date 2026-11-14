@@ -39,7 +39,11 @@ from template.domain.schemas.expense import (
     ExpenseResponse,
     SplitStrategySchema,
 )
-from template.domain.schemas.quick_capture import QuickCaptureAction, QuickCaptureResult
+from template.domain.schemas.quick_capture import (
+    DraftResponse,
+    QuickCaptureAction,
+    QuickCaptureResult,
+)
 from template.service_layer.expense_creation import create_expense_with_effects
 from template.service_layer.expense_draft_service import (
     build_expense_draft,
@@ -327,6 +331,66 @@ class QuickCaptureService:
         draft.image = None
         draft.resolved_at = datetime.utcnow()
         self._drafts.commit()
+
+    # ------------------------------------------------------------- app drafts
+
+    def save_for_later(self, member: Member, image: bytes, mime: str) -> DraftResponse:
+        """ "Dejar para después" from the app: store and read, no push (the person is in the app)."""
+        draft, _ = self._store_and_read(member, image, mime)
+        return self._draft_response(draft, self._group_names([draft]))
+
+    def list_pending_responses(self, member: Member) -> list[DraftResponse]:
+        """The member's pending drafts, oldest first."""
+        drafts = self._drafts.list_pending(member.id)
+        names = self._group_names(drafts)
+        return [self._draft_response(d, names) for d in drafts]
+
+    def get_image(self, member: Member, draft_id: int) -> tuple[bytes, str]:
+        """The draft's image and mime; 404 when not the member's or already cleared."""
+        draft = self._drafts.get_owned(draft_id, member.id)
+        if draft is None or not draft.image:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
+        return bytes(draft.image), draft.image_mime or "application/octet-stream"
+
+    def resolve(self, member: Member, draft_id: int) -> None:
+        """The app saved the expense with its own form: close the draft and drop the image."""
+        draft = self._drafts.get_owned_for_update(draft_id, member.id)
+        if draft is None:
+            self._db.rollback()
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
+        if draft.status != PENDING:
+            self._db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_RESOLVED)
+        draft.status = CONFIRMED
+        draft.image = None
+        draft.resolved_at = datetime.utcnow()
+        self._drafts.commit()
+
+    def _group_names(self, drafts: list[ExpenseDraftModel]) -> dict[int, str]:
+        names: dict[int, str] = {}
+        for group_id in {d.suggested_group_id for d in drafts if d.suggested_group_id is not None}:
+            group = self._groups.get(group_id)
+            if group is not None:
+                names[group_id] = "Personal" if group.group_type == GroupType.PERSONAL else group.name
+        return names
+
+    @staticmethod
+    def _draft_response(draft: ExpenseDraftModel, names: dict[int, str]) -> DraftResponse:
+        return DraftResponse(
+            id=draft.id,
+            amount=draft.amount,
+            description=draft.description,
+            category=draft.category,
+            date=draft.expense_date,
+            payment_type=draft.payment_type,
+            installments=draft.installments,
+            currency=draft.currency,
+            confidence=draft.confidence,
+            suggested_group_id=draft.suggested_group_id,
+            suggested_group_name=names.get(draft.suggested_group_id) if draft.suggested_group_id else None,
+            has_image=bool(draft.image),
+            created_at=draft.created_at,
+        )
 
     # -------------------------------------------------------------------- push
 

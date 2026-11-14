@@ -12,6 +12,7 @@ from template.entrypoint import (
     auth,
     category,
     currency,
+    drafts,
     due_date,
     expense,
     group,
@@ -50,4 +51,5 @@ api_router_v1.include_router(currency.router)
 api_router_v1.include_router(push.router)
 api_router_v1.include_router(search.router)
 api_router_v1.include_router(quick_capture.router)
+api_router_v1.include_router(drafts.router)
 root_router.include_router(whatsapp_bot.router)
