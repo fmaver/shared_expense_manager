@@ -38,6 +38,8 @@ def _wipe_tables(session) -> None:
     session.execute(text("DELETE FROM recurring_personal_expense_instances"))
     session.execute(text("DELETE FROM recurring_personal_expenses"))
     session.execute(text("DELETE FROM groups"))
+    session.execute(text("DELETE FROM expense_drafts"))
+    session.execute(text("DELETE FROM shortcut_tokens"))
     session.execute(text("DELETE FROM members"))
     session.commit()
 
