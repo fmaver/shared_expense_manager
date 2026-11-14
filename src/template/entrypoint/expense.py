@@ -32,6 +32,7 @@ from template.domain.schemas.expense import (
     SplitStrategySchema,
 )
 from template.service_layer.auth_service import get_current_member
+from template.service_layer.expense_creation import create_expense_with_effects
 from template.service_layer.expense_draft_service import build_expense_draft
 from template.service_layer.expense_service import ExpenseService, _strategy_to_schema
 from template.service_layer.group_service import GroupService
@@ -85,46 +86,16 @@ def create_expense(
 ) -> ResponseModel[ExpenseResponse]:
     """Create a new expense."""
     try:
-        expense = service.create_expense(expense_data)
-        # A new expense can put an archived member back into debt, which must bring the group
-        # back into their list — otherwise archiving would hide a balance from them.
-        group_service.refresh_archived_state(service.group_id, repository)
-
-        # Notify only the members of this expense's group
-        members = service.get_members()
-        group_name = service.get_group_name()
-        multi_group_ids = service.get_multi_group_member_ids(members)
-
-        # Add notification task to background tasks (skip for personal groups)
-        if not service.is_personal_group():
-            background_tasks.add_task(
-                NotificationService().notify_expense_created,
-                expense=expense,
-                members=members,
-                creator=current_member,
-                member_service=member_service,
-                group_name=group_name,
-                multi_group_member_ids=multi_group_ids,
-                group_id=service.group_id,
-                push_service=PushService(db),
-            )
-
-        # Create response data
-        response_data = ExpenseResponse(
-            id=expense.id,
-            description=expense_data.description,
-            amount=expense_data.amount,
-            date=expense_data.date,
-            category=expense_data.category.name,
-            payer_id=expense_data.payer_id,
-            installments=expense_data.installments,
-            installment_no=1,
-            payment_type=expense_data.payment_type,
-            split_strategy=expense_data.split_strategy,
-            parent_expense_id=expense.parent_expense_id,
-            currency=getattr(expense_data, "currency", "ARS"),
+        response_data = create_expense_with_effects(
+            service=service,
+            expense_data=expense_data,
+            creator=current_member,
+            background_tasks=background_tasks,
+            member_service=member_service,
+            group_service=group_service,
+            repository=repository,
+            db=db,
         )
-
         return ResponseModel(data=response_data)
 
     except ValueError as e:
