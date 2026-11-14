@@ -283,6 +283,28 @@ Hoy los efectos de un alta (refresh de archivado, notificaciones, armado de la r
 
 ---
 
+### Task 12b: Instructivo del atajo dentro de la app
+
+Pedido del usuario (2026-11-14): al conectar el atajo, la app también explica cómo armarlo en el iPhone; el instructivo de `docs/` nadie lo va a leer.
+
+**Files:**
+- Create: `src/components/ui/ShortcutGuide.tsx` — sección desplegable "Cómo armar el atajo en el iPhone"
+- Modify: `src/components/ui/ShortcutCard.tsx` (la muestra con token recién generado **y** con atajo conectado), locales
+
+**Interfaces:**
+- Consumes: el base URL del API en `src/config/env.ts` y `config.shortcutInstallUrl` (Task 11).
+- Contenido: los mismos pasos que `shared_expense_manager/docs/quick-capture-shortcut.md` (fuente de verdad: esa guía, que ya refleja el código), en castellano y en orden, con los nombres de las acciones de Atajos en español: pregunta de importación "Token"; "Tomar captura de pantalla"; "Cambiar tamaño de imagen" (ancho 1280) + "Convertir imagen" (JPEG); "Obtener contenido de URL" POST `{API}/api/v1/quick-capture` con header `Authorization: Bearer <Token>` y cuerpo Formulario campo `file`; si `status` es `unreadable` → "Mostrar notificación" con `message`; "Repetir con cada" sobre `actions` juntando `label`; "Elegir de la lista" con el `summary` como mensaje; segundo "Repetir con cada" para sacar `action` y `groupId` del elegido; según `action`: `confirm` → POST `{API}/api/v1/quick-capture/{draftId}/confirm` con JSON `{"groupId": grupo}`, `keep` → POST `…/{draftId}/keep`, `discard` → DELETE `…/{draftId}`; "Mostrar notificación" con `message`. Cierre: Ajustes → Accesibilidad → Tocar → Toque posterior → Doble toque → "Cargar gasto".
+- Cada valor que hay que tipear (URLs con la base ya resuelta del ambiente, nombre del header, `Bearer `, campo `file`, cuerpo JSON) va en un bloque con botón "Copiar" (mismo manejo de error del portapapeles que Task 11).
+- Con `shortcutInstallUrl`: "Instalar el atajo" queda como acción principal y la guía se titula "O armalo vos"; sin él, la guía es lo principal. Nota corta: "Si algún paso no coincide con tu iPhone, avisanos" (la parte de "Elegir de la lista" aún no se verificó en un dispositivo).
+- Sin UI inventada: desplegable con un patrón que ya use la app (si no hay, `<details>`/`<summary>` con los tokens existentes).
+
+- [ ] **Step 1:** Implementar.
+- [ ] **Step 2:** `npm run lint && npx tsc -b && npm run build` → sin errores nuevos.
+- [ ] **Step 3:** Verificación visual a 390 y 320 px (URLs largas no rompen el ancho).
+- [ ] **Step 4: Commit** `feat(quick-capture): instructivo del atajo en el perfil`.
+
+---
+
 ## Cierre
 
 ### Task 13: Gates, migración en staging y revisión
