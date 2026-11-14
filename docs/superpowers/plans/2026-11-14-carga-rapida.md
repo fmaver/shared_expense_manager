@@ -163,6 +163,7 @@ Hoy los efectos de un alta (refresh de archivado, notificaciones, armado de la r
 - Consumes: `QuickCaptureService` (Task 5).
 - Produces:
   - Schema `DraftResponse(id, amount: float|None, description: str|None, category: str|None, date: date|None, payment_type: str|None, installments: int|None, currency: str|None, confidence: str|None, suggested_group_id: int|None, suggested_group_name: str|None, has_image: bool, created_at: datetime)`.
+  - `POST /api/v1/drafts` (multipart `file`) → 201 `DraftResponse` — "Dejar para después" desde la app: `validate_image` (400 sin guardar), guarda el borrador con imagen, lo lee con `build_expense_draft` y guarda `suggested_group_id` igual que `capture` (fallo o `amount is None` → queda pendiente sin campos leídos). **Sin push.** `QuickCaptureService.save_for_later(member, image: bytes, mime: str) -> DraftResponse`, que comparte con `capture` el paso guardar + leer + sugerir grupo (no duplicarlo).
   - `GET /api/v1/drafts` → `list[DraftResponse]` (pendientes, más viejo primero).
   - `GET /api/v1/drafts/{id}/image` → `Response(content=bytes, media_type=image_mime)`; 404 si no es suyo o no hay imagen. (Fuera del sobre `{data}`: es binario.)
   - `POST /api/v1/drafts/{id}/confirm` body `QuickCaptureConfirm` → `ExpenseResponse` (mismo `QuickCaptureService.confirm`).
@@ -170,7 +171,7 @@ Hoy los efectos de un alta (refresh de archivado, notificaciones, armado de la r
   - `DELETE /api/v1/drafts/{id}` → 204 (`discard`).
   - `QuickCaptureService.resolve(member, draft_id) -> None` y `list_pending_responses(member) -> list[DraftResponse]` agregados en este task.
 
-- [ ] **Step 1: Write the failing tests** — `test_list_only_my_pending_drafts`, `test_image_endpoint_returns_bytes_and_404_for_others`, `test_resolve_then_list_is_empty_and_image_is_cleared`, `test_confirm_from_pwa_creates_expense_in_suggested_group`, `test_drafts_routes_reject_shortcut_token` (`Bearer jrn_...` → 401).
+- [ ] **Step 1: Write the failing tests** — `test_list_only_my_pending_drafts`, `test_image_endpoint_returns_bytes_and_404_for_others`, `test_resolve_then_list_is_empty_and_image_is_cleared`, `test_confirm_from_pwa_creates_expense_in_suggested_group`, `test_drafts_routes_reject_shortcut_token` (`Bearer jrn_...` → 401), `test_save_for_later_reads_and_appears_in_list` (parser parcheado; 0 gastos creados; aparece en `GET /drafts` con monto y grupo sugerido), `test_save_for_later_unreadable_is_saved_without_push` (parser → `None`; borrador sin monto; `PushService.send_if_subscribed` no llamado), `test_save_for_later_rejects_non_image`.
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** → PASS.
@@ -198,7 +199,7 @@ Hoy los efectos de un alta (refresh de archivado, notificaciones, armado de la r
 
 **Interfaces:**
 - Produces (fetch con bearer a mano, como `dueDates.ts`):
-  - `getDrafts(): Promise<Draft[]>`, `getDraftImage(id: number): Promise<File>` (blob → `File` con nombre `captura-{id}.jpg` y el mime de la respuesta), `confirmDraft(id: number, groupId: number): Promise<void>` (lanza `Error(detail)`), `resolveDraft(id: number): Promise<void>`, `discardDraft(id: number): Promise<void>`.
+  - `getDrafts(): Promise<Draft[]>`, `getDraftImage(id: number): Promise<File>` (blob → `File` con nombre `captura-{id}.jpg` y el mime de la respuesta), `confirmDraft(id: number, groupId: number): Promise<void>` (lanza `Error(detail)`), `saveDraft(file: File): Promise<Draft>` (multipart `file`, lanza `Error(detail)`), `resolveDraft(id: number): Promise<void>`, `discardDraft(id: number): Promise<void>`.
   - `getShortcutToken(): Promise<ShortcutTokenStatus>`, `issueShortcutToken(): Promise<ShortcutTokenIssued>`, `revokeShortcutToken(): Promise<void>`.
   - `Draft` = camelCase de `DraftResponse` (Task 6).
 
@@ -260,23 +261,25 @@ Hoy los efectos de un alta (refresh de archivado, notificaciones, armado de la r
 - [ ] **Step 3:** Verificación manual del ciclo conectar → copiar → regenerar → desconectar contra backend local.
 - [ ] **Step 4: Commit** `feat(quick-capture): conectar el atajo desde el perfil`.
 
-### Task 12: Pegar captura + tag en el service worker
+### Task 12: Pegar captura, "Dejar para después" y tag en el service worker
 
 **Files:**
 - Create: `src/utils/clipboardImage.ts` — `readClipboardImage(): Promise<File | null>` (`navigator.clipboard.read()`, primer item con tipo `image/*` → `File` `captura-pegada.png`; sin soporte, sin permiso o sin imagen → `null`)
 - Modify: `src/components/layout/FloatingTabBar.tsx` — ítem "Pegar captura" (icono `ClipboardPaste`) en `menuItems` justo después de `scanItem`; `onClick` lee el portapapeles **en el mismo toque** y llama `openLauncher('expense', groupId ?? undefined, file)`; sin imagen → `toast(t('paste.empty'))`
 - Modify: `src/components/personal/PersonalAddLauncher.tsx` / `PersonalAddMatrix.tsx` — la misma opción en el panel personal (setea `scanFile` como hace escanear)
+- Modify: `src/hooks/useReceiptScan.ts`, `src/components/expenses/AddExpenseDialog.tsx`, `src/components/personal/PersonalExpenseSheet.tsx` — botón secundario **"Dejar para después"** visible mientras lee y en el formulario precargado, solo cuando hay `scanFile` y **no** hay `scanDraft` (revisar un borrador no ofrece guardarlo de nuevo). Toque → cancela/ignora la lectura en curso, `saveDraft(scanFile)` → `toast.success("Guardado en borradores")`, cierra la hoja; error → `toast.error(message)` y la hoja sigue abierta. Usar los estilos de botón secundario que ya tienen esas hojas.
 - Modify: `public/sw.js` — `showNotification(..., { tag: payload.tag, renotify: Boolean(payload.tag) })` cuando venga `tag`
 - Modify: locales
 
 **Interfaces:**
 - Consumes: el camino `scanFile` existente (no crea borrador; usa `parse-image` como subir foto).
+- Consumes también: `saveDraft` (Task 8); la tarjeta de pendientes (Task 10) refleja el borrador nuevo al refetch.
 - Decisión del plan: la opción se muestra siempre (detectar si hay imagen exige leer el portapapeles, y en iOS eso muestra el botón de permiso); sin imagen avisa con un toast.
 
 - [ ] **Step 1:** Implementar.
 - [ ] **Step 2:** `npm run lint && npx tsc -b && npm run build` → sin errores.
-- [ ] **Step 3:** Verificación manual: copiar una imagen → "+" → Pegar captura → "Leyendo…" → formulario precargado; sin imagen copiada → toast. En iPhone (staging): "Copiar y eliminar" en el editor de capturas → pegar.
-- [ ] **Step 4: Commit** `feat(quick-capture): pegar una captura y avisos que se reemplazan`.
+- [ ] **Step 3:** Verificación manual: copiar una imagen → "+" → Pegar captura → "Leyendo…" → formulario precargado; sin imagen copiada → toast; "Dejar para después" mientras lee → toast, la hoja se cierra y la tarjeta muestra el borrador. En iPhone (staging): "Copiar y eliminar" en el editor de capturas → pegar.
+- [ ] **Step 4: Commit** `feat(quick-capture): pegar una captura, dejar para después y avisos que se reemplazan`.
 
 ---
 

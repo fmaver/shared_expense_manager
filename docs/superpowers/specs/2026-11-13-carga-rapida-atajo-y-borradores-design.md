@@ -179,8 +179,13 @@ Vida del borrador:
   que lee la imagen del portapapeles (`navigator.clipboard.read()`, requiere gesto del usuario;
   en iOS Safari aparece el botón de sistema "Pegar").
 - Después es idéntico a subir una foto hoy: "Leyendo…" → formulario pre-cargado → guardar. Usa
-  `POST /groups/{id}/expenses/parse-image` como está. **No crea borrador** (el usuario ya está en
-  la app).
+  `POST /groups/{id}/expenses/parse-image` como está. Pegar **no crea borrador** por sí solo.
+- **"Dejar para después"** (agregado el 2026-11-14 a pedido del usuario): mientras lee o con el
+  formulario precargado desde una foto o captura pegada, un botón guarda la imagen como borrador
+  pendiente (el backend la vuelve a leer con el mismo parser; si falla, queda sin monto) y cierra la
+  hoja con el aviso "Guardado en borradores". **Sin push** (ya está en la app); aparece en la
+  tarjeta del inicio y en la lista. No aplica a la carga manual (sin foto): guardar un formulario a
+  medias quedó fuera.
 - Uso esperado: en el editor de capturas de iOS, "Copiar y eliminar" → abrir Jirens → Pegar.
 - Si el navegador no expone imágenes del portapapeles o no hay imagen, la opción no aparece o
   muestra un mensaje; no rompe el resto.
@@ -236,7 +241,7 @@ Contrato orientativo (nombres finales del builder; respetar el sobre `{data: ...
 - `POST /api/v1/quick-capture/{draftId}/keep` — token del atajo. Lo deja pendiente y dispara el
   push de pendientes. Responde el texto del aviso.
 - `DELETE /api/v1/quick-capture/{draftId}` — token del atajo. Descarta.
-- Para la PWA (JWT normal): listar mis borradores pendientes, ver la imagen de uno, confirmar uno
+- Para la PWA (JWT normal): crear un borrador desde una imagen ("Dejar para después"), listar mis borradores pendientes, ver la imagen de uno, confirmar uno
   (con los campos editados del formulario, mismo shape que `ExpenseCreate` + `groupId`),
   descartar.
 - Para el perfil (JWT normal): crear/regenerar token, ver estado, revocar.
