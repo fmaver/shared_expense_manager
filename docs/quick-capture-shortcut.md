@@ -24,37 +24,44 @@ Las respuestas vienen envueltas: `{ "data": ... }`, en camelCase. Los errores vi
    - Encabezado: `Authorization` = `Bearer ` + variable **Token**
    - Cuerpo de la solicitud: **Formulario**, un campo de tipo Archivo llamado `file` con la imagen convertida.
 
-   Respuesta (`data`):
+   Respuesta (`data`). Todos los textos (`summary`, `warning`, `label`, `message`) los arma el backend; `actions` trae hasta 2 opciones de grupo (`confirm`) más `keep` y `discard`:
 
    ```json
    {
      "draftId": 12,
      "status": "read",
-     "summary": "$ 4.500 - Verdulería (comida)",
-     "warning": null,
+     "summary": "🛒 Verdulería · $4.500 · pagaste vos · débito",
+     "warning": "⚠️ Parecido a uno que ya cargaste: $4.500 Verdulería",
      "actions": [
-       { "label": "Casa", "action": "confirm", "groupId": 3 },
-       { "label": "Viaje Buzios", "action": "confirm", "groupId": 7 },
-       { "label": "Dejar para después", "action": "keep", "groupId": null },
-       { "label": "Descartar", "action": "discard", "groupId": null }
+       { "label": "Fran y Guada · $2.250 c/u", "action": "confirm", "groupId": 3 },
+       { "label": "Personal · todo tuyo", "action": "confirm", "groupId": 9 },
+       { "label": "Editar en la app", "action": "keep", "groupId": null },
+       { "label": "Cancelar", "action": "discard", "groupId": null }
      ],
      "message": null
    }
    ```
 
+   `warning` es `null` cuando no hay nada parecido. **El atajo ramifica siempre por `action`, nunca por el texto del `label`**: los labels cambian según el grupo, el monto y el copy.
+
 5. **Si `data.status` es `"unreadable"`**: no se pudo leer. El borrador queda guardado sin monto (y te llega un push). Hacé **Mostrar notificación** con `data.message` y **Detener** el atajo.
-6. **Elegir del menú**, con prompt `data.summary` (si `data.warning` no es nulo, sumalo al prompt). Los ítems del menú son los `label` de `data.actions`.
-7. **Según la acción elegida** (`action` del ítem elegido), un **Obtener contenido de URL** más, con el mismo encabezado `Authorization`:
-   - `confirm`: `POST {BASE}/api/v1/quick-capture/{draftId}/confirm`, cuerpo JSON `{"groupId": <groupId del ítem>}`. Crea el gasto en ese grupo: división igual entre todos los miembros actuales, pagás vos.
+6. **Elegir de la lista** (no "Elegir del menú": sus ítems son fijos al armar el atajo y acá son dinámicos). Receta:
+   1. **Repetir con cada uno** de `data.actions`: **Agregar a variable** `etiquetas` con el `label` de cada uno.
+   2. **Elegir de la lista** `etiquetas`, con prompt `data.summary` (y, si `data.warning` no es nulo, un salto de línea y `data.warning`). Guarda la elección como `elegido`.
+   3. **Repetir con cada uno** de `data.actions` otra vez: **Si** `label` es igual a `elegido`, **Establecer variable** `accion` = `action` y `grupo` = `groupId`.
+
+   Esta receta todavía no se verificó en un dispositivo; probala antes de darla por buena.
+7. **Según `accion`** (un **Si** por valor), un **Obtener contenido de URL** más, con el mismo encabezado `Authorization`:
+   - `confirm`: `POST {BASE}/api/v1/quick-capture/{draftId}/confirm`, cuerpo JSON `{"groupId": <grupo>}`. Crea el gasto en ese grupo: división igual entre todos los miembros actuales, pagás vos.
    - `keep`: `POST {BASE}/api/v1/quick-capture/{draftId}/keep`. Lo deja en borradores para revisarlo en la app (te llega un push).
    - `discard`: `DELETE {BASE}/api/v1/quick-capture/{draftId}`. Borra el borrador y su imagen.
 
    En los tres casos la respuesta es `{ "data": { "message": "..." } }`.
 8. **Mostrar notificación** con `data.message`. Si la solicitud falló (código distinto de 2xx), mostrá el `detail` del error. Casos que vas a ver:
-   - `401`: token revocado o regenerado; generá uno nuevo y reimportá/actualizá el atajo.
+   - `401`: token revocado o regenerado; generá uno nuevo y actualizá el atajo.
    - `404`: el borrador no existe o no es tuyo.
    - `409`: ya estaba resuelto (por ejemplo, tocaste dos veces) o el mes de ese gasto ya está saldado en el grupo elegido. No se crea nada; en el caso del mes saldado el borrador sigue pendiente.
-   - `400`: el archivo no es una imagen o está vacío (no se guarda nada), o el borrador no tiene monto.
+   - `400`: el archivo no es una imagen o está vacío (no se guarda nada); en confirmar, el borrador no tiene monto, "Ese grupo no está disponible", o se quiso cargar un gasto en crédito en un grupo de una sola vez.
 
 ## Asignarlo a Toque posterior
 
