@@ -14,6 +14,7 @@ from template.adapters.repositories import (
     RecurringGroupExpenseRepository,
     RecurringPersonalExpenseRepository,
     SearchRepository,
+    ShortcutTokenRepository,
     SQLAlchemyExpenseRepository,
 )
 from template.domain.models.expense_manager import ExpenseManager
@@ -23,7 +24,9 @@ from template.service_layer.group_service import GroupService
 from template.service_layer.member_service import MemberService
 from template.service_layer.occasion_service import OccasionService
 from template.service_layer.personal_ledger_service import PersonalLedgerService
+from template.service_layer.quick_capture_service import QuickCaptureService
 from template.service_layer.search_service import SearchService
+from template.service_layer.shortcut_token_service import ShortcutTokenService
 from template.service_layer.whatsapp_client import MetaWhatsAppClient, WhatsAppClient
 
 
@@ -167,3 +170,13 @@ def get_recurring_group_expense_materializer(
         )
 
     return _materialize
+
+
+def get_shortcut_token_service(db: Session = Depends(get_db)) -> ShortcutTokenService:
+    """Get the shortcut token service."""
+    return ShortcutTokenService(ShortcutTokenRepository(db))
+
+
+def get_quick_capture_service(db: Session = Depends(get_db)) -> QuickCaptureService:
+    """Get the quick-capture (iOS shortcut) service."""
+    return QuickCaptureService(db)

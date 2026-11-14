@@ -5,13 +5,19 @@ from sqlalchemy.orm import Session
 
 from template.adapters.database import get_db
 from template.adapters.repositories import MemberRepository
+from template.dependencies import get_shortcut_token_service
 from template.domain.schema_model import ResponseModel
 from template.domain.schemas.member import MemberResponse, MemberUpdate, PasswordUpdate
+from template.domain.schemas.quick_capture import (
+    ShortcutTokenIssued,
+    ShortcutTokenStatus,
+)
 from template.service_layer.auth_service import (
     AuthService,
     get_auth_service,
     get_current_member,
 )
+from template.service_layer.shortcut_token_service import ShortcutTokenService
 
 router = APIRouter(prefix="/members", tags=["Members"])
 
@@ -102,3 +108,40 @@ def update_password(
             last_wpp_chat_datetime=updated_member.last_wpp_chat_datetime,
         )
     )
+
+
+@router.get("/me/shortcut-token", response_model=ResponseModel[ShortcutTokenStatus])
+def get_shortcut_token_status(
+    current_member=Depends(get_current_member),
+    service: ShortcutTokenService = Depends(get_shortcut_token_service),
+) -> ResponseModel[ShortcutTokenStatus]:
+    """Whether the member has an active shortcut token (never the token itself)."""
+    token = service.status(current_member.id)
+    if token is None:
+        return ResponseModel(data=ShortcutTokenStatus(connected=False))
+    return ResponseModel(
+        data=ShortcutTokenStatus(
+            connected=True, prefix=token.prefix, created_at=token.created_at, last_used_at=token.last_used_at
+        )
+    )
+
+
+@router.post(
+    "/me/shortcut-token", status_code=status.HTTP_201_CREATED, response_model=ResponseModel[ShortcutTokenIssued]
+)
+def issue_shortcut_token(
+    current_member=Depends(get_current_member),
+    service: ShortcutTokenService = Depends(get_shortcut_token_service),
+) -> ResponseModel[ShortcutTokenIssued]:
+    """Mint a shortcut token (revokes the previous one). The plain token is shown only once."""
+    raw, model = service.issue(current_member.id)
+    return ResponseModel(data=ShortcutTokenIssued(token=raw, prefix=model.prefix, created_at=model.created_at))
+
+
+@router.delete("/me/shortcut-token", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_shortcut_token(
+    current_member=Depends(get_current_member),
+    service: ShortcutTokenService = Depends(get_shortcut_token_service),
+) -> None:
+    """Revoke the member's shortcut token."""
+    service.revoke(current_member.id)

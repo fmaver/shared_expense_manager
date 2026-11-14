@@ -13,12 +13,19 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    column_property,
+    mapped_column,
+    relationship,
+)
 
 from template.domain.models.enums import (
     InvitationChannel,
@@ -437,3 +444,47 @@ class DueDateReminderModel(Base):
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
     due_on: Mapped[date] = mapped_column(Date)
     sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ExpenseDraftModel(Base):
+    """Un gasto leído de una captura o foto, a la espera de que la persona lo confirme."""
+
+    __tablename__ = "expense_drafts"
+    __table_args__ = (Index("ix_expense_drafts_member_status", "member_id", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    amount: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    expense_date: Mapped[Optional[date]] = mapped_column(Date(), nullable=True)
+    payment_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    installments: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    suggested_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("groups.id", ondelete="SET NULL"), nullable=True
+    )
+    # Deferred: listing and the pending push read every pending draft, and only the image
+    # endpoint needs the bytes. `has_image` answers from SQL without loading them.
+    image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    image_mime: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    has_image: Mapped[bool] = column_property(image.isnot(None))
+    expense_id: Mapped[Optional[int]] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class ShortcutTokenModel(Base):
+    """Token opaco del atajo de iOS. Solo se guarda el hash; uno activo por miembro."""
+
+    __tablename__ = "shortcut_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    prefix: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

@@ -14,6 +14,7 @@ import pytest
 from template.service_layer.expense_draft_service import (
     MAX_IMAGE_BYTES,
     build_expense_draft,
+    validate_image,
 )
 from template.service_layer.image_expense_parser import ParsedImageExpense
 
@@ -46,6 +47,20 @@ def test_rejects_a_non_image():
         with pytest.raises(ValueError):
             build_expense_draft(b"%PDF-1.4", "application/pdf")
         parser.assert_not_called()
+
+
+@pytest.mark.parametrize("mime", ["image/svg+xml", "image/x-icon", "image/bmp", "image/", "text/html"])
+def test_rejects_image_types_outside_the_raster_allow_list(mime):
+    """Drafts are stored and served back with their type: an SVG could carry script."""
+    with pytest.raises(ValueError):
+        validate_image(b"<svg/>", mime)
+
+
+@pytest.mark.parametrize(
+    "mime", ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif", "IMAGE/JPEG"]
+)
+def test_accepts_raster_photo_and_screenshot_types(mime):
+    validate_image(b"bytes", mime)
 
 
 def test_rejects_an_oversized_image():

@@ -16,6 +16,7 @@ from template.adapters.orm import (
     ChatSessionModel,
     DueDateModel,
     DueDateReminderModel,
+    ExpenseDraftModel,
     ExpenseModel,
     GroupJoinLinkModel,
     GroupMembershipModel,
@@ -31,6 +32,7 @@ from template.adapters.orm import (
     RecurringIncomeModel,
     RecurringPersonalExpenseInstanceModel,
     RecurringPersonalExpenseModel,
+    ShortcutTokenModel,
 )
 from template.domain.models.category import Category
 from template.domain.models.enums import (
@@ -715,6 +717,24 @@ class SQLAlchemyExpenseRepository(ExpenseRepository):
                 matches[e.id] = e
 
         return [self._to_domain_expense(e) for e in matches.values()]
+
+    def count_recent_expenses_by_group(
+        self, payer_id: int, since: date, category: Optional[str] = None
+    ) -> Dict[int, int]:
+        """Purchases per group since a date, to rank where a new expense probably belongs.
+
+        Counts only first installments (one row per purchase) and skips internal categories.
+        """
+        purchases = func.count(ExpenseModel.id)  # pylint: disable=not-callable
+        query = self.session.query(ExpenseModel.group_id, purchases).filter(
+            ExpenseModel.payer_id == payer_id,
+            ExpenseModel.installment_no == 1,
+            ExpenseModel.date >= since,
+            ExpenseModel.category.notin_(["balance", "prestamo"]),
+        )
+        if category is not None:
+            query = query.filter(ExpenseModel.category == category)
+        return dict(query.group_by(ExpenseModel.group_id).all())
 
 
 _DEFAULT_EXPENSE_DATA: Dict = {
@@ -2257,3 +2277,88 @@ class SearchRepository:
             .order_by(instance.year.desc(), instance.month.desc(), instance.id.desc())
             .all()
         )
+
+
+class ExpenseDraftRepository:
+    """Borradores de gasto de carga rápida, siempre acotados a su dueño."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def add(self, model: ExpenseDraftModel) -> ExpenseDraftModel:
+        """Insert (flush only; the caller commits)."""
+        self.session.add(model)
+        self.session.flush()
+        return model
+
+    def get_owned(self, draft_id: int, member_id: int) -> Optional[ExpenseDraftModel]:
+        """The draft, or None when it does not exist or belongs to someone else."""
+        return (
+            self.session.query(ExpenseDraftModel)
+            .filter(ExpenseDraftModel.id == draft_id, ExpenseDraftModel.member_id == member_id)
+            .first()
+        )
+
+    def get_owned_for_update(self, draft_id: int, member_id: int) -> Optional[ExpenseDraftModel]:
+        """Same as get_owned but locks the row, so two confirms take turns."""
+        return (
+            self.session.query(ExpenseDraftModel)
+            .filter(ExpenseDraftModel.id == draft_id, ExpenseDraftModel.member_id == member_id)
+            .with_for_update()
+            .first()
+        )
+
+    def list_pending(self, member_id: int) -> list[ExpenseDraftModel]:
+        """Pending drafts, oldest first."""
+        return (
+            self.session.query(ExpenseDraftModel)
+            .filter(ExpenseDraftModel.member_id == member_id, ExpenseDraftModel.status == "pending")
+            .order_by(ExpenseDraftModel.created_at, ExpenseDraftModel.id)
+            .all()
+        )
+
+    def commit(self) -> None:
+        """Commit the session."""
+        self.session.commit()
+
+
+class ShortcutTokenRepository:
+    """Tokens del atajo: opacos, hasheados, uno activo por miembro."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_active(self, member_id: int) -> Optional[ShortcutTokenModel]:
+        """The member's current token, if any."""
+        return (
+            self.session.query(ShortcutTokenModel)
+            .filter(ShortcutTokenModel.member_id == member_id, ShortcutTokenModel.revoked_at.is_(None))
+            .first()
+        )
+
+    def find_active_by_hash(self, token_hash: str) -> Optional[ShortcutTokenModel]:
+        """Resolve a presented token (already hashed) to its row; revoked tokens never match."""
+        return (
+            self.session.query(ShortcutTokenModel)
+            .filter(ShortcutTokenModel.token_hash == token_hash, ShortcutTokenModel.revoked_at.is_(None))
+            .first()
+        )
+
+    def revoke_all(self, member_id: int) -> None:
+        """Revoke every active token of the member (regenerating revokes the old one)."""
+        self.session.query(ShortcutTokenModel).filter(
+            ShortcutTokenModel.member_id == member_id, ShortcutTokenModel.revoked_at.is_(None)
+        ).update({ShortcutTokenModel.revoked_at: datetime.utcnow()}, synchronize_session=False)
+
+    def add(self, model: ShortcutTokenModel) -> None:
+        """Insert (flush only; the caller commits)."""
+        self.session.add(model)
+        self.session.flush()
+
+    def touch(self, model: ShortcutTokenModel) -> None:
+        """Record that the token was just used."""
+        model.last_used_at = datetime.utcnow()
+
+    def commit(self) -> None:
+        """Commit the session."""
+        self.session.commit()

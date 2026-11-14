@@ -162,8 +162,13 @@ class PushService:
     def __init__(self, session: Session):
         self._repo = PushSubscriptionRepository(session)
 
-    def send_to_member(self, member_id: int, title: str, body: str, url: str) -> None:
+    def send_to_member(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, member_id: int, title: str, body: str, url: str, tag: Optional[str] = None
+    ) -> None:
         """Deliver to every device this member registered.
+
+        `tag` lets the service worker replace an earlier notification with the same tag instead of
+        stacking a new one; it is only sent when given.
 
         Never raises: a notification failing must not fail the action that triggered it. Each
         device is attempted independently, so one stale laptop subscription cannot cost the
@@ -174,7 +179,10 @@ class PushService:
             logger.warning("VAPID_PRIVATE_KEY not set — web push disabled")
             return
 
-        payload = json.dumps({"title": title, "body": body, "url": url})
+        message = {"title": title, "body": body, "url": url}
+        if tag:
+            message["tag"] = tag
+        payload = json.dumps(message)
         claims = {"sub": os.getenv("VAPID_SUBJECT", "mailto:noreply@jirens.app")}
 
         for subscription in self._repo.list_for_member(member_id):
@@ -193,7 +201,9 @@ class PushService:
             except Exception as exc:  # pylint: disable=broad-except
                 logger.warning("Push delivery failed for %s: %s", subscription.endpoint, exc)
 
-    def send_if_subscribed(self, member_id: int, title: str, body: str, url: str) -> bool:
+    def send_if_subscribed(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, member_id: int, title: str, body: str, url: str, tag: Optional[str] = None
+    ) -> bool:
         """Deliver only if this member has a registered device. True when it was sent.
 
         Callers that route between channels need the answer, not just the send: they fall
@@ -202,7 +212,7 @@ class PushService:
         """
         if not self._repo.has_any(member_id):
             return False
-        self.send_to_member(member_id, title, body, url)
+        self.send_to_member(member_id, title, body, url, tag=tag)
         return True
 
     def _handle_failure(self, endpoint: str, exc: WebPushException) -> None:
