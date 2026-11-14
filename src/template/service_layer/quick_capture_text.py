@@ -7,7 +7,7 @@ them and builds the strings the shortcut shows.
 from dataclasses import dataclass
 
 from template.domain.models.category import Category
-from template.domain.models.formatters import format_amount_es, format_payment_type_es
+from template.domain.models.formatters import format_amount_es
 
 MAX_OPTIONS = 2
 
@@ -53,6 +53,13 @@ def option_label(candidate: GroupCandidate, amount: float, currency: str) -> str
     return f"{candidate.name} · {_money(share, currency)} c/u"
 
 
+def payment_text(payment_type: str, installments: int) -> str:
+    """Lowercase, as the shortcut shows it: "débito", "crédito", "crédito · 3 cuotas"."""
+    if payment_type in ("credit", "credito", "crédito"):
+        return f"crédito · {installments} cuotas" if installments > 1 else "crédito"
+    return "débito"
+
+
 def summary_text(  # pylint: disable=too-many-arguments
     *,
     category: str,
@@ -64,7 +71,7 @@ def summary_text(  # pylint: disable=too-many-arguments
 ) -> str:
     """One-line summary of the draft shown before confirming."""
     emoji = Category.get_category_emoji(category)
-    pago = format_payment_type_es(payment_type, installments)
+    pago = payment_text(payment_type, installments)
     lead = f"{emoji} " if emoji else ""
     return f"{lead}{description} · {_money(amount, currency)} · pagaste vos · {pago}"
 

@@ -32,6 +32,9 @@ PUBLIC_PREFIXES = (
     "/readiness",
 )
 
+# The iOS shortcut authenticates with its personal token instead of a JWT, and only here.
+SHORTCUT_PREFIX = "/api/v1/quick-capture"
+
 
 def _depends_on(endpoint, *guards) -> bool:
     """True if any parameter of the endpoint resolves through one of `guards`."""
@@ -73,8 +76,31 @@ def test_no_unexpected_public_routes(test_client):
         endpoint = getattr(route, "endpoint", None)
         if endpoint is None or path.startswith(PUBLIC_PREFIXES) or path in ("/", ""):
             continue
-        # The iOS shortcut routes authenticate with the personal shortcut token instead of a JWT.
-        if not _depends_on(endpoint, get_current_member, get_shortcut_member):
+        guards = (get_shortcut_member,) if path.startswith(SHORTCUT_PREFIX) else (get_current_member,)
+        if not _depends_on(endpoint, *guards):
             unguarded.append(f"{sorted(route.methods)[0]} {path}")
 
     assert unguarded == [], f"unexpected unguarded routes: {unguarded}"
+
+
+def test_shortcut_token_is_accepted_only_under_quick_capture(test_client):
+    """The shortcut token never opens a route outside its prefix, and those routes take no JWT.
+
+    The token lives in a phone's shortcut and cannot expire, so what it can reach is kept to
+    the capture flow on purpose.
+    """
+    leaked, mixed = [], []
+    for route in test_client.app.routes:
+        path = getattr(route, "path", "")
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint is None:
+            continue
+        name = f"{sorted(route.methods)[0]} {path}"
+        if path.startswith(SHORTCUT_PREFIX):
+            if _depends_on(endpoint, get_current_member):
+                mixed.append(name)
+        elif _depends_on(endpoint, get_shortcut_member):
+            leaked.append(name)
+
+    assert leaked == [], f"routes outside {SHORTCUT_PREFIX} accepting the shortcut token: {leaked}"
+    assert mixed == [], f"quick-capture routes depending on the JWT login: {mixed}"

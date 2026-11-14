@@ -24,7 +24,15 @@ from template.service_layer.image_expense_parser import parse_image_expense
 # Comfortably above a phone screenshot, well below anything worth paying an LLM call for.
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-_ALLOWED_MIME_PREFIX = "image/"
+# Raster photo and screenshot types only. Quick-capture drafts store the upload and serve it back
+# with its declared type, so a vector type that can carry script (image/svg+xml) is refused.
+# gif stays because the parse-image endpoint shares this check and already accepted it.
+ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif")
+
+
+def normalise_mime(mime_type: str) -> str:
+    """`IMAGE/JPEG; charset=x` -> `image/jpeg`."""
+    return (mime_type or "").split(";", 1)[0].strip().lower()
 
 
 @dataclass
@@ -48,7 +56,7 @@ def validate_image(image_bytes: bytes, mime_type: str) -> None:
     """
     if not image_bytes:
         raise ValueError("The image is empty")
-    if not mime_type or not mime_type.startswith(_ALLOWED_MIME_PREFIX):
+    if normalise_mime(mime_type) not in ALLOWED_IMAGE_TYPES:
         raise ValueError("Only images can be parsed")
     if len(image_bytes) > MAX_IMAGE_BYTES:
         raise ValueError("The image is too large — under 8 MB, please")

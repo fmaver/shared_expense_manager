@@ -19,7 +19,13 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    column_property,
+    mapped_column,
+    relationship,
+)
 
 from template.domain.models.enums import (
     InvitationChannel,
@@ -460,8 +466,11 @@ class ExpenseDraftModel(Base):
     suggested_group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("groups.id", ondelete="SET NULL"), nullable=True
     )
-    image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    # Deferred: listing and the pending push read every pending draft, and only the image
+    # endpoint needs the bytes. `has_image` answers from SQL without loading them.
+    image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
     image_mime: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    has_image: Mapped[bool] = column_property(image.isnot(None))
     expense_id: Mapped[Optional[int]] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

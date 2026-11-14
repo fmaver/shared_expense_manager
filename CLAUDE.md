@@ -237,14 +237,14 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /{expense_id}/parent`
 
 **Quick capture** `/api/v1/quick-capture` — iOS Shortcut; auth is the **shortcut token** (`jrn_...`, opaque, SHA-256 stored, not a JWT; revoked/regenerated → 401 everywhere). Setup guide: `docs/quick-capture-shortcut.md`
-- `POST /` — multipart `file`; stores the image as a pending `ExpenseDraft`, reads it, answers `{draftId, status: read|unreadable, summary, warning, actions[{label, action: confirm|keep|discard, groupId}], message}`. Never creates the expense. Not an image / empty → 400 with no draft saved; unreadable → pending draft without amount + push
+- `POST /` — multipart `file`; stores the image as a pending `ExpenseDraft`, reads it, answers `{draftId, status: read|unreadable, summary, warning, actions[{label, action: confirm|keep|discard, groupId}], message}`. Never creates the expense. Not an allow-listed raster image (jpeg/png/webp/heic/heif/gif — no SVG; `validate_image`, shared with parse-image) / empty → 400 with no draft saved; unreadable → pending draft without amount + push
 - `POST /{draft_id}/confirm` `{groupId}` — creates the expense (equal split among current members, payer = owner); answers `{message}`. Already resolved → 409 (double tap creates one expense); settled month → 409, draft stays pending
-- `POST /{draft_id}/keep` — leave pending + push (`tag=drafts-pending`, `url=/drafts`); `DELETE /{draft_id}` — discard (image → NULL)
+- `POST /{draft_id}/keep` — leave pending + push (already resolved → 409) (`tag=drafts-pending`, `url=/drafts`); `DELETE /{draft_id}` — discard (image → NULL)
 - Someone else's draft → 404
 
 **Drafts** `/api/v1/drafts` — the PWA's side of the same table; normal JWT
 - `POST /` — "Dejar para después": multipart `file`, 201 `DraftResponse`, no push
-- `GET /` — pending drafts, oldest first; `GET /{id}/image` — raw bytes (outside the `{data}` envelope)
+- `GET /` — pending drafts, oldest first; `GET /{id}/image` — raw bytes (outside the `{data}` envelope), `nosniff` + `Cache-Control: private, no-store`
 - `POST /{id}/confirm` `{groupId}` — same creation path, answers `ExpenseResponse`; `POST /{id}/resolve` (204) — the app saved through its form, close the draft; `DELETE /{id}` (204) — discard
 
 **Monthly Shares** `/api/v1/groups/{group_id}/shares`

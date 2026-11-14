@@ -47,6 +47,7 @@ def test_list_only_my_pending_drafts(client, auth_headers, primary_group_id, sec
     assert data[0]["hasImage"] is True
     assert data[0]["suggestedGroupId"] == primary_group_id
     assert data[0]["suggestedGroupName"] == "Test Group"
+    assert data[0]["createdAt"].endswith(("Z", "+00:00")), data[0]["createdAt"]
     assert len(client.get(URL, headers=other).json()["data"]) == 1
 
 
@@ -57,8 +58,19 @@ def test_image_endpoint_returns_bytes_and_404_for_others(client, auth_headers, s
     assert r.status_code == 200
     assert r.content == PNG
     assert r.headers["content-type"] == "image/png"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "private, no-store"
     assert client.get(f"{URL}/{draft_id}/image", headers=_other_jwt_headers(client)).status_code == 404
     assert client.get(f"{URL}/99999/image", headers=auth_headers).status_code == 404
+
+
+def test_save_for_later_rejects_svg_without_saving(client, auth_headers):
+    with patch(PARSER) as parser:
+        r = client.post(URL, files={"file": ("x.svg", b"<svg onload='x'/>", "image/svg+xml")}, headers=auth_headers)
+
+    assert r.status_code == 400
+    parser.assert_not_called()
+    assert _count("SELECT count(*) FROM expense_drafts") == 0
 
 
 def test_resolve_then_list_is_empty_and_image_is_cleared(client, auth_headers):
@@ -71,6 +83,7 @@ def test_resolve_then_list_is_empty_and_image_is_cleared(client, auth_headers):
     row = _draft_row(draft_id)
     assert row.status == "confirmed"
     assert row.image is None
+    assert row.image_mime is None
     assert row.resolved_at is not None
     assert row.expense_id is None
     assert client.get(f"{URL}/{draft_id}/image", headers=auth_headers).status_code == 404

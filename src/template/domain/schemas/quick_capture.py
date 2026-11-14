@@ -1,23 +1,37 @@
 """Esquemas de carga rápida (atajo de iOS y borradores). camelCase en el cable."""
 
 import datetime as dt
-from datetime import datetime
-from typing import Literal, Optional
+from datetime import datetime, timezone
+from typing import Annotated, Literal, Optional
+
+from pydantic import AfterValidator
 
 from template.domain.schema_model import CamelCaseModel
+
+
+def _as_utc(value: datetime) -> datetime:
+    """The ORM keeps these as naive UTC (`datetime.utcnow`): label them, convert aware ones."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+# Sent with an explicit offset ("...Z"): without one the browser reads the value as local time
+# and "hace X" comes out shifted by the viewer's UTC offset.
+UtcDateTime = Annotated[datetime, AfterValidator(_as_utc)]
 
 
 class ShortcutTokenStatus(CamelCaseModel):
     connected: bool
     prefix: Optional[str] = None
-    created_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None
+    created_at: Optional[UtcDateTime] = None
+    last_used_at: Optional[UtcDateTime] = None
 
 
 class ShortcutTokenIssued(CamelCaseModel):
     token: str
     prefix: str
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class QuickCaptureAction(CamelCaseModel):
@@ -64,4 +78,4 @@ class DraftResponse(CamelCaseModel):
     suggested_group_id: Optional[int] = None
     suggested_group_name: Optional[str] = None
     has_image: bool
-    created_at: datetime
+    created_at: UtcDateTime

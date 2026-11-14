@@ -60,7 +60,9 @@ def _count(sql: str, **params) -> int:
 def _draft_row(draft_id: int):
     with SessionLocal() as session:
         return session.execute(
-            text("SELECT status, amount, image, expense_id, resolved_at FROM expense_drafts WHERE id = :id"),
+            text(
+                "SELECT status, amount, image, image_mime, expense_id, resolved_at FROM expense_drafts WHERE id = :id"
+            ),
             {"id": draft_id},
         ).one()
 
@@ -97,7 +99,7 @@ def test_capture_returns_summary_and_group_actions_without_creating(client, auth
     assert r.status_code == 200, r.text
     data = r.json()["data"]
     assert data["status"] == "read"
-    assert data["summary"] == "🛒 Supermercado La Esquina · $5.000 · pagaste vos · Débito"
+    assert data["summary"] == "🛒 Supermercado La Esquina · $5.000 · pagaste vos · débito"
     assert data["warning"] is None
     assert data["message"] is None
     personal_id = _personal_group_id(client, auth_headers)
@@ -128,6 +130,31 @@ def test_capture_rejects_non_image_without_saving(client, auth_headers):
     assert empty.status_code == 400
     parser.assert_not_called()
     assert _count("SELECT count(*) FROM expense_drafts") == 0
+
+
+def test_capture_rejects_svg_without_saving(client, auth_headers):
+    headers = _shortcut_headers(client, auth_headers)
+
+    with patch(PARSER) as parser:
+        r = client.post(URL, files={"file": ("x.svg", b"<svg onload='x'/>", "image/svg+xml")}, headers=headers)
+
+    assert r.status_code == 400
+    parser.assert_not_called()
+    assert _count("SELECT count(*) FROM expense_drafts") == 0
+
+
+def test_keep_on_a_resolved_draft_is_409(client, auth_headers):
+    headers = _shortcut_headers(client, auth_headers)
+    draft_id = _capture(client, headers).json()["data"]["draftId"]
+    client.delete(f"{URL}/{draft_id}", headers=headers)
+
+    with patch(SEND_IF_SUBSCRIBED, return_value=True) as push:
+        r = client.post(f"{URL}/{draft_id}/keep", headers=headers)
+
+    assert r.status_code == 409
+    assert r.json()["detail"] == "Ese borrador ya se resolvió"
+    push.assert_not_called()
+    assert _draft_row(draft_id).status == "discarded"
 
 
 def test_unreadable_capture_keeps_draft_and_pushes(client, auth_headers, primary_group_id, primary_member_id):
@@ -340,6 +367,7 @@ def test_keep_pushes_and_discard_clears_image(client, auth_headers):
     row = _draft_row(draft_id)
     assert row.status == "discarded"
     assert row.image is None
+    assert row.image_mime is None  # cleared together with the image
     assert row.resolved_at is not None
 
 

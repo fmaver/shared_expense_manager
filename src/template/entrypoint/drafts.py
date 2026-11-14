@@ -46,9 +46,17 @@ def get_image(
     member: Member = Depends(get_current_member),
     service: QuickCaptureService = Depends(get_quick_capture_service),
 ) -> Response:
-    """The draft's image, as raw bytes (outside the `{data}` envelope)."""
+    """The draft's image, as raw bytes (outside the `{data}` envelope).
+
+    `nosniff` keeps the browser on the declared (allow-listed raster) type, and `no-store`
+    keeps someone's receipt out of shared caches and off disk once it is resolved.
+    """
     content, mime = service.get_image(member, draft_id)
-    return Response(content=content, media_type=mime)
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+    )
 
 
 @router.post("/{draft_id}/confirm", response_model=ResponseModel[ExpenseResponse])

@@ -63,9 +63,26 @@ def test_summary_and_warning():
         payment_type="debit",
         installments=1,
     )
-    assert summary == "🛒 Pizza · $2.500 · pagaste vos · Débito"
+    assert summary == "🛒 Pizza · $2.500 · pagaste vos · débito"
     warning = similar_warning("Pizza", 2500.5, "ARS")
     assert warning == "⚠️ Parecido a uno que ya cargaste: $2.500,50 Pizza"
+
+
+def test_summary_payment_wording_is_lowercase():
+    def pago(payment_type: str, installments: int) -> str:
+        text = summary_text(
+            category="otros",
+            description="Nafta",
+            amount=100,
+            currency="ARS",
+            payment_type=payment_type,
+            installments=installments,
+        )
+        return text.split("pagaste vos · ", 1)[1]
+
+    assert pago("debit", 1) == "débito"
+    assert pago("credit", 1) == "crédito"
+    assert pago("credit", 3) == "crédito · 3 cuotas"
 
 
 def test_push_body():

@@ -47,6 +47,7 @@ from template.domain.schemas.quick_capture import (
 from template.service_layer.expense_creation import create_expense_with_effects
 from template.service_layer.expense_draft_service import (
     build_expense_draft,
+    normalise_mime,
     validate_image,
 )
 from template.service_layer.expense_service import ExpenseService
@@ -149,6 +150,7 @@ class QuickCaptureService:
         Returns the draft and its ranked group options, or None for options when the image
         could not be read (no amount). Shared by the shortcut and the app's "Dejar para después".
         """
+        mime = normalise_mime(mime)
         try:
             validate_image(image, mime)
         except ValueError as exc:
@@ -293,6 +295,7 @@ class QuickCaptureService:
 
         draft.expense_id = response.id
         draft.image = None
+        draft.image_mime = None
         self._drafts.commit()
         return response
 
@@ -312,8 +315,9 @@ class QuickCaptureService:
         draft = self._drafts.get_owned(draft_id, member.id)
         if draft is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
-        if draft.status == PENDING:
-            self.notify_pending(member.id)
+        if draft.status != PENDING:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_RESOLVED)
+        self.notify_pending(member.id)
 
     def discard(self, member: Member, draft_id: int) -> None:
         """Drop a pending draft and its image. Discarding twice is a no-op."""
@@ -329,6 +333,7 @@ class QuickCaptureService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_RESOLVED)
         draft.status = DISCARDED
         draft.image = None
+        draft.image_mime = None
         draft.resolved_at = datetime.utcnow()
         self._drafts.commit()
 
@@ -363,6 +368,7 @@ class QuickCaptureService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_RESOLVED)
         draft.status = CONFIRMED
         draft.image = None
+        draft.image_mime = None
         draft.resolved_at = datetime.utcnow()
         self._drafts.commit()
 
@@ -388,7 +394,7 @@ class QuickCaptureService:
             confidence=draft.confidence,
             suggested_group_id=draft.suggested_group_id,
             suggested_group_name=names.get(draft.suggested_group_id) if draft.suggested_group_id else None,
-            has_image=bool(draft.image),
+            has_image=draft.has_image,
             created_at=draft.created_at,
         )
 

@@ -3,6 +3,7 @@
 from datetime import date, datetime, timedelta
 
 import pytest
+from sqlalchemy import inspect
 
 from template.adapters.database import SessionLocal
 from template.adapters.orm import (
@@ -46,6 +47,27 @@ def test_pending_drafts_are_owned_and_ordered(session):
 
     assert [d.id for d in repo.list_pending(a.id)] == [older.id, newer.id]
     assert len(repo.list_pending(b.id)) == 1
+
+
+def test_list_pending_does_not_load_image_bytes(session):
+    """Listing (and every push) reads the drafts; the images stay in the database."""
+    a = _member(session, "a@x.com")
+    member_id = a.id
+    repo = ExpenseDraftRepository(session)
+    with_image = repo.add(ExpenseDraftModel(member_id=a.id, image=b"bytes", image_mime="image/png"))
+    without = repo.add(ExpenseDraftModel(member_id=a.id))
+    repo.commit()
+    with_image_id, without_id = with_image.id, without.id
+    session.expunge_all()
+
+    drafts = {d.id: d for d in repo.list_pending(member_id)}
+
+    for draft in drafts.values():
+        assert "image" in inspect(draft).unloaded
+    assert drafts[with_image_id].has_image is True
+    assert drafts[without_id].has_image is False
+    assert all("image" in inspect(d).unloaded for d in drafts.values())  # has_image loaded no bytes
+    assert bytes(repo.get_owned(with_image_id, member_id).image) == b"bytes"
 
 
 def test_get_owned_hides_other_members_drafts(session):
