@@ -41,11 +41,10 @@ class ExpenseDraft:  # pylint: disable=too-many-instance-attributes
     confidence: str
 
 
-def build_expense_draft(image_bytes: bytes, mime_type: str) -> ExpenseDraft:
-    """Parse an uploaded image into a draft expense.
+def validate_image(image_bytes: bytes, mime_type: str) -> None:
+    """Refuse an upload that is obviously not worth storing or sending to the model.
 
-    Raises ValueError with a message meant for the user when the upload is unusable or the
-    model cannot read it.
+    Raises ValueError with a message meant for the user.
     """
     if not image_bytes:
         raise ValueError("The image is empty")
@@ -53,6 +52,15 @@ def build_expense_draft(image_bytes: bytes, mime_type: str) -> ExpenseDraft:
         raise ValueError("Only images can be parsed")
     if len(image_bytes) > MAX_IMAGE_BYTES:
         raise ValueError("The image is too large — under 8 MB, please")
+
+
+def build_expense_draft(image_bytes: bytes, mime_type: str) -> ExpenseDraft:
+    """Parse an uploaded image into a draft expense.
+
+    Raises ValueError with a message meant for the user when the upload is unusable or the
+    model cannot read it.
+    """
+    validate_image(image_bytes, mime_type)
 
     # Internal categories (balance, prestamo) are never offered: the model can only pick from
     # what it is given, and those two must never be chosen for a user-entered expense.

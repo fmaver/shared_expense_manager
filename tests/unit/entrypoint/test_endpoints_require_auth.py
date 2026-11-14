@@ -12,6 +12,7 @@ fails the moment a new group-scoped endpoint is added without a guard.
 import inspect
 
 from template.service_layer.auth_service import get_current_member
+from template.service_layer.shortcut_token_service import get_shortcut_member
 
 # Routes that are public by design.
 PUBLIC_PREFIXES = (
@@ -32,13 +33,18 @@ PUBLIC_PREFIXES = (
 )
 
 
-def _depends_on_current_member(endpoint) -> bool:
-    """True if any parameter of the endpoint resolves through get_current_member."""
+def _depends_on(endpoint, *guards) -> bool:
+    """True if any parameter of the endpoint resolves through one of `guards`."""
     for param in inspect.signature(endpoint).parameters.values():
         dependency = getattr(param.default, "dependency", None)
-        if dependency is get_current_member:
+        if dependency in guards:
             return True
     return False
+
+
+def _depends_on_current_member(endpoint) -> bool:
+    """True if any parameter of the endpoint resolves through get_current_member."""
+    return _depends_on(endpoint, get_current_member)
 
 
 def test_every_group_scoped_route_requires_authentication(test_client):
@@ -67,7 +73,8 @@ def test_no_unexpected_public_routes(test_client):
         endpoint = getattr(route, "endpoint", None)
         if endpoint is None or path.startswith(PUBLIC_PREFIXES) or path in ("/", ""):
             continue
-        if not _depends_on_current_member(endpoint):
+        # The iOS shortcut routes authenticate with the personal shortcut token instead of a JWT.
+        if not _depends_on(endpoint, get_current_member, get_shortcut_member):
             unguarded.append(f"{sorted(route.methods)[0]} {path}")
 
     assert unguarded == [], f"unexpected unguarded routes: {unguarded}"

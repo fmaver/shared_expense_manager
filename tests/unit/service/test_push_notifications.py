@@ -314,3 +314,21 @@ class TestSendIfSubscribed:
             assert service.send_if_subscribed(MEMBER_ID, "Viaje", "cuerpo", "/groups/1") is True
 
         webpush_mock.assert_called_once()
+
+
+def test_payload_includes_tag_only_when_given(populated_session):
+    """A tag lets a newer pending-drafts push replace the previous one instead of stacking."""
+    import json  # pylint: disable=import-outside-toplevel
+
+    _subscribe(populated_session, MEMBER_ID)
+    service = PushService(populated_session)
+
+    with patch("template.service_layer.push_service.webpush") as send:
+        service.send_to_member(MEMBER_ID, "Jirens", "cuerpo", "/drafts", tag="drafts-pending")
+        service.send_to_member(MEMBER_ID, "Jirens", "cuerpo", "/drafts")
+        service.send_if_subscribed(MEMBER_ID, "Jirens", "cuerpo", "/drafts", tag="drafts-pending")
+
+    tagged, untagged, routed = (json.loads(call.kwargs["data"]) for call in send.call_args_list)
+    assert tagged == {"title": "Jirens", "body": "cuerpo", "url": "/drafts", "tag": "drafts-pending"}
+    assert "tag" not in untagged
+    assert routed["tag"] == "drafts-pending"

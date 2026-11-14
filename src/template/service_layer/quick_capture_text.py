@@ -30,6 +30,11 @@ def _money(amount: float, currency: str) -> str:
     return f"US$ {text}" if currency == "USD" else f"${text}"
 
 
+def money_text(amount: float, currency: str) -> str:
+    """Public form of the shortcut's amount format, for texts built outside this module."""
+    return _money(amount, currency)
+
+
 def pick_options(candidates: list[GroupCandidate], payment_type: str) -> list[GroupCandidate]:
     """Up to two groups, ranked by recent use; the suggested one goes first."""
     pool = [c for c in candidates if not (payment_type == "credit" and c.group_type == "one_time")]

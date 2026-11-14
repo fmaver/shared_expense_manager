@@ -23,8 +23,11 @@ SCANNED = (SRC / "entrypoint", SRC / "service_layer")
 # Se excluye el módulo que las define: ahí los `notify_*` son declaraciones, no llamadas.
 EXCLUDED_FILES = {"notification_service.py"}
 
-# Notificaciones que deliberadamente no llegan a nadie que pueda tener una suscripción push.
-EXEMPT: set[str] = set()
+# Notificaciones que deliberadamente no llegan a nadie que pueda tener una suscripción push, o
+# que ya son push y nada más (no rutean entre canales, así que no reciben un push_service).
+EXEMPT: set[str] = {
+    "notify_pending",  # QuickCaptureService: el aviso de borradores pendientes es solo push
+}
 
 
 def _dispatch_sites():
