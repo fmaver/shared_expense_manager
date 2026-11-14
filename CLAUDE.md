@@ -145,6 +145,8 @@ tests/
 | `ChatSession` | telephone (PK), estado, expense_data (JSON), updated_at | DB-backed chatbot state; `group_id` stored here for multi-group users |
 | `ProcessedWhatsappMessage` | message_id (PK), processed_at | Idempotency table — prevents duplicate processing on Meta retries |
 | `Invitation` | id, token, group_id, stub_member_id, channel, status, expires_at | Pending invite; creates a stub `Member` on creation; accept upgrades stub to full member |
+| `ExpenseDraft` | id, member_id, status (pending/confirmed/discarded), amount?, description?, category?, date?, payment_type?, installments?, currency?, confidence?, image (bytea, NULL once resolved), image_mime, expense_id? | A screenshot read by the LLM, waiting for a person to confirm. Pending drafts never expire |
+| `ShortcutToken` | member_id, token_hash, prefix, created_at, last_used_at | iOS Shortcut credential: one active per member, `jrn_` + urlsafe, SHA-256 stored, no expiry |
 | `GroupJoinLink` | id, group_id, token, created_by_member_id | Shareable open-join URL; `rotate` invalidates old token |
 
 **Member bootstrapping** — `InitializationService` reads `MEMBERS_BOOTSTRAP_JSON` (a JSON array of `{name, email, telephone}` objects) and upserts by email on startup. If unset (production default), no seeding runs — existing rows (e.g. Fran at id=1, Guada at id=2 in prod) are untouched. New members register via `POST /api/v1/auth/register`.
@@ -227,11 +229,23 @@ All routes under `/api/v1` except monitor and webhook.
 - `GET /` — list all
 - `GET /me`, `PATCH /me` — current user profile (JWT required)
 - `POST /me/password` — change password
+- `GET /me/shortcut-token` — `{connected, prefix, createdAt, lastUsedAt}` (never the token); `POST /me/shortcut-token` — mint (201, plain `token` shown **once**, revokes the previous); `DELETE /me/shortcut-token` — revoke (204). JWT required
 
 **Expenses** `/api/v1/expenses`
 - `POST /` — create (fires WhatsApp/email notification via BackgroundTasks)
 - `GET /{expense_id}`, `PUT /{expense_id}`, `DELETE /{expense_id}`
 - `GET /{expense_id}/parent`
+
+**Quick capture** `/api/v1/quick-capture` — iOS Shortcut; auth is the **shortcut token** (`jrn_...`, opaque, SHA-256 stored, not a JWT; revoked/regenerated → 401 everywhere). Setup guide: `docs/quick-capture-shortcut.md`
+- `POST /` — multipart `file`; stores the image as a pending `ExpenseDraft`, reads it, answers `{draftId, status: read|unreadable, summary, warning, actions[{label, action: confirm|keep|discard, groupId}], message}`. Never creates the expense. Not an image / empty → 400 with no draft saved; unreadable → pending draft without amount + push
+- `POST /{draft_id}/confirm` `{groupId}` — creates the expense (equal split among current members, payer = owner); answers `{message}`. Already resolved → 409 (double tap creates one expense); settled month → 409, draft stays pending
+- `POST /{draft_id}/keep` — leave pending + push (`tag=drafts-pending`, `url=/drafts`); `DELETE /{draft_id}` — discard (image → NULL)
+- Someone else's draft → 404
+
+**Drafts** `/api/v1/drafts` — the PWA's side of the same table; normal JWT
+- `POST /` — "Dejar para después": multipart `file`, 201 `DraftResponse`, no push
+- `GET /` — pending drafts, oldest first; `GET /{id}/image` — raw bytes (outside the `{data}` envelope)
+- `POST /{id}/confirm` `{groupId}` — same creation path, answers `ExpenseResponse`; `POST /{id}/resolve` (204) — the app saved through its form, close the draft; `DELETE /{id}` (204) — discard
 
 **Monthly Shares** `/api/v1/groups/{group_id}/shares`
 - `GET /all` — every expense and one net balance with months collapsed (one-time groups). Declared **before** `/{year}/{month}` or "all" is parsed as a year
@@ -372,6 +386,7 @@ Companion app: `/Users/franciscomaver/Documents/shared_expenses/shared_expense_f
 - **Hardcoded JWT secret** — `SECRET_KEY = "your-secret-key"` in `service_layer/auth_service.py`. Must be moved to an env var before treating security seriously.
 - **N-member support** — hardcoded Fran/Guadi identity has been removed (M4 refactor). The backend now supports arbitrary member sets. WhatsApp flows (lending, percentage split, payer selection) adapt based on `member_service.list_members()`. Settlement generates one balancing expense per debtor→creditor pair.
 - **`print()` for logging** — many `print()` calls exist in `repositories.py`, `expense_manager.py`, etc. Should be replaced with `logging`.
+- **Credit installments commit per month** — creating a credit expense commits month by month, so if a later month is already settled the earlier installments stay created (normal `POST /expenses` and draft confirm alike; a confirmed draft can end without `expense_id`). Fix belongs in the creation path: pre-check every installment month before writing.
 - **Frontend auth inconsistency** — `fetch`-based API calls in `src/api/expenses.ts` and `src/api/shares.ts` mostly omit the bearer token header.
 
 ---
