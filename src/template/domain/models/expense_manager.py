@@ -67,6 +67,13 @@ def compute_debt_transfers(balances: Dict[str, float]) -> List[Tuple[int, int, f
     return result
 
 
+def installment_description(base: str, installment_no: int, installments: int) -> str:
+    """ "Heladera (2/6)" for a cuota of a multi-cuota purchase; a single-cuota purchase keeps its plain name."""
+    if installments <= 1:
+        return base
+    return f"{base} ({installment_no}/{installments})"
+
+
 class ExpenseManager:
     def __init__(self, repository: ExpenseRepository, group_id: int, group_repo):
         self.repository = repository
@@ -103,7 +110,7 @@ class ExpenseManager:
 
         # Create first installment and save it to get an ID
         first_installment = Expense(
-            description=f"{expense.description} (1/{expense.installments})",
+            description=installment_description(expense.description, 1, expense.installments),
             amount=amount_per_installment,
             date=expense.date,
             category=expense.category,
@@ -124,7 +131,7 @@ class ExpenseManager:
             installment_date = start_date + relativedelta(months=installment_no - 1)
 
             installment_expense = Expense(
-                description=f"{expense.description} ({installment_no}/{expense.installments})",
+                description=installment_description(expense.description, installment_no, expense.installments),
                 amount=amount_per_installment,
                 date=expense.date,
                 category=expense.category,
@@ -365,7 +372,7 @@ class ExpenseManager:
 
         # Installment 1 — update the parent row in place and move it to its new month.
         updated_expense.amount = amount_per_installment
-        updated_expense.description = f"{base_description} (1/{installments})"
+        updated_expense.description = installment_description(base_description, 1, installments)
         updated_expense.installment_no = 1
         self.repository.update_expense(updated_expense)
         self._move_expense_to_share(updated_expense, self._share_period_for_installment(updated_expense.date, 1))
@@ -374,7 +381,7 @@ class ExpenseManager:
         for installment_no in range(2, installments + 1):
             self._add_to_monthly_share(
                 Expense(
-                    description=f"{base_description} ({installment_no}/{installments})",
+                    description=installment_description(base_description, installment_no, installments),
                     amount=amount_per_installment,
                     date=updated_expense.date,
                     category=updated_expense.category,

@@ -320,7 +320,7 @@ def test_similar_matches_credit_one_installment_in_personal_group(client, auth_h
     assert r.status_code == 200
     data = r.json()["data"]
     assert len(data) == 1
-    assert data[0]["description"] == "Helado credito (1/1)"
+    assert data[0]["description"] == "Helado credito"
 
 
 def test_similar_matches_credit_multi_installment_by_purchase_total(client, auth_headers, primary_member_id):
