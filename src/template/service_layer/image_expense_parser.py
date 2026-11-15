@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional, cast
@@ -49,8 +50,11 @@ Today is {today.isoformat()}. Currency is Argentine Pesos (ARS).
 
 Extract these fields:
 - amount: the total amount paid (float). Look for "Total", "TOTAL", "Monto", "Importe". Required.
-- description: the REAL merchant or payee name, max 4 words. Strip payment-platform prefixes/noise
-  and surface the underlying merchant. Examples:
+- amount_text: that same total copied EXACTLY as printed, character by character, keeping every
+  "." and "," (e.g. "$ 2.282.578,45"). Argentine receipts use "." for thousands and "," for decimals.
+- description: the REAL merchant or payee name, max 4 words, in Spanish as printed on the image —
+  never translate it to English (e.g. "Pago tarjeta Santander", not "Santander Credit Card Payment").
+  Strip payment-platform prefixes/noise and surface the underlying merchant. Examples:
     "MercPago*Shell" or "MP*Shell" → "Shell" (category: transporte)
     "MercPago*Netflix" → "Netflix" (category: entretenimiento)
     "MercPago*McDonalds" → "McDonald's" (category: comida)
@@ -59,8 +63,12 @@ Extract these fields:
   General rule: strip payment platform prefixes (MercPago*, MP*) to find the real merchant or payee,
   then use that name to improve category inference too.
 - date: transaction date in YYYY-MM-DD format. Use today ({today.isoformat()}) if not visible.
+  Argentine dates are printed day first, DD/MM/YY or DD/MM/YYYY: "12/11/26" is 12 November 2026.
+- date_text: the transaction date copied EXACTLY as printed (e.g. "12/11/26"), or null if none.
 - category: one of {category_list}
-- payment_type: "credit" if the image shows installments (cuotas) or a credit card charge; "debit" otherwise
+- payment_type: "credit" if the image shows installments (cuotas) or a purchase charged to a credit card;
+  "debit" otherwise. Paying a credit card statement ("Pago de tarjeta", debited from an account) is
+  "debit" with installments 1 — the money leaves the account now.
 - installments: integer number of cuotas shown in the image (e.g. "9 cuotas sin interés" → 9,
   "en 3 cuotas" → 3). Default 1 if no installments are shown or payment_type is "debit".
 - confidence: "high" if amount and merchant are clearly visible; "low" if you guessed any key field
@@ -69,8 +77,10 @@ Extract these fields:
 Respond ONLY with a JSON object, no markdown fences, no explanation:
 {{
   "amount": <number or null>,
+  "amount_text": "<string or null>",
   "description": "<string>",
   "date": "<YYYY-MM-DD>",
+  "date_text": "<string or null>",
   "category": "<category>",
   "payment_type": "debit" or "credit",
   "installments": <integer>,
@@ -148,6 +158,8 @@ def _parse_with_gemini(
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             types.Part.from_text(text=_build_prompt(categories, today)),
         ],
+        # Extraction, not writing: the same screenshot must give the same expense every time.
+        config=types.GenerateContentConfig(temperature=0),
     )
 
     return _to_parsed_expense(response.text.strip() if response.text else "", categories, today)
@@ -216,23 +228,21 @@ def _to_parsed_expense(raw: str, categories: List[str], today: date) -> Optional
 
     data: Dict[str, Any] = json.loads(raw)
 
-    if data.get("amount") is None:
+    amount = parse_amount_text(data.get("amount_text"))
+    if amount is None and data.get("amount") is not None:
+        amount = float(data["amount"])
+    if amount is None:
         logger.info("Image parsing: amount not found in image")
         return None
 
-    expense_date = today
-    if data.get("date"):
-        try:
-            expense_date = date.fromisoformat(str(data["date"]))
-        except ValueError:
-            expense_date = today
+    expense_date = parse_date_text(data.get("date_text"), today) or _model_date(data.get("date"), today)
 
     category = str(data.get("category", "otros"))
     if category not in categories:
         category = "otros"
 
     return ParsedImageExpense(
-        amount=float(data["amount"]),
+        amount=amount,
         description=str(data.get("description", "Gasto")).strip() or "Gasto",
         category=category,
         expense_date=expense_date,
@@ -241,3 +251,71 @@ def _to_parsed_expense(raw: str, categories: List[str], today: date) -> Optional
         installments=max(1, int(data.get("installments", 1))),
         currency=str(data.get("currency", "ARS")),
     )
+
+
+_AMOUNT_CHARS = re.compile(r"[^0-9.,]")
+_ISO_DATE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
+_DAY_FIRST_DATE = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})")
+
+
+def parse_amount_text(text: Any) -> Optional[float]:
+    """Read an amount as printed: "2.282.578,45" (Argentina) or "1,234.56" (US).
+
+    The separator that appears last is the decimal one when both are present. With only one
+    kind, it is a decimal separator when followed by one or two digits, and a thousands
+    separator otherwise ("1.500" is fifteen hundred, "12.5" is twelve and a half).
+    """
+    if not isinstance(text, str):
+        return None
+    cleaned = _AMOUNT_CHARS.sub("", text)
+    if not any(ch.isdigit() for ch in cleaned):
+        return None
+    if "." in cleaned and "," in cleaned:
+        decimal = "." if cleaned.rfind(".") > cleaned.rfind(",") else ","
+        thousands = "," if decimal == "." else "."
+        normalised = cleaned.replace(thousands, "").replace(decimal, ".")
+    elif "." in cleaned or "," in cleaned:
+        sep = "." if "." in cleaned else ","
+        parts = cleaned.split(sep)
+        if len(parts) == 2 and len(parts[1]) in (1, 2):
+            normalised = parts[0] + "." + parts[1]
+        else:
+            normalised = "".join(parts)
+    else:
+        normalised = cleaned
+    try:
+        return float(normalised)
+    except ValueError:
+        return None
+
+
+def parse_date_text(text: Any, today: date) -> Optional[date]:
+    """Read a printed date, day first ("12/11/26" is 12 November 2026). Future dates are rejected."""
+    if not isinstance(text, str):
+        return None
+    try:
+        iso = _ISO_DATE.search(text)
+        if iso:
+            parsed = date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+        else:
+            match = _DAY_FIRST_DATE.search(text)
+            if not match:
+                return None
+            year = int(match.group(3))
+            if year < 100:
+                year += 2000
+            parsed = date(year, int(match.group(2)), int(match.group(1)))
+    except ValueError:
+        return None
+    return parsed if parsed <= today else None
+
+
+def _model_date(value: Any, today: date) -> date:
+    """The model's own ISO date, or today when it is missing, invalid or in the future."""
+    if not value:
+        return today
+    try:
+        parsed = date.fromisoformat(str(value))
+    except ValueError:
+        return today
+    return parsed if parsed <= today else today
