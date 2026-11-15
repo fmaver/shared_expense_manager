@@ -14,19 +14,20 @@ Las respuestas vienen envueltas: `{ "data": ... }`, en camelCase. Los errores vi
 
 ## Pasos del atajo
 
-1. **Pregunta de importación "Código de conexión"** (tipo texto). Al importar el atajo, Atajos te pide pegar tu código. Queda guardado dentro del atajo.
-2. **Tomar captura de pantalla**. Además, en los ajustes del atajo activá "Mostrar en la hoja de compartir" con entrada de tipo **Imágenes**, para poder mandarle una foto o captura ya hecha (si no hay entrada, toma la captura).
-3. **Cambiar tamaño de imagen** a ancho `1280`, y después **Convertir imagen** a `JPEG`. Mantiene el peso bien debajo del tope de 8 MB del backend.
-4. **Dividir texto**: el **Código de conexión**, con separador personalizado `|`. Después:
-   - **Obtener elemento de la lista**: **Primer elemento** → guardalo en una variable llamada `servidor`.
-   - **Obtener elemento de la lista**: **Último elemento** → guardalo en una variable llamada `token`.
+Receta armada y probada en un iPhone (iOS en inglés). Cada acción va con su nombre en inglés y, entre paréntesis, en español. Al armarlo vos no hay pregunta de importación: eso es sólo para publicarlo (ver más abajo).
 
-   Todas las URLs de abajo se arman con la variable `servidor`, nunca con una dirección fija.
-5. **Obtener contenido de URL**:
-   - URL: variable `servidor` + `/api/v1/quick-capture`
+1. **Text** (Texto) con el código de conexión que pegás desde el perfil (`https://…|jrn_…`).
+2. **Split Text** (Dividir texto) por **Custom** (separador personalizado) `|`.
+3. **Get Item from List** (Obtener elemento de la lista): **First Item** de Split Text, y **Set Variable** (Establecer variable) `servidor`.
+4. **Get Item from List**: **Last Item** de **Split Text**. Tocá la parte azul, **Select Variable** y elegí la acción Split Text, porque por defecto agarra la variable anterior. **Set Variable** `token`.
+5. **Take Screenshot** (Tomar captura de pantalla).
+6. **Resize Image** (Cambiar tamaño de imagen) a ancho `1280` (alto automático).
+7. **Convert Image** (Convertir imagen) a `JPEG`. Mantiene el peso bien debajo del tope de 8 MB del backend.
+8. **Get Contents of URL** (Obtener contenido de URL):
+   - URL: chip `servidor` + `/api/v1/quick-capture`
    - Método: `POST`
-   - Encabezado: `Authorization` = `Bearer ` + variable **token**
-   - Cuerpo de la solicitud: **Formulario**, un campo de tipo Archivo llamado `file` con la imagen convertida.
+   - Encabezado: `Authorization` = `Bearer ` (con espacio) + chip `token`
+   - Cuerpo de la solicitud: **Form** (Formulario), **Add new field**, tipo **File** (Archivo), clave `file`, valor **Converted Image**.
 
    Respuesta (`data`). Todos los textos (`summary`, `warning`, `label`, `message`) los arma el backend; `actions` trae hasta 2 opciones de grupo (`confirm`) más `keep` y `discard`:
 
@@ -48,38 +49,55 @@ Las respuestas vienen envueltas: `{ "data": ... }`, en camelCase. Los errores vi
 
    `warning` es `null` cuando no hay nada parecido. **El atajo ramifica siempre por `action`, nunca por el texto del `label`**: los labels cambian según el grupo, el monto y el copy.
 
-6. **Si `data.status` es `"unreadable"`**: no se pudo leer. El borrador queda guardado sin monto (y te llega un push). Hacé **Mostrar notificación** con `data.message` y **Detener** el atajo.
-7. **Elegir de la lista** (no "Elegir del menú": sus ítems son fijos al armar el atajo y acá son dinámicos). Receta:
-   1. **Repetir con cada uno** de `data.actions`: **Agregar a variable** `etiquetas` con el `label` de cada uno.
-   2. **Elegir de la lista** `etiquetas`, con prompt `data.summary` (y, si `data.warning` no es nulo, un salto de línea y `data.warning`). Guarda la elección como `elegido`.
-   3. **Repetir con cada uno** de `data.actions` otra vez: **Si** `label` es igual a `elegido`, **Establecer variable** `accion` = `action` y `grupo` = `groupId`.
+9. **Get Dictionary Value** (Obtener valor del diccionario) clave `data` en Contents of URL, y **Set Variable** `respuesta`.
+10. **Get Dictionary Value** clave `draftId` en `respuesta`, y **Set Variable** `borrador`.
+11. **Get Dictionary Value** clave `summary` en `respuesta`, y **Set Variable** `resumen`.
+12. **Get Dictionary Value** clave `message` en `respuesta`, y un **If** (Si): Dictionary Value **has any value** (tiene algún valor). Adentro: **Show Notification** (Mostrar notificación) con ese Dictionary Value y **Stop This Shortcut** (Detener este atajo). Cerrá con **End If**.
 
-   Esta receta todavía no se verificó en un dispositivo; probala antes de darla por buena.
-8. **Según `accion`** (un **Si** por valor), un **Obtener contenido de URL** más, con el mismo encabezado `Authorization`:
-   - `confirm`: `POST` a variable `servidor` + `/api/v1/quick-capture/{draftId}/confirm`, cuerpo JSON `{"groupId": <grupo>}`. Crea el gasto en ese grupo: división igual entre todos los miembros actuales, pagás vos.
-   - `keep`: `POST` a variable `servidor` + `/api/v1/quick-capture/{draftId}/keep`. Lo deja en borradores para revisarlo en la app (te llega un push).
-   - `discard`: `DELETE` a variable `servidor` + `/api/v1/quick-capture/{draftId}`. Borra el borrador y su imagen.
+    Por qué: `message` sólo viene cuando no se pudo leer la captura (`status` `"unreadable"`: el borrador queda guardado sin monto y te llega un push). Comparar con texto no se ofrece para valores de diccionario en algunas versiones de iOS; "has any value" sí.
+13. **Get Dictionary Value** clave `actions` en `respuesta`, y **Set Variable** `opciones`.
+14. **Repeat with Each** (Repetir con cada) item en `opciones`. Adentro: **Get Dictionary Value** clave `label` en **Repeat Item**, y **Add to Variable** (Añadir a variable) `etiquetas`. Cerrá con **End Repeat**.
+15. **Get Dictionary Value** clave `warning` en `respuesta`, y un **Text** (Texto): chip `resumen`, un salto de línea y el chip Dictionary Value (el aviso; viene vacío cuando no hay un gasto parecido).
+16. **Choose from List** (Elegir de la lista) `etiquetas`, con **Prompt** = el Text del paso 15. (No uses "Elegir del menú": sus ítems son fijos al armar el atajo y acá son dinámicos.)
+17. Un **segundo Repeat with Each** item en `opciones` (asegurate de que apunte a `opciones`). Adentro:
+    1. **Get Dictionary Value** clave `label` en Repeat Item.
+    2. **Text** con ese Dictionary Value (lo convierte en texto, así el If ofrece "is").
+    3. **If** Text **is** **Chosen Item** (en algunas versiones de iOS se llama "Selected Item"). Adentro: **Set Variable** `elegida` con el Repeat Item. **End If**.
 
-   En los tres casos la respuesta es `{ "data": { "message": "..." } }`.
-9. **Mostrar notificación** con `data.message`. Si la solicitud falló (código distinto de 2xx), mostrá el `detail` del error. Casos que vas a ver:
-   - `401`: token revocado o regenerado; generá un código nuevo y pegalo en el atajo.
-   - `404`: el borrador no existe o no es tuyo.
-   - `409`: ya estaba resuelto (por ejemplo, tocaste dos veces) o el mes de ese gasto ya está saldado en el grupo elegido. No se crea nada; en el caso del mes saldado el borrador sigue pendiente.
-   - `400`: el archivo no es una imagen o está vacío (no se guarda nada); en confirmar, el borrador no tiene monto, "Ese grupo no está disponible", o se quiso cargar un gasto en crédito en un grupo de una sola vez.
+    Cerrá con **End Repeat**.
+18. **Get Dictionary Value** clave `action` en `elegida`, un **Text** con ese valor, y **Set Variable** `accion`.
+19. **If** `accion` **is** `confirm` (escrito a mano): **Get Dictionary Value** `groupId` en `elegida`; **Get Contents of URL** a chip `servidor` + `/api/v1/quick-capture/` + chip `borrador` + `/confirm`, `POST`, mismo encabezado `Authorization`, cuerpo **JSON** con un campo **Number** (Número) clave `groupId` = ese Dictionary Value; **Get Dictionary Value** `data` en ese Contents of URL; **Get Dictionary Value** `message` en él; **Show Notification** con ese valor. **End If**. Crea el gasto en ese grupo: división igual entre todos los miembros actuales, pagás vos.
+20. **If** `accion` **is** `keep`: **Get Contents of URL** a chip `servidor` + `/api/v1/quick-capture/` + chip `borrador` + `/keep`, `POST`, mismo encabezado, sin cuerpo; después `data`, `message` y **Show Notification**. **End If**. Lo deja en borradores para revisarlo en la app (te llega un push).
+21. **If** `accion` **is** `discard`: **Get Contents of URL** a chip `servidor` + `/api/v1/quick-capture/` + chip `borrador`, método **DELETE**, mismo encabezado; después `data`, `message` y **Show Notification**. **End If**. Borra el borrador y su imagen.
+22. **Asignarlo a Toque posterior** (ver abajo).
+
+En los tres casos la respuesta es `{ "data": { "message": "..." } }`. Errores que vas a ver:
+
+- `401`: token revocado o regenerado; generá un código nuevo y pegalo en el paso 1.
+- `404`: el borrador no existe o no es tuyo.
+- `409`: ya estaba resuelto (por ejemplo, tocaste dos veces) o el mes de ese gasto ya está saldado en el grupo elegido. No se crea nada; en el caso del mes saldado el borrador sigue pendiente.
+- `400`: el archivo no es una imagen o está vacío (no se guarda nada); en confirmar, el borrador no tiene monto, "Ese grupo no está disponible", o se quiso cargar un gasto en crédito en un grupo de una sola vez.
+
+## Si algo falla
+
+- Las claves distinguen mayúsculas, y la **I** de `draftId` y `groupId` es una i mayúscula: en el teclado del iPhone se ve igual que una ele minúscula. Si un valor sale vacío, reescribila.
+- Si armaste un paso copiando otro, sus chips pueden seguir apuntando a las acciones del original (por ejemplo, el **Get Contents of URL** de una rama apuntando al pedido de la rama `confirm`). El síntoma es una notificación con sólo el título "Notification" y sin texto. Con **Select Variable**, repuntá cada chip a la acción de su misma rama.
+- Para ver qué contestó el servidor, sumá temporalmente **Show Content** (Mostrar contenido) de Contents of URL después del pedido. Un error viene como `{"detail": "…"}`. Si dice sólo "Not Found", la URL está mal (por ejemplo, un `borrador` vacío deja `//`).
+- `401`: generá un código nuevo en el perfil y pegalo en el paso 1. `409`: mes saldado o borrador ya resuelto.
 
 ## Asignarlo a Toque posterior
 
 Para dispararlo con un doble o triple toque en la parte de atrás del teléfono:
 
-1. Ajustes, Accesibilidad, Tocar, **Toque posterior**.
-2. Elegí **Doble toque** (o **Triple toque**).
+1. Ajustes (Settings) → Accesibilidad (Accessibility) → Tocar (Touch) → **Toque posterior** (Back Tap).
+2. Elegí **Doble toque** (Double Tap) o **Triple toque**.
 3. En la sección **Atajos**, elegí **Cargar gasto**.
 
 Así, desde cualquier pantalla, con un doble toque se saca la captura y arranca el flujo.
 
 ## Publicar el atajo
 
-Se arma **una sola vez**: en Atajos, **Compartir → Copiar enlace de iCloud**. Ese enlace es genérico (no lleva ningún código adentro) y sirve para todos los usuarios y todos los entornos, porque cada persona pega su propio código de conexión al importarlo. Cargalo una vez como `VITE_SHORTCUT_URL` en el host del frontend y redeployá una vez; desde ahí la app muestra "Instalar el atajo" con ese link.
+Se hace **una sola vez**, cuando el atajo ya anda: en los detalles del atajo, configurá una **pregunta de importación** (import question) sobre la acción **Text** del paso 1, para que quien lo instale tenga que pegar su propio "Código de conexión". Después, **Compartir → Copiar enlace de iCloud**. Ese enlace es genérico (no lleva ningún código adentro) y sirve para todos los usuarios y todos los entornos. Cargalo una vez como `VITE_SHORTCUT_URL` en el host del frontend y redeployá una vez; desde ahí la app muestra "Instalar el atajo" con ese link.
 
 ## Seguridad: no compartas el atajo con el código puesto
 
